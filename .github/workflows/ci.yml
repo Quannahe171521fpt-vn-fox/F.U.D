@@ -1,0 +1,58 @@
+name: Build and Verify (CI)
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+
+jobs:
+  # ==============================
+  # JOB 1: BUILD BACKEND (.NET)
+  # ==============================
+  backend-ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x' # Thay đổi nếu nhóm dùng .NET 7 hoặc 9
+
+      - name: Restore Dependencies
+        run: dotnet restore "FUD BE/FUD BE.sln"
+
+      - name: Build Backend Solution
+        run: dotnet build "FUD BE/FUD BE.sln" --configuration Release --no-restore
+
+      # Nếu sau này có viết Unit Test, bật bước này lên:
+      # - name: Run Unit Tests
+      #   run: dotnet test "FUD BE/FUD BE.sln" --no-build --verbosity normal
+
+  # ==============================
+  # JOB 2: BUILD FRONTEND (REACT)
+  # ==============================
+  frontend-ci:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: "FUD FE"
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Phiên bản Node.js LTS khuyến nghị
+
+      - name: Install Frontend Dependencies
+        run: npm install
+
+      - name: Build Frontend Project
+        run: npm run build
