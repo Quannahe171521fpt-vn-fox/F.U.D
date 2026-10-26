@@ -1,4 +1,7 @@
 
+using FUD.Models;
+using Microsoft.EntityFrameworkCore;
+
 namespace FUD
 {
     public class Program
@@ -6,7 +9,7 @@ namespace FUD
         public static void Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
-
+            builder.Services.AddDbContext<FudContext>(o => o.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
             // Add services to the container.
 
             builder.Services.AddControllers();
