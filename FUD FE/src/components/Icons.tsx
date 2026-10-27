@@ -1,25 +1,71 @@
 import React from 'react';
 
 export const Logo: React.FC<{ className?: string }> = ({ className = 'h-10' }) => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }} className={className}>
-    {/* OCD 4-color rounded blocks emblem matching the screenshot */}
-    <svg width="42" height="42" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="4" y="4" width="17" height="17" rx="5" fill="#84BD3A" stroke="#5E8D25" strokeWidth="2" />
-      <rect x="27" y="4" width="17" height="17" rx="5" fill="#B2D858" stroke="#7A9E27" strokeWidth="2" />
-      <rect x="4" y="27" width="17" height="17" rx="5" fill="#3D7DBE" stroke="#2B598A" strokeWidth="2" />
-      <rect x="27" y="27" width="17" height="17" rx="5" fill="#E77728" stroke="#BD5711" strokeWidth="2" />
-      {/* subtle cute connecting bridge */}
-      <circle cx="21" cy="12.5" r="2.5" fill="#fff" />
-      <circle cx="12.5" cy="27" r="2.5" fill="#fff" />
-      <circle cx="27" cy="35.5" r="2.5" fill="#fff" />
-      <circle cx="35.5" cy="21" r="2.5" fill="#fff" />
+  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }} className={className}>
+    {/* Biểu tượng Ếch Vàng KTX FUD với đôi mắt to tròn, rõ nét */}
+    <svg width="44" height="44" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="frogGoldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#F59E0B" />
+          <stop offset="100%" stopColor="#D97706" />
+        </linearGradient>
+        <linearGradient id="frogBellyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor="#FFFBEB" />
+          <stop offset="100%" stopColor="#FDE68A" />
+        </linearGradient>
+      </defs>
+
+      {/* Thân & đầu chính hình ếch vàng */}
+      <ellipse cx="50" cy="62" rx="36" ry="28" fill="url(#frogGoldGrad)" stroke="#B45309" strokeWidth="2" />
+
+      {/* Bụng ếch vàng kem sáng */}
+      <ellipse cx="50" cy="68" rx="22" ry="17" fill="url(#frogBellyGrad)" />
+
+      {/* Chân sau trái & phải */}
+      <ellipse cx="18" cy="74" rx="11" ry="8" fill="url(#frogGoldGrad)" stroke="#B45309" strokeWidth="1.5" />
+      <ellipse cx="82" cy="74" rx="11" ry="8" fill="url(#frogGoldGrad)" stroke="#B45309" strokeWidth="1.5" />
+
+      {/* Hai ụ mắt lồi đặc trưng của ếch */}
+      <circle cx="31" cy="36" r="17" fill="url(#frogGoldGrad)" stroke="#B45309" strokeWidth="2.5" />
+      <circle cx="69" cy="36" r="17" fill="url(#frogGoldGrad)" stroke="#B45309" strokeWidth="2.5" />
+
+      {/* Lòng trắng mắt to tròn, nổi bật */}
+      <circle cx="31" cy="36" r="12" fill="#FFFFFF" stroke="#334155" strokeWidth="1.5" />
+      <circle cx="69" cy="36" r="12" fill="#FFFFFF" stroke="#334155" strokeWidth="1.5" />
+
+      {/* Con ngươi đen to rõ */}
+      <circle cx="33" cy="36" r="6.5" fill="#0F172A" />
+      <circle cx="71" cy="36" r="6.5" fill="#0F172A" />
+
+      {/* Ánh sáng trắng long lanh trong mắt */}
+      <circle cx="31" cy="33.5" r="2.8" fill="#FFFFFF" />
+      <circle cx="69" cy="33.5" r="2.8" fill="#FFFFFF" />
+      <circle cx="35" cy="38" r="1.2" fill="#FFFFFF" />
+      <circle cx="73" cy="38" r="1.2" fill="#FFFFFF" />
+
+      {/* Mũ cử nhân trên đầu ếch */}
+      <polygon points="50,11 68,17 50,23 32,17" fill="#1E293B" />
+      <polygon points="42,20 58,20 56,24 44,24" fill="#0F172A" />
+      <line x1="64" y1="18" x2="68" y2="28" stroke="#DC2626" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="68" cy="29" r="2" fill="#DC2626" />
+
+      {/* Hai má hồng cam nhẹ */}
+      <ellipse cx="24" cy="60" rx="5" ry="3" fill="#FB7185" opacity="0.7" />
+      <ellipse cx="76" cy="60" rx="5" ry="3" fill="#FB7185" opacity="0.7" />
+
+      {/* Nụ cười vui tươi */}
+      <path d="M 37 57 Q 50 67 63 57" stroke="#92400E" strokeWidth="2.8" strokeLinecap="round" fill="none" />
+
+      {/* Hai bàn chân trước */}
+      <circle cx="41" cy="88" r="5" fill="url(#frogGoldGrad)" stroke="#B45309" strokeWidth="1.5" />
+      <circle cx="59" cy="88" r="5" fill="url(#frogGoldGrad)" stroke="#B45309" strokeWidth="1.5" />
     </svg>
-    <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
-      <span style={{ fontSize: '18px', fontWeight: 700, color: '#374151', letterSpacing: '-0.3px', fontFamily: 'system-ui, sans-serif' }}>
-        On campus
+    <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
+      <span style={{ fontSize: '20px', fontWeight: 800, color: '#D97706', letterSpacing: '0.8px', fontFamily: 'system-ui, sans-serif' }}>
+        FUD
       </span>
-      <span style={{ fontSize: '17px', fontWeight: 500, color: '#6B7280', fontFamily: 'system-ui, sans-serif' }}>
-        Dormitory
+      <span style={{ fontSize: '12px', fontWeight: 600, color: '#475569', fontFamily: 'system-ui, sans-serif' }}>
+        Ký túc xá FPT
       </span>
     </div>
   </div>
