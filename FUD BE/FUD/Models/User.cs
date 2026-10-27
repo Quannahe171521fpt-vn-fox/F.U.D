@@ -9,6 +9,9 @@ public partial class User
 
     public string Code { get; set; } = null!;
 
+    /// <summary>Tên đăng nhập, duy nhất trong hệ thống.</summary>
+    public string Username { get; set; } = null!;
+
     public string FullName { get; set; } = null!;
 
     public string Email { get; set; } = null!;
@@ -30,6 +33,14 @@ public partial class User
     public int? SuspendedById { get; set; }
 
     public DateTime CreatedAt { get; set; }
+
+    public DateTime UpdatedAt { get; set; }
+
+    /// <summary>
+    /// Phiên bản token: tăng mỗi khi thu hồi token / đổi quyền.
+    /// Token cũ sẽ không còn hợp lệ khi số này thay đổi.
+    /// </summary>
+    public int TokenVersion { get; set; }
 
     public virtual Admin? Admin { get; set; }
 
@@ -56,4 +67,14 @@ public partial class User
     public virtual ICollection<UserRole> UserRoleAssignedBies { get; set; } = new List<UserRole>();
 
     public virtual ICollection<UserRole> UserRoleUsers { get; set; } = new List<UserRole>();
+
+    public virtual ICollection<AccountStatusHistory> AccountStatusHistories { get; set; } = new List<AccountStatusHistory>();
+
+    public virtual ICollection<RoleChangeHistory> RoleChangeHistories { get; set; } = new List<RoleChangeHistory>();
+
+    public virtual ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
+
+    public virtual ICollection<AccountStatusHistory> AccountStatusChangedBies { get; set; } = new List<AccountStatusHistory>();
+
+    public virtual ICollection<RoleChangeHistory> RoleChangeChangedBies { get; set; } = new List<RoleChangeHistory>();
 }

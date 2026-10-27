@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Biến môi trường (chứa base URL API, không commit secrets)
+.env
+.env.*
+!.env.example
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

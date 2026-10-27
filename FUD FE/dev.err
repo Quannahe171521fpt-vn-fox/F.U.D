@@ -1,0 +1,219 @@
+npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+3:46:33 AM [vite] (client) [console.error] Failed to execute 'json' on 'Response': Unexpected end of JSON input
+4:05:26 AM [vite] (client) [Unhandled error] Error: useNavigate() may be used only in the context of a <Router> component.
+ > invariant node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:207:10
+ > useNavigateUnstable node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:5995:2
+ > useNavigate node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:5992:45
+ > LoginModal src/components/LoginModal.tsx:12:19
+    10 |  
+    11 |  export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
+    12 |    const navigate = useNavigate();
+       |                     ^
+    13 |    const login = useAuthStore((s) => s.login);
+    14 |    const isLoading = useAuthStore((s) => s.isLoading);
+ > Object.react_stack_bottom_frame node_modules/react-dom/cjs/react-dom-client.development.js:28571:19
+ > renderWithHooks node_modules/react-dom/cjs/react-dom-client.development.js:8030:21
+ > updateFunctionComponent node_modules/react-dom/cjs/react-dom-client.development.js:10569:18
+ > beginWork node_modules/react-dom/cjs/react-dom-client.development.js:12205:17
+ > runWithFiberInDEV node_modules/react-dom/cjs/react-dom-client.development.js:1045:29
+ > performUnitOfWork node_modules/react-dom/cjs/react-dom-client.development.js:19176:21
+
+4:05:26 AM [vite] (client) [console.warn] An error occurred in the <LoginModal> component.
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries.
+
+4:05:40 AM [vite] (client) [Unhandled error] Error: useNavigate() may be used only in the context of a <Router> component.
+ > invariant node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:207:10
+ > useNavigateUnstable node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:5995:2
+ > useNavigate node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:5992:45
+ > LoginModal src/components/LoginModal.tsx:12:19
+    10 |  
+    11 |  export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
+    12 |    const navigate = useNavigate();
+       |                     ^
+    13 |    const login = useAuthStore((s) => s.login);
+    14 |    const isLoading = useAuthStore((s) => s.isLoading);
+ > Object.react_stack_bottom_frame node_modules/react-dom/cjs/react-dom-client.development.js:28571:19
+ > renderWithHooks node_modules/react-dom/cjs/react-dom-client.development.js:8030:21
+ > updateFunctionComponent node_modules/react-dom/cjs/react-dom-client.development.js:10569:18
+ > beginWork node_modules/react-dom/cjs/react-dom-client.development.js:12205:17
+ > runWithFiberInDEV node_modules/react-dom/cjs/react-dom-client.development.js:1045:29
+ > performUnitOfWork node_modules/react-dom/cjs/react-dom-client.development.js:19176:21
+
+4:05:40 AM [vite] (client) [console.warn] An error occurred in the <LoginModal> component.
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries.
+
+4:07:25 AM [vite] (client) [Unhandled error] Error: useNavigate() may be used only in the context of a <Router> component.
+ > invariant node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:207:10
+ > useNavigateUnstable node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:5995:2
+ > useNavigate node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:5992:45
+ > LoginModal src/components/LoginModal.tsx:12:19
+    10 |  
+    11 |  export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
+    12 |    const navigate = useNavigate();
+       |                     ^
+    13 |    const login = useAuthStore((s) => s.login);
+    14 |    const isLoading = useAuthStore((s) => s.isLoading);
+ > Object.react_stack_bottom_frame node_modules/react-dom/cjs/react-dom-client.development.js:28571:19
+ > renderWithHooks node_modules/react-dom/cjs/react-dom-client.development.js:8030:21
+ > updateFunctionComponent node_modules/react-dom/cjs/react-dom-client.development.js:10569:18
+ > beginWork node_modules/react-dom/cjs/react-dom-client.development.js:12205:17
+ > runWithFiberInDEV node_modules/react-dom/cjs/react-dom-client.development.js:1045:29
+ > performUnitOfWork node_modules/react-dom/cjs/react-dom-client.development.js:19176:21
+
+4:07:25 AM [vite] (client) [console.warn] An error occurred in the <LoginModal> component.
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries.
+
+4:07:32 AM [vite] (client) [Unhandled error] Error: useNavigate() may be used only in the context of a <Router> component.
+ > invariant node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:207:10
+ > useNavigateUnstable node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:5995:2
+ > useNavigate node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:5992:45
+ > LoginModal src/components/LoginModal.tsx:12:19
+    10 |  
+    11 |  export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
+    12 |    const navigate = useNavigate();
+       |                     ^
+    13 |    const login = useAuthStore((s) => s.login);
+    14 |    const isLoading = useAuthStore((s) => s.isLoading);
+ > Object.react_stack_bottom_frame node_modules/react-dom/cjs/react-dom-client.development.js:28571:19
+ > renderWithHooks node_modules/react-dom/cjs/react-dom-client.development.js:8030:21
+ > updateFunctionComponent node_modules/react-dom/cjs/react-dom-client.development.js:10569:18
+ > beginWork node_modules/react-dom/cjs/react-dom-client.development.js:12205:17
+ > runWithFiberInDEV node_modules/react-dom/cjs/react-dom-client.development.js:1045:29
+ > performUnitOfWork node_modules/react-dom/cjs/react-dom-client.development.js:19176:21
+
+4:07:32 AM [vite] (client) [console.warn] An error occurred in the <LoginModal> component.
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries.
+
+4:07:39 AM [vite] (client) [Unhandled error] Error: useNavigate() may be used only in the context of a <Router> component.
+ > invariant node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:207:10
+ > useNavigateUnstable node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:5995:2
+ > useNavigate node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:5992:45
+ > LoginModal src/components/LoginModal.tsx:12:19
+    10 |  
+    11 |  export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
+    12 |    const navigate = useNavigate();
+       |                     ^
+    13 |    const login = useAuthStore((s) => s.login);
+    14 |    const isLoading = useAuthStore((s) => s.isLoading);
+ > Object.react_stack_bottom_frame node_modules/react-dom/cjs/react-dom-client.development.js:28571:19
+ > renderWithHooks node_modules/react-dom/cjs/react-dom-client.development.js:8030:21
+ > updateFunctionComponent node_modules/react-dom/cjs/react-dom-client.development.js:10569:18
+ > beginWork node_modules/react-dom/cjs/react-dom-client.development.js:12205:17
+ > runWithFiberInDEV node_modules/react-dom/cjs/react-dom-client.development.js:1045:29
+ > performUnitOfWork node_modules/react-dom/cjs/react-dom-client.development.js:19176:21
+
+4:07:39 AM [vite] (client) [console.warn] An error occurred in the <LoginModal> component.
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries.
+
+4:09:03 AM [vite] (client) [Unhandled error] Error: You cannot render a <Router> inside another <Router>. You should never have more than one in your app.
+ > invariant node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:207:10
+ > Router node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:7142:2
+ > Object.react_stack_bottom_frame node_modules/react-dom/cjs/react-dom-client.development.js:28571:19
+ > renderWithHooks node_modules/react-dom/cjs/react-dom-client.development.js:8030:21
+ > updateFunctionComponent node_modules/react-dom/cjs/react-dom-client.development.js:10569:18
+ > beginWork node_modules/react-dom/cjs/react-dom-client.development.js:12205:17
+ > runWithFiberInDEV node_modules/react-dom/cjs/react-dom-client.development.js:1045:29
+ > performUnitOfWork node_modules/react-dom/cjs/react-dom-client.development.js:19176:21
+ > workLoopSync node_modules/react-dom/cjs/react-dom-client.development.js:19004:40
+ > renderRootSync node_modules/react-dom/cjs/react-dom-client.development.js:18985:10
+
+4:09:03 AM [vite] (client) [console.warn] An error occurred in the <Router> component.
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries.
+
+4:09:03 AM [vite] (client) [Unhandled error] Error: You cannot render a <Router> inside another <Router>. You should never have more than one in your app.
+ > invariant node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:207:10
+ > Router node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:7142:2
+ > Object.react_stack_bottom_frame node_modules/react-dom/cjs/react-dom-client.development.js:28571:19
+ > renderWithHooks node_modules/react-dom/cjs/react-dom-client.development.js:8030:21
+ > updateFunctionComponent node_modules/react-dom/cjs/react-dom-client.development.js:10569:18
+ > beginWork node_modules/react-dom/cjs/react-dom-client.development.js:12205:17
+ > runWithFiberInDEV node_modules/react-dom/cjs/react-dom-client.development.js:1045:29
+ > performUnitOfWork node_modules/react-dom/cjs/react-dom-client.development.js:19176:21
+ > workLoopSync node_modules/react-dom/cjs/react-dom-client.development.js:19004:40
+ > renderRootSync node_modules/react-dom/cjs/react-dom-client.development.js:18985:10
+
+4:09:03 AM [vite] (client) [console.warn] An error occurred in the <Router> component.
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries.
+
+4:09:03 AM [vite] (client) [Unhandled error] Error: You cannot render a <Router> inside another <Router>. You should never have more than one in your app.
+ > invariant node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:207:10
+ > Router node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:7142:2
+ > Object.react_stack_bottom_frame node_modules/react-dom/cjs/react-dom-client.development.js:28571:19
+ > renderWithHooks node_modules/react-dom/cjs/react-dom-client.development.js:8030:21
+ > updateFunctionComponent node_modules/react-dom/cjs/react-dom-client.development.js:10569:18
+ > beginWork node_modules/react-dom/cjs/react-dom-client.development.js:12205:17
+ > runWithFiberInDEV node_modules/react-dom/cjs/react-dom-client.development.js:1045:29
+ > performUnitOfWork node_modules/react-dom/cjs/react-dom-client.development.js:19176:21
+ > workLoopSync node_modules/react-dom/cjs/react-dom-client.development.js:19004:40
+ > renderRootSync node_modules/react-dom/cjs/react-dom-client.development.js:18985:10
+
+4:09:03 AM [vite] (client) [console.warn] An error occurred in the <Router> component.
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries.
+
+4:09:03 AM [vite] (client) [Unhandled error] Error: You cannot render a <Router> inside another <Router>. You should never have more than one in your app.
+ > invariant node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:207:10
+ > Router node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:7142:2
+ > Object.react_stack_bottom_frame node_modules/react-dom/cjs/react-dom-client.development.js:28571:19
+ > renderWithHooks node_modules/react-dom/cjs/react-dom-client.development.js:8030:21
+ > updateFunctionComponent node_modules/react-dom/cjs/react-dom-client.development.js:10569:18
+ > beginWork node_modules/react-dom/cjs/react-dom-client.development.js:12205:17
+ > runWithFiberInDEV node_modules/react-dom/cjs/react-dom-client.development.js:1045:29
+ > performUnitOfWork node_modules/react-dom/cjs/react-dom-client.development.js:19176:21
+ > workLoopSync node_modules/react-dom/cjs/react-dom-client.development.js:19004:40
+ > renderRootSync node_modules/react-dom/cjs/react-dom-client.development.js:18985:10
+
+4:09:03 AM [vite] (client) [console.warn] An error occurred in the <Router> component.
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries.
+
+4:09:03 AM [vite] (client) [Unhandled error] Error: You cannot render a <Router> inside another <Router>. You should never have more than one in your app.
+ > invariant node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:207:10
+ > Router node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:7142:2
+ > Object.react_stack_bottom_frame node_modules/react-dom/cjs/react-dom-client.development.js:28571:19
+ > renderWithHooks node_modules/react-dom/cjs/react-dom-client.development.js:8030:21
+ > updateFunctionComponent node_modules/react-dom/cjs/react-dom-client.development.js:10569:18
+ > beginWork node_modules/react-dom/cjs/react-dom-client.development.js:12205:17
+ > runWithFiberInDEV node_modules/react-dom/cjs/react-dom-client.development.js:1045:29
+ > performUnitOfWork node_modules/react-dom/cjs/react-dom-client.development.js:19176:21
+ > workLoopSync node_modules/react-dom/cjs/react-dom-client.development.js:19004:40
+ > renderRootSync node_modules/react-dom/cjs/react-dom-client.development.js:18985:10
+
+4:09:03 AM [vite] (client) [console.warn] An error occurred in the <Router> component.
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries.
+
+4:09:03 AM [vite] (client) [Unhandled error] Error: You cannot render a <Router> inside another <Router>. You should never have more than one in your app.
+ > invariant node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:207:10
+ > Router node_modules/react-router/dist/development/chunk-OB3PAWPO.mjs:7142:2
+ > Object.react_stack_bottom_frame node_modules/react-dom/cjs/react-dom-client.development.js:28571:19
+ > renderWithHooks node_modules/react-dom/cjs/react-dom-client.development.js:8030:21
+ > updateFunctionComponent node_modules/react-dom/cjs/react-dom-client.development.js:10569:18
+ > beginWork node_modules/react-dom/cjs/react-dom-client.development.js:12205:17
+ > runWithFiberInDEV node_modules/react-dom/cjs/react-dom-client.development.js:1045:29
+ > performUnitOfWork node_modules/react-dom/cjs/react-dom-client.development.js:19176:21
+ > workLoopSync node_modules/react-dom/cjs/react-dom-client.development.js:19004:40
+ > renderRootSync node_modules/react-dom/cjs/react-dom-client.development.js:18985:10
+
+4:09:03 AM [vite] (client) [console.warn] An error occurred in the <Router> component.
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries.
+

@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CloseIcon, UserIcon, ShieldIcon } from './Icons';
+import { useAuthStore } from '../store/authStore';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -7,15 +9,37 @@ interface LoginModalProps {
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
+  const navigate = useNavigate();
+  const login = useAuthStore((s) => s.login);
+  const isLoading = useAuthStore((s) => s.isLoading);
+  const authError = useAuthStore((s) => s.error);
+
   const [role, setRole] = useState<'student' | 'staff'>('student');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [loginSuccess, setLoginSuccess] = useState(false);
+  const [staffError, setStaffError] = useState<string | null>(null);
+
+  // Reset trạng thái khi chuyển tab
+  useEffect(() => {
+    setUsername('');
+    setPassword('');
+    setStaffError(null);
+    setLoginSuccess(false);
+  }, [role]);
+
+  // Đồng bộ lỗi từ authStore
+  useEffect(() => {
+    if (authError && role === 'staff') {
+      setStaffError(authError);
+    }
+  }, [authError, role]);
 
   if (!isOpen) return null;
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  /** Đăng nhập sinh viên (mock) */
+  const handleStudentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!username || !password) return;
     setLoginSuccess(true);
@@ -24,6 +48,22 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
       onClose();
     }, 1500);
   };
+
+  /** Đăng nhập cán bộ quản lý — gọi API thật */
+  const handleStaffSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStaffError(null);
+    try {
+      await login(username.trim(), password);
+      // Đăng nhập thành công → đóng modal, redirect về trang admin
+      onClose();
+      navigate('/admin/accounts', { replace: true });
+    } catch {
+      // Lỗi đã được set vào authStore.error → đồng bộ qua useEffect
+    }
+  };
+
+  const handleSubmit = role === 'staff' ? handleStaffSubmit : handleStudentSubmit;
 
   return (
     <div className="modal-backdrop" onClick={onClose} role="dialog" aria-modal="true">
@@ -65,7 +105,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
             <p>Chào mừng {role === 'student' ? 'sinh viên' : 'thầy cô'} quay trở lại hệ thống KTX.</p>
           </div>
         ) : (
-          <form onSubmit={handleLoginSubmit} className="login-form">
+          <form onSubmit={handleSubmit} className="login-form">
             <div className="form-field-group">
               <label htmlFor="login-username" className="form-label">
                 {role === 'student' ? 'Email FPT (@fpt.edu.vn) hoặc MSSV' : 'Tên tài khoản / Email cán bộ'}
@@ -74,10 +114,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                 id="login-username"
                 type="text"
                 required
-                placeholder={role === 'student' ? 'annvhe180123@fpt.edu.vn' : 'admin_ktx@fe.edu.vn'}
+                placeholder={role === 'student' ? 'annvhe180123@fpt.edu.vn' : 'admin hoặc admin@fud.edu.vn'}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="form-input"
+                autoComplete="username"
+                disabled={isLoading && role === 'staff'}
               />
             </div>
 
@@ -91,8 +133,28 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="form-input"
+                autoComplete="current-password"
+                disabled={isLoading && role === 'staff'}
               />
             </div>
+
+            {/* Hiển thị lỗi đăng nhập cán bộ */}
+            {role === 'staff' && staffError && (
+              <div
+                style={{
+                  background: '#fff8e1',
+                  border: '1px solid #ffe082',
+                  borderRadius: 8,
+                  padding: '10px 14px',
+                  fontSize: 13.5,
+                  color: '#b26a00',
+                  lineHeight: 1.5,
+                }}
+                role="alert"
+              >
+                {staffError}
+              </div>
+            )}
 
             <div className="login-options-row">
               <label className="checkbox-container">
@@ -103,13 +165,24 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                 />
                 <span>Ghi nhớ đăng nhập</span>
               </label>
-              <a href="#forgot" onClick={(e) => { e.preventDefault(); alert('Vui lòng liên hệ Ban Quản lý KTX hoặc quản trị viên IT để cấp lại mật khẩu.'); }} className="forgot-link">
+              <a
+                href="#forgot"
+                onClick={(e) => {
+                  e.preventDefault();
+                  alert('Vui lòng liên hệ Ban Quản lý KTX hoặc quản trị viên IT để cấp lại mật khẩu.');
+                }}
+                className="forgot-link"
+              >
                 Quên mật khẩu?
               </a>
             </div>
 
-            <button type="submit" className="login-submit-btn">
-              Đăng nhập hệ thống
+            <button
+              type="submit"
+              className="login-submit-btn"
+              disabled={isLoading && role === 'staff'}
+            >
+              {isLoading && role === 'staff' ? 'Đang đăng nhập…' : 'Đăng nhập hệ thống'}
             </button>
 
             {role === 'student' && (
