@@ -1,6 +1,8 @@
-﻿namespace FUD.DTOs
+using FUD.DTOs.Auth;
+
+namespace FUD.DTOs
 {
-    public class LoginRequest
+    public class LoginRequest : LoginRequestDto
     {
     }
 }

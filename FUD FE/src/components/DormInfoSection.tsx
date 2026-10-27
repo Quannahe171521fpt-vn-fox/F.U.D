@@ -1,8 +1,27 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { BuildingIcon, ShieldIcon, WifiIcon, BedIcon } from './Icons';
 import { DORM_BUILDINGS } from '../data/dormData';
+import { useAuth } from '../context/AuthContext';
 
 export const DormInfoSection: React.FC = () => {
+  const { user, isAuthenticated } = useAuth();
+  const [showAllBuildings, setShowAllBuildings] = useState(false);
+
+  const isStudent = isAuthenticated && user && user.roles.includes('Student');
+  const studentGender = user?.gender; // 'Male' | 'Female'
+
+  // Lọc theo giới tính sinh viên
+  const filteredBuildings = DORM_BUILDINGS.filter((dom) => {
+    if (!isStudent || showAllBuildings) return true;
+    if (studentGender === 'Male') {
+      return dom.gender.includes('Nam');
+    }
+    if (studentGender === 'Female') {
+      return dom.gender.includes('Nữ');
+    }
+    return true;
+  });
+
   return (
     <section className="info-section-container" id="dorm-info">
       {/* Section Header */}
@@ -92,9 +111,35 @@ export const DormInfoSection: React.FC = () => {
       {/* Dormitory Buildings Status Table / Form */}
       <div className="buildings-box">
         <div className="buildings-header">
-          <h3 className="buildings-title">Danh sách các Tòa nhà Ký túc xá (Dom)</h3>
-          <span className="buildings-status-tag">Học kỳ Fall 2026</span>
+          <div>
+            <h3 className="buildings-title">Danh sách các Tòa nhà Ký túc xá (Dom)</h3>
+            {isStudent && (
+              <div style={{ marginTop: '4px', fontSize: '0.85rem', color: '#16a34a' }}>
+                ✓ Đang tự động lọc theo giới tính sinh viên: <strong>{studentGender === 'Male' ? 'Nam' : 'Nữ'}</strong> (Chỉ hiển thị các tòa phù hợp)
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {isStudent && (
+              <button
+                type="button"
+                onClick={() => setShowAllBuildings(!showAllBuildings)}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  backgroundColor: showAllBuildings ? '#e2e8f0' : '#fff',
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                }}
+              >
+                {showAllBuildings ? 'Khóa lại theo giới tính' : 'Xem tất cả tòa'}
+              </button>
+            )}
+            <span className="buildings-status-tag">Học kỳ Fall 2026</span>
+          </div>
         </div>
+
         <div className="table-responsive">
           <table className="dorm-table">
             <thead>
@@ -107,17 +152,39 @@ export const DormInfoSection: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {DORM_BUILDINGS.map((dom) => (
-                <tr key={dom.name}>
-                  <td><strong>{dom.name}</strong></td>
-                  <td>{dom.gender}</td>
-                  <td>{dom.floors} tầng</td>
-                  <td>{dom.rooms} phòng</td>
-                  <td>
-                    <span className="status-pill available">Còn phòng nhận đăng ký</span>
-                  </td>
-                </tr>
-              ))}
+              {filteredBuildings.map((dom) => {
+                const isGenderMatch = !isStudent || (studentGender === 'Male' ? dom.gender.includes('Nam') : dom.gender.includes('Nữ'));
+                return (
+                  <tr key={dom.name} style={{ opacity: isStudent && !isGenderMatch ? 0.45 : 1 }}>
+                    <td>
+                      <strong>{dom.name}</strong>
+                      {isStudent && isGenderMatch && (
+                        <span style={{ marginLeft: '6px', fontSize: '0.75rem', color: '#15803d', fontWeight: 600 }}>[Khớp với bạn]</span>
+                      )}
+                    </td>
+                    <td>
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          fontSize: '0.78rem',
+                          fontWeight: 600,
+                          backgroundColor: dom.gender.includes('Nam') ? '#eff6ff' : '#fdf2f8',
+                          color: dom.gender.includes('Nam') ? '#1d4ed8' : '#be185d',
+                        }}
+                      >
+                        {dom.gender}
+                      </span>
+                    </td>
+                    <td>{dom.floors} tầng</td>
+                    <td>{dom.rooms} phòng</td>
+                    <td>
+                      <span className="status-pill available">Còn phòng nhận đăng ký</span>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

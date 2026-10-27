@@ -1,6 +1,11 @@
-﻿namespace FUD.Settings.pattern
+namespace FUD.Settings.pattern
 {
     public class JwtSettings
     {
+        public string Key { get; set; } = string.Empty;
+        public string Issuer { get; set; } = "FUD-API";
+        public string Audience { get; set; } = "FUD-Client";
+        public int AccessTokenExpirationMinutes { get; set; } = 60;
+        public int RefreshTokenExpirationDays { get; set; } = 7;
     }
 }
