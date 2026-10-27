@@ -1,4 +1,8 @@
 using FUD.Models;
+using FUD.Repositories.Facilities;
+using FUD.Repositories.Interfaces.Facilities;
+using FUD.Services.Facilities;
+using FUD.Services.Interfaces.Facilities;
 using Microsoft.EntityFrameworkCore;
 
 namespace FUD
@@ -14,7 +18,11 @@ namespace FUD
             var builder = WebApplication.CreateBuilder(args);
             builder.Services.AddDbContext<FudContext>(o => o.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-
+            // ── Facilities: Block & Room ──────────────────────────────
+            builder.Services.AddScoped<IBlockRepository, BlockRepository>();
+            builder.Services.AddScoped<IRoomRepository, RoomRepository>();
+            builder.Services.AddScoped<IBlockService, BlockService>();
+            builder.Services.AddScoped<IRoomService, RoomService>();
 
             // Add services to the container.
             builder.Services.AddControllers();
