@@ -1,4 +1,3 @@
-
 using FUD.Models;
 using FUD.Repositories.Facilities;
 using FUD.Repositories.Interfaces.Facilities;
@@ -31,7 +30,29 @@ namespace FUD
             builder.Services.AddSwaggerGen();
 
             var app = builder.Build();
+            using (var scope = app.Services.CreateScope())
+            {
+                var services = scope.ServiceProvider;
+                var logger = services.GetRequiredService<ILogger<Program>>();
+                try
+                {
+                    var dbContext = services.GetRequiredService<FudContext>();
 
+                    // Thử kết nối đến cơ sở dữ liệu
+                    if (dbContext.Database.CanConnect())
+                    {
+                        logger.LogInformation("Kết nối Database thành công!");
+                    }
+                    else
+                    {
+                        logger.LogWarning("Không thể kết nối đến Database (CanConnect trả về false).");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Lỗi kết nối Database! Vui lòng kiểm tra lại chuỗi kết nối hoặc trạng thái SQL Server.");
+                }
+            }
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())
             {

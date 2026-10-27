@@ -4,9 +4,10 @@ import { CloseIcon, UserIcon, ShieldIcon } from './Icons';
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onLoginSuccess?: (role: 'student' | 'staff', username: string) => void;
 }
 
-export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
+export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess }) => {
   const [role, setRole] = useState<'student' | 'staff'>('student');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -21,8 +22,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
     setLoginSuccess(true);
     setTimeout(() => {
       setLoginSuccess(false);
+      onLoginSuccess?.(role, username);
       onClose();
-    }, 1500);
+    }, 1200);
   };
 
   return (
