@@ -41,6 +41,8 @@ public partial class Handover
 
     public DateTime? CompletedTime { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual ICollection<ComplaintRequest> ComplaintRequests { get; set; } = new List<ComplaintRequest>();
 
     public virtual Guard Guard { get; set; } = null!;

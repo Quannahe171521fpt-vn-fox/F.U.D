@@ -13,5 +13,7 @@ public partial class UtilityPrice
 
     public decimal UnitPrice { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual Term Term { get; set; } = null!;
 }

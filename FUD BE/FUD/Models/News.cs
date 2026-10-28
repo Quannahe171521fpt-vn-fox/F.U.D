@@ -21,6 +21,8 @@ public partial class News
 
     public DateTime? PublishedTime { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual Manager? ApprovedBy { get; set; }
 
     public virtual Manager Author { get; set; } = null!;

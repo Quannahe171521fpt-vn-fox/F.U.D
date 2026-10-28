@@ -13,6 +13,8 @@ public partial class EquipmentCatalog
 
     public bool ActiveFlag { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual ICollection<Equipment> Equipment { get; set; } = new List<Equipment>();
 
     public virtual ICollection<RoomTypeEquipment> RoomTypeEquipments { get; set; } = new List<RoomTypeEquipment>();

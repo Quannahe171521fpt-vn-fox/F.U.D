@@ -17,6 +17,8 @@ public partial class PriceList
 
     public DateTime? PublishedTime { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual Manager CreatedBy { get; set; } = null!;
 
     public virtual ICollection<PriceItem> PriceItems { get; set; } = new List<PriceItem>();

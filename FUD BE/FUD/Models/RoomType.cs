@@ -11,6 +11,8 @@ public partial class RoomType
 
     public int BedCapacity { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual ICollection<PriceItem> PriceItems { get; set; } = new List<PriceItem>();
 
     public virtual ICollection<RoomTypeEquipment> RoomTypeEquipments { get; set; } = new List<RoomTypeEquipment>();

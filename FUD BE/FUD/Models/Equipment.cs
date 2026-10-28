@@ -21,6 +21,8 @@ public partial class Equipment
 
     public string? Note { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual Bed? Bed { get; set; }
 
     public virtual EquipmentCatalog Catalog { get; set; } = null!;

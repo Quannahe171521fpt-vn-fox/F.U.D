@@ -15,6 +15,8 @@ public partial class PriceItem
 
     public decimal UnitPrice { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual Dorm Dorm { get; set; } = null!;
 
     public virtual PriceList PriceList { get; set; } = null!;

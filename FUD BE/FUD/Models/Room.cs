@@ -17,6 +17,8 @@ public partial class Room
 
     public string Status { get; set; } = null!;
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual ICollection<Bed> Beds { get; set; } = new List<Bed>();
 
     public virtual Block Block { get; set; } = null!;

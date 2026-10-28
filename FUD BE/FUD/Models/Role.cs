@@ -11,5 +11,7 @@ public partial class Role
 
     public string? Description { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
 }

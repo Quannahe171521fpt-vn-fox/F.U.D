@@ -31,6 +31,8 @@ public partial class User
 
     public DateTime CreatedAt { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual Admin? Admin { get; set; }
 
     public virtual ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();

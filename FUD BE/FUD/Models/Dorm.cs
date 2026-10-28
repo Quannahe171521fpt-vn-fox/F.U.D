@@ -17,6 +17,8 @@ public partial class Dorm
 
     public string Status { get; set; } = null!;
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual ICollection<Block> Blocks { get; set; } = new List<Block>();
 
     public virtual Campus Campus { get; set; } = null!;

@@ -19,6 +19,8 @@ public partial class BedPrice
 
     public DateOnly EffectiveTo { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual Bed Bed { get; set; } = null!;
 
     public virtual Term Term { get; set; } = null!;

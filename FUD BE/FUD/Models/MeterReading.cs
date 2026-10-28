@@ -35,6 +35,8 @@ public partial class MeterReading
 
     public string? Note { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual ImportBatch? Batch { get; set; }
 
     public virtual BillingPeriod? BillingPeriod { get; set; }

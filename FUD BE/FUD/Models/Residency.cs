@@ -25,6 +25,8 @@ public partial class Residency
 
     public string Status { get; set; } = null!;
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual Bed Bed { get; set; } = null!;
 
     public virtual ICollection<BedTransferRequest> BedTransferRequestFromResidencies { get; set; } = new List<BedTransferRequest>();

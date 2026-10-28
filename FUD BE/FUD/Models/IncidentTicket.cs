@@ -39,6 +39,8 @@ public partial class IncidentTicket
 
     public bool AutoClosed { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual Manager? AssignedBy { get; set; }
 
     public virtual Guard? AssignedGuard { get; set; }

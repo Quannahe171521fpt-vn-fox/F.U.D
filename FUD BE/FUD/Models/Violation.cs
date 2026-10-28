@@ -37,6 +37,8 @@ public partial class Violation
 
     public DateTime? FinalizedTime { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual ICollection<ComplaintRequest> ComplaintRequests { get; set; } = new List<ComplaintRequest>();
 
     public virtual Manager? EvaluatedBy { get; set; }

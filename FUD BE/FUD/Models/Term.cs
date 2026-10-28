@@ -15,6 +15,8 @@ public partial class Term
 
     public DateOnly EndDate { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual ICollection<BedPrice> BedPrices { get; set; } = new List<BedPrice>();
 
     public virtual ICollection<BillingPeriod> BillingPeriods { get; set; } = new List<BillingPeriod>();

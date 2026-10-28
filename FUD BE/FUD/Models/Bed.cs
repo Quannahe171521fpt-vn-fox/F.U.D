@@ -15,6 +15,8 @@ public partial class Bed
 
     public string Status { get; set; } = null!;
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual ICollection<BedPrice> BedPrices { get; set; } = new List<BedPrice>();
 
     public virtual ICollection<BedTransferRequest> BedTransferRequestFromBeds { get; set; } = new List<BedTransferRequest>();

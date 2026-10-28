@@ -29,6 +29,8 @@ public partial class Request
 
     public DateTime? ProcessedTime { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual BedTransferRequest? BedTransferRequest { get; set; }
 
     public virtual BookingRequest? BookingRequest { get; set; }

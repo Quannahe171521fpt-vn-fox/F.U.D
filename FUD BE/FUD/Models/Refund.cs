@@ -23,6 +23,8 @@ public partial class Refund
 
     public DateTime? RefundTime { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual Invoice? RelatedInvoice { get; set; }
 
     public virtual Request? RelatedRequest { get; set; }

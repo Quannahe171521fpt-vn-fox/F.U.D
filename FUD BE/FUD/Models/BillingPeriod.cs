@@ -17,6 +17,8 @@ public partial class BillingPeriod
 
     public DateTime? CalculatedTime { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual ICollection<ImportBatch> ImportBatches { get; set; } = new List<ImportBatch>();
 
     public virtual ICollection<MeterReading> MeterReadings { get; set; } = new List<MeterReading>();

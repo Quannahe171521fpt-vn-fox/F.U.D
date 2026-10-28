@@ -19,6 +19,8 @@ public partial class Block
 
     public string Status { get; set; } = null!;
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual Dorm Dorm { get; set; } = null!;
 
     public virtual ICollection<ImportBatch> ImportBatches { get; set; } = new List<ImportBatch>();

@@ -37,6 +37,8 @@ public partial class UtilityBill
 
     public string? CorrectionReason { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
     public virtual BillingPeriod BillingPeriod { get; set; } = null!;
 
     public virtual UtilityBill? CorrectedFrom { get; set; }
