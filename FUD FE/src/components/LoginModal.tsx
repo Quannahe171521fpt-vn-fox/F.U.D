@@ -9,7 +9,7 @@ interface LoginModalProps {
   onLoginSuccess?: (role: 'student' | 'staff', username: string) => void;
 }
 
-export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
+export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess }) => {
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
   const isLoading = useAuthStore((s) => s.isLoading);
