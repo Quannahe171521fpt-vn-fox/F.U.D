@@ -6,9 +6,10 @@ import type { AuthUser } from '../types/auth';
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onLoginSuccess?: (role: 'student' | 'staff', username: string) => void;
 }
 
-export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
+export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess }) => {
   const { login, loginWithGoogle, isLoading } = useAuth();
   const [roleTab, setRoleTab] = useState<'student' | 'staff'>('student');
   const [username, setUsername] = useState('');

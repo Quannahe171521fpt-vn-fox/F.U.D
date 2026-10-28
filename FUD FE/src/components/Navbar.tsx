@@ -12,8 +12,40 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenLogin, onNavigate, onGoToD
   const { user, isAuthenticated, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // If in Management Portal: keep minimal header with only Logo, Name and Logout
+  if (currentView === 'management') {
+    return (
+      <header className="navbar-container">
+        <div className="navbar-inner navbar-minimal">
+          <div className="navbar-logo-link" style={{ cursor: 'default' }}>
+            <Logo />
+          </div>
+          <div className="navbar-right-minimal">
+            <div className="user-action-group">
+              <span className="user-role-label">Cán bộ KTX</span>
+              <button
+                type="button"
+                onClick={onLogout}
+                className="btn-logout"
+                title="Đăng xuất khỏi hệ thống"
+              >
+                Đăng xuất
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+    );
+  }
+
+  // If in Homepage or Announcements: Keep FULL original Homepage Header
   const handleNavClick = (id: string) => {
-    onNavigate(id);
+    if (currentView !== 'home') {
+      onChangeView('home');
+      setTimeout(() => onNavigate(id), 100);
+    } else {
+      onNavigate(id);
+    }
     setMobileMenuOpen(false);
   };
 
@@ -29,26 +61,77 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenLogin, onNavigate, onGoToD
   return (
     <header className="navbar-container">
       <div className="navbar-inner">
-        {/* Brand Logo - On campus Dormitory */}
-        <a href="#hero" onClick={(e) => { e.preventDefault(); handleNavClick('hero'); }} className="navbar-logo-link">
+        {/* Brand Logo - FUD Dormitory with Golden Frog Mascot */}
+        <a
+          href="#hero"
+          onClick={(e) => {
+            e.preventDefault();
+            onChangeView('home');
+            onNavigate('hero');
+          }}
+          className="navbar-logo-link"
+        >
           <Logo />
         </a>
 
-        {/* Desktop Navigation Links */}
+        {/* Desktop Navigation Links (Full homepage links kept as original) */}
         <nav className="navbar-nav">
-          <button type="button" onClick={() => handleNavClick('dorm-info')} className="nav-link">
+          <button
+            type="button"
+            onClick={() => {
+              onChangeView('home');
+              onNavigate('hero');
+            }}
+            className={`nav-link ${currentView === 'home' ? 'active-nav' : ''}`}
+          >
+            Trang chủ
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onChangeView('announcements')}
+            className={`nav-link ${currentView === 'announcements' ? 'active-nav font-bold' : ''}`}
+          >
+            Thông báo
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleNavClick('dorm-info')}
+            className="nav-link"
+          >
             Thông tin KTX
           </button>
-          <button type="button" onClick={() => handleNavClick('room-types')} className="nav-link">
+
+          <button
+            type="button"
+            onClick={() => handleNavClick('room-types')}
+            className="nav-link"
+          >
             Loại phòng
           </button>
-          <button type="button" onClick={() => handleNavClick('registration-guide')} className="nav-link">
+
+          <button
+            type="button"
+            onClick={() => handleNavClick('registration-guide')}
+            className="nav-link"
+          >
             Đăng ký KTX
           </button>
-          <button type="button" onClick={() => handleNavClick('faq-section')} className="nav-link">
-            FAQ
+
+          <button
+            type="button"
+            onClick={() => handleNavClick('faq-section')}
+            className="nav-link"
+          >
+            Hỏi đáp
           </button>
-          <button type="button" onClick={() => handleNavClick('support-section')} className="nav-link">
+
+          <button
+            type="button"
+            onClick={() => handleNavClick('support-section')}
+            className="nav-link"
+          >
             Hỗ trợ & Liên hệ
           </button>
           <button type="button" onClick={() => handleNavClick('about-section')} className="nav-link about-link">
@@ -141,7 +224,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenLogin, onNavigate, onGoToD
               className="navbar-login-btn"
               id="navbar-login-button"
             >
-              Login
+              Đăng nhập
             </button>
           )}
         </nav>
@@ -162,19 +245,59 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenLogin, onNavigate, onGoToD
       {/* Mobile Dropdown Menu */}
       {mobileMenuOpen && (
         <div className="mobile-dropdown">
-          <button type="button" onClick={() => handleNavClick('dorm-info')} className="mobile-nav-link">
+          <button
+            type="button"
+            onClick={() => {
+              onChangeView('home');
+              setMobileMenuOpen(false);
+            }}
+            className="mobile-nav-link"
+          >
+            Trang chủ
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onChangeView('announcements');
+              setMobileMenuOpen(false);
+            }}
+            className="mobile-nav-link"
+          >
+            Thông báo
+          </button>
+          <button
+            type="button"
+            onClick={() => handleNavClick('dorm-info')}
+            className="mobile-nav-link"
+          >
             Thông tin KTX
           </button>
-          <button type="button" onClick={() => handleNavClick('room-types')} className="mobile-nav-link">
+          <button
+            type="button"
+            onClick={() => handleNavClick('room-types')}
+            className="mobile-nav-link"
+          >
             Loại phòng & Tiện ích
           </button>
-          <button type="button" onClick={() => handleNavClick('registration-guide')} className="mobile-nav-link">
+          <button
+            type="button"
+            onClick={() => handleNavClick('registration-guide')}
+            className="mobile-nav-link"
+          >
             Hướng dẫn & Đăng ký
           </button>
-          <button type="button" onClick={() => handleNavClick('faq-section')} className="mobile-nav-link">
+          <button
+            type="button"
+            onClick={() => handleNavClick('faq-section')}
+            className="mobile-nav-link"
+          >
             Câu hỏi thường gặp (FAQ)
           </button>
-          <button type="button" onClick={() => handleNavClick('support-section')} className="mobile-nav-link">
+          <button
+            type="button"
+            onClick={() => handleNavClick('support-section')}
+            className="mobile-nav-link"
+          >
             Hỗ trợ & Báo sự cố
           </button>
           <button type="button" onClick={() => handleNavClick('about-section')} className="mobile-nav-link about-mobile">
@@ -183,7 +306,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenLogin, onNavigate, onGoToD
           {isAuthenticated && user ? (
             <div style={{ padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ fontSize: '0.9rem', color: '#1e293b' }}>
-                👤 {user.fullName} ({getPrimaryRole()} - {user.gender === 'Male' ? 'Nam' : 'Nữ'})
+                 {user.fullName} ({getPrimaryRole()} - {user.gender === 'Male' ? 'Nam' : 'Nữ'})
               </div>
               {onGoToDashboard && (
                 <button
