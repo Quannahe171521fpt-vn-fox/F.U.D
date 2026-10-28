@@ -138,17 +138,29 @@ namespace FUD
             builder.Services.AddSwaggerGen();
 
             var app = builder.Build();
-
-            // ── Seed dữ liệu khởi tạo (vai trò + Admin mặc định) ──
-            // Bỏ qua trong môi trường Testing (integration test dùng SQLite in-memory).
-            if (!app.Environment.IsEnvironment("Testing"))
+            using (var scope = app.Services.CreateScope())
             {
-                using var scope = app.Services.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<FudContext>();
-                db.Database.Migrate();
-                DatabaseSeeder.SeedAdminAsync(app.Services).GetAwaiter().GetResult();
-            }
+                var services = scope.ServiceProvider;
+                var logger = services.GetRequiredService<ILogger<Program>>();
+                try
+                {
+                    var dbContext = services.GetRequiredService<FudContext>();
 
+                    // Thử kết nối đến cơ sở dữ liệu
+                    if (dbContext.Database.CanConnect())
+                    {
+                        logger.LogInformation("Kết nối Database thành công!");
+                    }
+                    else
+                    {
+                        logger.LogWarning("Không thể kết nối đến Database (CanConnect trả về false).");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Lỗi kết nối Database! Vui lòng kiểm tra lại chuỗi kết nối hoặc trạng thái SQL Server.");
+                }
+            }
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())
             {
@@ -179,7 +191,4 @@ namespace FUD
             app.Run();
         }
     }
-
-    /// <summary>Expose Program cho WebApplicationFactory trong integration test.</summary>
-    public partial class Program { }
 }

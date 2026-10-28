@@ -6,6 +6,7 @@ import { useAuthStore } from '../store/authStore';
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onLoginSuccess?: (role: 'student' | 'staff', username: string) => void;
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
@@ -45,8 +46,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
     setLoginSuccess(true);
     setTimeout(() => {
       setLoginSuccess(false);
+      onLoginSuccess?.(role, username);
       onClose();
-    }, 1500);
+    }, 1200);
   };
 
   /** Đăng nhập cán bộ quản lý — gọi API thật */
