@@ -1,10 +1,4 @@
-/* Tailwind CSS utilities cho khu vực quản trị (Admin SPA).
-   Cố ý KHÔNG import preflight để không ghi đè style của landing page hiện có. */
-@layer theme, base, components, utilities;
-
-@import './styles/dormitory.css' layer(base);
-@import 'tailwindcss/theme.css' layer(theme);
-@import 'tailwindcss/utilities.css' layer(utilities);
+@import './styles/dormitory.css';
 
 :root {
   color-scheme: light;
