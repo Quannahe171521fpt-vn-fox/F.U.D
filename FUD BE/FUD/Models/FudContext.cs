@@ -15,6 +15,8 @@ public partial class FudContext : DbContext
     {
     }
 
+    public virtual DbSet<AccountStatusHistory> AccountStatusHistories { get; set; }
+
     public virtual DbSet<Admin> Admins { get; set; }
 
     public virtual DbSet<AuditLog> AuditLogs { get; set; }
@@ -83,6 +85,8 @@ public partial class FudContext : DbContext
 
     public virtual DbSet<Refund> Refunds { get; set; }
 
+    public virtual DbSet<RefreshToken> RefreshTokens { get; set; }
+
     public virtual DbSet<RegistrationPeriod> RegistrationPeriods { get; set; }
 
     public virtual DbSet<RepairFeedback> RepairFeedbacks { get; set; }
@@ -94,6 +98,8 @@ public partial class FudContext : DbContext
     public virtual DbSet<Residency> Residencies { get; set; }
 
     public virtual DbSet<Role> Roles { get; set; }
+
+    public virtual DbSet<RoleChangeHistory> RoleChangeHistories { get; set; }
 
     public virtual DbSet<Room> Rooms { get; set; }
 
