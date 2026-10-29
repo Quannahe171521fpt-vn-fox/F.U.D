@@ -1,27 +1,27 @@
 import React, { useState } from 'react';
-import type { NewsItem } from '../types/management';
+import type { NewsItem } from '../../types/management';
 
 interface NewsManagementProps {
   newsList: NewsItem[];
   onSaveNews: (news: NewsItem) => void;
-  onDeleteNews: (id: number) => void;
+  onPublishNews?: (id: number) => void;
   onUnpublishNews: (id: number) => void;
 }
 
 export const NewsManagement: React.FC<NewsManagementProps> = ({
   newsList,
   onSaveNews,
-  onDeleteNews,
+  onPublishNews,
   onUnpublishNews,
 }) => {
-  // Filters: All ("Tất cả"), Published ("Đã đăng"), Draft ("Bản nháp")
+  // Filters: All ("Tất cả"), Published ("Đã đăng"), Draft ("Đã ẩn / Bản nháp")
   const [filter, setFilter] = useState<'All' | 'Published' | 'Draft'>('All');
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 5;
+  const pageSize = 8;
 
-  // Form Editor State
+  // Form Editor Modal State
   const [editingId, setEditingId] = useState<number | null>(null);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -99,18 +99,18 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
 
     setAttachments((prev) => [
       ...prev,
-      { name: file.name, size: formattedSize, type: fileExt }
+      {
+        name: file.name,
+        size: formattedSize,
+        type: fileExt,
+      },
     ]);
     setErrorMessage(null);
   };
 
-  const handleSave = (status: 'Draft' | 'Published') => {
+  const handleSave = (status: 'Published' | 'Draft') => {
     if (!title.trim()) {
       setErrorMessage('Tiêu đề tin tức không được để trống.');
-      return;
-    }
-    if (title.length > 200) {
-      setErrorMessage('Tiêu đề không được vượt quá 200 ký tự.');
       return;
     }
     if (!content.trim()) {
@@ -118,20 +118,13 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
       return;
     }
 
-    const now = new Date();
-    const day = String(now.getDate()).padStart(2, '0');
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const year = now.getFullYear();
-    const formattedToday = `${day}/${month}/${year}`;
+    const today = new Date();
+    const formattedToday = `${String(today.getDate()).padStart(2, '0')}/${String(
+      today.getMonth() + 1
+    ).padStart(2, '0')}/${today.getFullYear()}`;
 
     const existingNews = editingId ? newsList.find((n) => n.id === editingId) : null;
-    let publishedDate = existingNews?.publishedDate || null;
-
-    if (status === 'Published' && !publishedDate) {
-      publishedDate = formattedToday;
-    } else if (status === 'Draft') {
-      publishedDate = null;
-    }
+    const publishedDate = existingNews?.publishedDate || formattedToday;
 
     const newNewsItem: NewsItem = {
       id: editingId || Date.now(),
@@ -147,25 +140,29 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
     showNotification(
       status === 'Published'
         ? (editingId ? 'Đã cập nhật và đăng tin thành công.' : 'Tạo mới và đăng tin tức thành công.')
-        : (editingId ? 'Đã cập nhật bản nháp tin tức thành công.' : 'Đã lưu bản nháp tin tức thành công.')
+        : (editingId ? 'Đã cập nhật bản tin (ở chế độ ẩn/nháp).' : 'Đã lưu bản tin ở chế độ ẩn/nháp.')
     );
     setIsEditorOpen(false);
   };
 
-  const handleDelete = (id: number) => {
-    if (window.confirm('Bạn có chắc chắn muốn xóa tin nháp này không?')) {
-      onDeleteNews(id);
-      showNotification('Đã xóa bản nháp tin tức thành công.');
-      if (editingId === id) {
-        setIsEditorOpen(false);
+  const handlePublish = (id: number) => {
+    if (window.confirm('Bạn có muốn xuất bản bản tin này để sinh viên có thể xem được không?')) {
+      if (onPublishNews) {
+        onPublishNews(id);
+      } else {
+        const item = newsList.find((n) => n.id === id);
+        if (item) {
+          onSaveNews({ ...item, status: 'Published' });
+        }
       }
+      showNotification('Đã xuất bản tin tức thành công.');
     }
   };
 
   const handleUnpublish = (id: number) => {
-    if (window.confirm('Gỡ tin này sẽ chuyển trạng thái sang bản nháp và ẩn khỏi sinh viên. Bạn có muốn tiếp tục?')) {
+    if (window.confirm('Bản tin này sẽ được ẩn và không còn hiển thị cho sinh viên. Bạn có muốn ẩn bản tin?')) {
       onUnpublishNews(id);
-      showNotification('Đã gỡ tin tức thành công. Tin tức đã được chuyển về bản nháp.');
+      showNotification('Đã ẩn bản tin thành công. Tin tức đã được chuyển về bản nháp/ẩn.');
     }
   };
 
@@ -193,8 +190,8 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
         </button>
       </div>
 
-      <div className="mgmt-main-grid">
-        {/* Left Side: News List */}
+      <div className="mgmt-full-grid">
+        {/* Full-width News List */}
         <div className="mgmt-card list-card">
           <div className="card-header-flex">
             <h2 className="card-heading">Danh sách tin tức</h2>
@@ -219,7 +216,7 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
                 className={`filter-chip ${filter === 'Draft' ? 'active' : ''}`}
                 onClick={() => handleFilterChange('Draft')}
               >
-                Bản nháp ({newsList.filter((n) => n.status === 'Draft').length})
+                Đã ẩn / Bản nháp ({newsList.filter((n) => n.status === 'Draft').length})
               </button>
             </div>
           </div>
@@ -228,22 +225,24 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
             <table className="mgmt-table">
               <thead>
                 <tr>
-                  <th style={{ width: '48%' }}>Tiêu đề</th>
-                  <th style={{ width: '16%' }}>Trạng thái</th>
-                  <th style={{ width: '16%' }}>Ngày đăng</th>
-                  <th style={{ width: '20%', textAlign: 'right' }}>Thao tác</th>
+                  <th style={{ width: '38%' }}>Tiêu đề</th>
+                  <th style={{ width: '12%' }}>Trạng thái</th>
+                  <th style={{ width: '13%' }}>Ngày tạo</th>
+                  <th style={{ width: '13%' }}>Ngày đăng</th>
+                  <th style={{ width: '13%' }}>Ngày ẩn</th>
+                  <th style={{ width: '11%', textAlign: 'right' }}>Thao tác</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredNews.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="empty-table-cell">
+                    <td colSpan={6} className="empty-table-cell">
                       Không có tin tức nào phù hợp.
                     </td>
                   </tr>
                 ) : (
                   paginatedNews.map((news) => (
-                    <tr key={news.id} className={editingId === news.id && isEditorOpen ? 'row-selected' : ''}>
+                    <tr key={news.id}>
                       <td className="cell-title">
                         <span className="news-title-text" title={news.title}>
                           {news.title}
@@ -256,13 +255,19 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
                       </td>
                       <td>
                         {news.status === 'Published' ? (
-                          <span className="status-badge badge-published">Đã đăng</span>
+                          <span className="status-badge badge-published">Đang hiển thị</span>
                         ) : (
-                          <span className="status-badge badge-draft">Bản nháp</span>
+                          <span className="status-badge badge-draft">Đã ẩn / Nháp</span>
                         )}
                       </td>
                       <td className="cell-date">
+                        {news.createdDate ? news.createdDate : (news.publishedDate || '—')}
+                      </td>
+                      <td className="cell-date">
                         {news.publishedDate ? news.publishedDate : '—'}
+                      </td>
+                      <td className="cell-date">
+                        {news.status === 'Draft' && news.hiddenDate ? news.hiddenDate : '—'}
                       </td>
                       <td className="cell-actions">
                         <button
@@ -278,17 +283,19 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
                             type="button"
                             className="action-link unpublish-link"
                             onClick={() => handleUnpublish(news.id)}
-                            title="Chuyển về trạng thái nháp"
+                            title="Ẩn tin tức khỏi sinh viên"
                           >
-                            Gỡ tin
+                            Ẩn tin
                           </button>
                         ) : (
                           <button
                             type="button"
-                            className="action-link delete-link"
-                            onClick={() => handleDelete(news.id)}
+                            className="action-link publish-link"
+                            onClick={() => handlePublish(news.id)}
+                            style={{ color: '#059669' }}
+                            title="Hiển thị / Xuất bản tin tức"
                           >
-                            Xóa
+                            Hiển thị
                           </button>
                         )}
                       </td>
@@ -300,7 +307,7 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
           </div>
 
           {/* Pagination Controls */}
-          {filteredNews.length > pageSize && (
+          {totalPages > 1 && (
             <div className="pagination-bar">
               <span className="pagination-info">
                 Hiển thị {(validCurrentPage - 1) * pageSize + 1} -{' '}
@@ -338,143 +345,155 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
             </div>
           )}
         </div>
+      </div>
 
-        {/* Right Side: News Editor */}
-        <div className={`mgmt-card editor-card ${isEditorOpen ? 'editor-active' : ''}`}>
-          <div className="card-header-flex">
-            <div>
-              <span className="mgmt-subheading">{editingId ? 'Chỉnh sửa' : 'Tạo mới'}</span>
-              <h2 className="card-heading">Soạn tin tức</h2>
-            </div>
-            {isEditorOpen && (
+      {/* POPUP MODAL: Add / Edit News (Thay vì để bên cạnh) */}
+      {isEditorOpen && (
+        <div className="modal-backdrop" onClick={() => setIsEditorOpen(false)}>
+          <div
+            className="modal-card modal-editor-dialog"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div className="modal-title-wrap">
+                <span className="mgmt-subheading">{editingId ? 'Cập nhật' : 'Tạo mới'}</span>
+                <h3 className="modal-title">{editingId ? 'Chỉnh sửa tin tức' : 'Soạn tin tức mới'}</h3>
+              </div>
               <button
                 type="button"
-                className="close-editor-btn"
+                className="modal-close-btn"
                 onClick={() => setIsEditorOpen(false)}
-                title="Đóng soạn tin"
+                title="Đóng popup"
               >
-                Đóng
+                ✕
               </button>
-            )}
-          </div>
-
-          {errorMessage && (
-            <div className="mgmt-error-alert">
-              <span>{errorMessage}</span>
             </div>
-          )}
 
-          <div className="editor-form-body">
-            {/* Title field */}
-            <div className="form-group">
-              <div className="label-row">
-                <label htmlFor="news-title" className="input-label required-label">
-                  Tiêu đề
-                </label>
-                <span className="char-count">{title.length}/200</span>
+            {errorMessage && (
+              <div className="mgmt-error-alert" style={{ marginBottom: '16px' }}>
+                <span>{errorMessage}</span>
               </div>
-              <input
-                id="news-title"
-                type="text"
-                maxLength={200}
-                className="mgmt-input"
-                placeholder="Nhập tiêu đề tin tức..."
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
-            </div>
+            )}
 
-            {/* Content field */}
-            <div className="form-group">
-              <label htmlFor="news-content" className="input-label required-label">
-                Nội dung
-              </label>
-              <textarea
-                id="news-content"
-                rows={7}
-                className="mgmt-textarea"
-                placeholder="Nhập nội dung thông báo..."
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-              />
-            </div>
-
-            {/* Attachments drag & drop */}
-            <div className="form-group">
-              <label className="input-label">Tệp đính kèm</label>
-              <div
-                className={`dropzone-box ${isDragging ? 'drag-over' : ''}`}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setIsDragging(true);
-                }}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setIsDragging(false);
-                  handleFileUpload(e.dataTransfer.files);
-                }}
-              >
-                <p className="dropzone-text">
-                  Kéo thả tệp vào đây hoặc{' '}
-                  <label htmlFor="file-upload" className="dropzone-browse-label">
-                    chọn tệp từ máy
+            <div className="editor-form-body">
+              {/* Title field */}
+              <div className="form-group">
+                <div className="label-row">
+                  <label htmlFor="news-title" className="input-label required-label">
+                    Tiêu đề
                   </label>
-                </p>
-                <span className="dropzone-hint">
-                  Định dạng: PDF, DOC, DOCX, JPG, PNG (Tối đa 5MB)
-                </span>
+                  <span className="char-count">{title.length}/200</span>
+                </div>
                 <input
-                  id="file-upload"
-                  type="file"
-                  className="hidden-file-input"
-                  onChange={(e) => handleFileUpload(e.target.files)}
-                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  id="news-title"
+                  type="text"
+                  maxLength={200}
+                  className="mgmt-input"
+                  placeholder="Nhập tiêu đề tin tức..."
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
                 />
               </div>
 
-              {/* Uploaded attachments list */}
-              {attachments.length > 0 && (
-                <div className="attachments-list">
-                  {attachments.map((file, idx) => (
-                    <div key={idx} className="attachment-chip">
-                      <span className="file-name">{file.name}</span>
-                      <span className="file-size">({file.size})</span>
-                      <button
-                        type="button"
-                        className="file-remove-btn"
-                        onClick={() =>
-                          setAttachments(attachments.filter((_, i) => i !== idx))
-                        }
-                      >
-                        Bỏ chọn
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+              {/* Content field */}
+              <div className="form-group">
+                <label htmlFor="news-content" className="input-label required-label">
+                  Nội dung
+                </label>
+                <textarea
+                  id="news-content"
+                  rows={6}
+                  className="mgmt-textarea"
+                  placeholder="Nhập nội dung thông báo..."
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                />
+              </div>
 
-            {/* Action Buttons */}
-            <div className="editor-actions-row">
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => handleSave('Draft')}
-              >
-                Lưu nháp
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => handleSave('Published')}
-              >
-                Đăng tin
-              </button>
+              {/* Attachments drag & drop */}
+              <div className="form-group">
+                <label className="input-label">Tệp đính kèm</label>
+                <div
+                  className={`dropzone-box ${isDragging ? 'drag-over' : ''}`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDragging(true);
+                  }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragging(false);
+                    handleFileUpload(e.dataTransfer.files);
+                  }}
+                >
+                  <p className="dropzone-text">
+                    Kéo thả tệp vào đây hoặc{' '}
+                    <label htmlFor="file-upload" className="dropzone-browse-label">
+                      chọn tệp từ máy
+                    </label>
+                  </p>
+                  <span className="dropzone-hint">
+                    Định dạng: PDF, DOC, DOCX, JPG, PNG (Tối đa 5MB)
+                  </span>
+                  <input
+                    id="file-upload"
+                    type="file"
+                    className="hidden-file-input"
+                    onChange={(e) => handleFileUpload(e.target.files)}
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  />
+                </div>
+
+                {/* Uploaded attachments list */}
+                {attachments.length > 0 && (
+                  <div className="attachments-list" style={{ marginTop: '10px' }}>
+                    {attachments.map((file, idx) => (
+                      <div key={idx} className="attachment-chip">
+                        <span className="file-name">{file.name}</span>
+                        <span className="file-size">({file.size})</span>
+                        <button
+                          type="button"
+                          className="file-remove-btn"
+                          onClick={() =>
+                            setAttachments(attachments.filter((_, i) => i !== idx))
+                          }
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="editor-actions-row" style={{ marginTop: '24px' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setIsEditorOpen(false)}
+                >
+                  Đóng
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => handleSave('Draft')}
+                >
+                  Lưu nháp
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => handleSave('Published')}
+                >
+                  Đăng tin
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

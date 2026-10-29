@@ -1,8 +1,28 @@
-import React from 'react';
-import { BuildingIcon, ShieldIcon, WifiIcon, BedIcon } from './Icons';
-import { DORM_BUILDINGS } from '../data/dormData';
+import React, { useState, useEffect } from 'react';
+import { BuildingIcon, ShieldIcon, WifiIcon, BedIcon } from '../../components/Icons';
+import { dormInfoApi } from '../../services/api';
+
+interface DormBuilding {
+  name: string;
+  gender: string;
+  floors: number;
+  rooms: number;
+  status: string;
+}
 
 export const DormInfoSection: React.FC = () => {
+  const [buildings, setBuildings] = useState<DormBuilding[]>([]);
+
+  useEffect(() => {
+    dormInfoApi.getBuildings()
+      .then((data) => {
+        if (data && data.length > 0) {
+          setBuildings(data);
+        }
+      })
+      .catch((err) => console.error('Error fetching buildings:', err));
+  }, []);
+
   return (
     <section className="info-section-container" id="dorm-info">
       {/* Section Header */}
@@ -107,7 +127,7 @@ export const DormInfoSection: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {DORM_BUILDINGS.map((dom) => (
+              {buildings.map((dom) => (
                 <tr key={dom.name}>
                   <td><strong>{dom.name}</strong></td>
                   <td>{dom.gender}</td>

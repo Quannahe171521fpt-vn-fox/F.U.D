@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldIcon, BuildingIcon, WifiIcon } from './Icons';
+import { ShieldIcon, BuildingIcon, WifiIcon } from '../../components/Icons';
 
 export const AboutSection: React.FC = () => {
   return (

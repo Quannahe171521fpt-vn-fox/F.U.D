@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronLeftIcon, ChevronRightIcon } from './Icons';
+import { ChevronLeftIcon, ChevronRightIcon } from '../../components/Icons';
 
 interface Slide {
   badgeTitle: string;

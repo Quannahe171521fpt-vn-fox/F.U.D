@@ -1,13 +1,25 @@
-import React from 'react';
-import { ROOM_TYPES } from '../data/dormData';
-import { CheckIcon } from './Icons';
-import type { RoomType } from '../types/dormitory';
+import React, { useState, useEffect } from 'react';
+import { CheckIcon } from '../../components/Icons';
+import type { RoomType } from '../../types/dormitory';
+import { dormInfoApi } from '../../services/api';
 
 interface RoomTypesSectionProps {
   onSelectRoom: (roomId: string) => void;
 }
 
 export const RoomTypesSection: React.FC<RoomTypesSectionProps> = ({ onSelectRoom }) => {
+  const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
+
+  useEffect(() => {
+    dormInfoApi.getRoomTypes()
+      .then((data) => {
+        if (data && data.length > 0) {
+          setRoomTypes(data);
+        }
+      })
+      .catch((err) => console.error('Error fetching room types:', err));
+  }, []);
+
   return (
     <section className="room-types-section-container" id="room-types">
       <div className="section-header">
@@ -20,7 +32,7 @@ export const RoomTypesSection: React.FC<RoomTypesSectionProps> = ({ onSelectRoom
       </div>
 
       <div className="rooms-grid">
-        {ROOM_TYPES.map((room: RoomType) => (
+        {roomTypes.map((room: RoomType) => (
           <div key={room.id} className={`room-card ${room.popular ? 'highlighted' : ''}`}>
             {room.popular && <div className="popular-badge">Được lựa chọn nhiều nhất</div>}
             
@@ -48,38 +60,17 @@ export const RoomTypesSection: React.FC<RoomTypesSectionProps> = ({ onSelectRoom
               </ul>
             </div>
 
-            <button
-              type="button"
-              className={`select-room-btn ${room.popular ? 'primary' : 'secondary'}`}
-              onClick={() => onSelectRoom(room.id)}
-            >
-              Chọn đăng ký loại phòng này
-            </button>
+            <div className="room-action-box">
+              <button
+                type="button"
+                className={`btn-select-room ${room.popular ? 'primary' : 'outline'}`}
+                onClick={() => onSelectRoom(room.id)}
+              >
+                Chọn loại phòng này
+              </button>
+            </div>
           </div>
         ))}
-      </div>
-
-      {/* Electricity & Water Policy Form Box */}
-      <div className="utility-policy-box">
-        <h3 className="policy-title">Chính sách định mức điện nước & Phí dịch vụ đi kèm</h3>
-        <div className="policy-grid">
-          <div className="policy-item">
-            <strong>Định mức điện thoại thoại & quạt/đèn:</strong>
-            <p>Hỗ trợ định mức cơ bản 15 kWh/sinh viên/tháng. Sử dụng điều hòa vượt định mức tính theo công tơ điện tử riêng từng phòng.</p>
-          </div>
-          <div className="policy-item">
-            <strong>Định mức nước sinh hoạt:</strong>
-            <p>Cung cấp định mức nước sinh hoạt 4 m³/sinh viên/tháng, nước nóng sinh hoạt năng lượng mặt trời phục vụ liên tục.</p>
-          </div>
-          <div className="policy-item">
-            <strong>Wifi & Internet băng thông rộng:</strong>
-            <p>Miễn phí 100% trong suốt kỳ học với đường truyền cáp quang riêng cho từng khu ký túc xá.</p>
-          </div>
-          <div className="policy-item">
-            <strong>Vệ sinh & An ninh công cộng:</strong>
-            <p>Khu vực hành lang, thang bộ và khuôn viên được nhân viên tạp vụ dọn dẹp hàng ngày.</p>
-          </div>
-        </div>
       </div>
     </section>
   );

@@ -1,10 +1,11 @@
 import React, { useState, useId } from 'react';
-import type { EquipmentRecord, EquipmentCatalogItem } from '../types/management';
-import { AVAILABLE_LOCATIONS } from '../data/managementData';
+import type { EquipmentRecord, EquipmentCatalogItem } from '../../types/management';
+import { AVAILABLE_LOCATIONS } from '../../data/managementData';
 
 interface EquipmentManagementProps {
   equipmentList: EquipmentRecord[];
   catalogList: EquipmentCatalogItem[];
+  locationList?: string[];
   onSaveEquipment: (record: EquipmentRecord) => void;
   onDeleteEquipment: (id: number) => void;
   onSaveCatalogItem: (item: EquipmentCatalogItem) => void;
@@ -304,8 +305,8 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
       </div>
 
       {activeTab === 'records' ? (
-        <div className="mgmt-main-grid">
-          {/* Left Side: Equipment Records List */}
+        <div className="mgmt-full-grid">
+          {/* Equipment Records List */}
           <div className="mgmt-card list-card">
             <div className="card-header-flex">
               <div>
@@ -480,159 +481,6 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
               </div>
             )}
           </div>
-
-          {/* Right Side: Add / Edit Equipment Form */}
-          <div className={`mgmt-card editor-card ${isEquipFormOpen ? 'editor-active' : ''}`}>
-            <div className="card-header-flex">
-              <div>
-                <span className="mgmt-subheading">
-                  {editingEquipId ? 'Cập nhật' : 'Thêm mới'}
-                </span>
-                <h2 className="card-heading">
-                  {editingEquipId ? 'Sửa thông tin thiết bị' : 'Thêm thiết bị mới'}
-                </h2>
-              </div>
-              {isEquipFormOpen && (
-                <button
-                  type="button"
-                  className="close-editor-btn"
-                  onClick={() => setIsEquipFormOpen(false)}
-                  title="Đóng form"
-                >
-                  Đóng
-                </button>
-              )}
-            </div>
-
-            {generalError && (
-              <div className="mgmt-error-alert">
-                <span>{generalError}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSaveEquipment} className="editor-form-body">
-              {/* Asset Code */}
-              <div className="form-group">
-                <div className="label-row">
-                  <label htmlFor="equip-asset-code" className="input-label required-label">
-                    Mã tài sản (Asset Code)
-                  </label>
-                  <span className="form-hint-inline">Mã duy nhất</span>
-                </div>
-                <input
-                  id="equip-asset-code"
-                  type="text"
-                  maxLength={30}
-                  className={`mgmt-input ${inlineAssetError ? 'input-error' : ''}`}
-                  placeholder="Ví dụ: TB-000120"
-                  value={assetCode}
-                  onChange={(e) => {
-                    setAssetCode(e.target.value);
-                    if (inlineAssetError) setInlineAssetError(null);
-                  }}
-                  required
-                />
-                {inlineAssetError && (
-                  <p className="inline-error-text">{inlineAssetError}</p>
-                )}
-              </div>
-
-              {/* Danh mục */}
-              <div className="form-group">
-                <label htmlFor="equip-catalog-select" className="input-label required-label">
-                  Danh mục loại thiết bị
-                </label>
-                <select
-                  id="equip-catalog-select"
-                  className="mgmt-select"
-                  value={selectedCategory}
-                  onChange={(e) => {
-                    setSelectedCategory(e.target.value);
-                    setEquipName(e.target.value);
-                  }}
-                  required
-                >
-                  {catalogList.map((cat) => (
-                    <option key={cat.id} value={cat.name}>
-                      {cat.name} ({cat.category})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Tên thiết bị */}
-              <div className="form-group">
-                <div className="label-row">
-                  <label htmlFor="equip-name-input" className="input-label required-label">
-                    Tên thiết bị
-                  </label>
-                  <span className="char-count">{equipName.length}/100</span>
-                </div>
-                <input
-                  id="equip-name-input"
-                  type="text"
-                  maxLength={100}
-                  className="mgmt-input"
-                  placeholder="Ví dụ: Quạt treo tường Mitsubishi..."
-                  value={equipName}
-                  onChange={(e) => setEquipName(e.target.value)}
-                  required
-                />
-              </div>
-
-              {/* Gán vào Phòng / Giường */}
-              <div className="form-group">
-                <label htmlFor="equip-location-select" className="input-label required-label">
-                  Vị trí phân bổ (Phòng / Giường)
-                </label>
-                <select
-                  id="equip-location-select"
-                  className="mgmt-select"
-                  value={selectedLocation}
-                  onChange={(e) => setSelectedLocation(e.target.value)}
-                  required
-                >
-                  {AVAILABLE_LOCATIONS.map((loc) => (
-                    <option key={loc} value={loc}>
-                      {loc}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Tình trạng */}
-              <div className="form-group">
-                <label htmlFor="equip-condition-select" className="input-label required-label">
-                  Tình trạng hoạt động
-                </label>
-                <select
-                  id="equip-condition-select"
-                  className="mgmt-select"
-                  value={equipCondition}
-                  onChange={(e) => setEquipCondition(e.target.value as any)}
-                  required
-                >
-                  <option value="Good">Tốt</option>
-                  <option value="Under repair">Đang sửa chữa</option>
-                  <option value="Broken">Hỏng</option>
-                </select>
-              </div>
-
-              {/* Action Buttons: Lưu / Hủy */}
-              <div className="editor-actions-row">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setIsEquipFormOpen(false)}
-                >
-                  Hủy
-                </button>
-                <button type="submit" className="btn-primary">
-                  Lưu thiết bị
-                </button>
-              </div>
-            </form>
-          </div>
         </div>
       ) : (
         /* Equipment Catalog Management Tab */
@@ -754,6 +602,161 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* POPUP MODAL: Add / Edit Equipment (Thay vì để form bên cạnh) */}
+      {isEquipFormOpen && (
+        <div className="modal-backdrop" onClick={() => setIsEquipFormOpen(false)}>
+          <div className="modal-card modal-editor-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title-wrap">
+                <span className="mgmt-subheading">
+                  {editingEquipId ? 'Cập nhật' : 'Thêm mới'}
+                </span>
+                <h3 className="modal-title">
+                  {editingEquipId ? 'Sửa thông tin thiết bị' : 'Thêm thiết bị mới'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setIsEquipFormOpen(false)}
+                title="Đóng popup"
+              >
+                ✕
+              </button>
+            </div>
+
+            {generalError && (
+              <div className="mgmt-error-alert" style={{ marginBottom: '16px' }}>
+                <span>{generalError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveEquipment} className="editor-form-body">
+              {/* Asset Code */}
+              <div className="form-group">
+                <div className="label-row">
+                  <label htmlFor="equip-asset-code" className="input-label required-label">
+                    Mã tài sản (Asset Code)
+                  </label>
+                  <span className="form-hint-inline">Mã duy nhất</span>
+                </div>
+                <input
+                  id="equip-asset-code"
+                  type="text"
+                  maxLength={30}
+                  className={`mgmt-input ${inlineAssetError ? 'input-error' : ''}`}
+                  placeholder="Ví dụ: TB-000120"
+                  value={assetCode}
+                  onChange={(e) => {
+                    setAssetCode(e.target.value);
+                    if (inlineAssetError) setInlineAssetError(null);
+                  }}
+                  required
+                />
+                {inlineAssetError && (
+                  <p className="inline-error-text">{inlineAssetError}</p>
+                )}
+              </div>
+
+              {/* Danh mục */}
+              <div className="form-group">
+                <label htmlFor="equip-catalog-select" className="input-label required-label">
+                  Danh mục loại thiết bị
+                </label>
+                <select
+                  id="equip-catalog-select"
+                  className="mgmt-select"
+                  value={selectedCategory}
+                  onChange={(e) => {
+                    setSelectedCategory(e.target.value);
+                    setEquipName(e.target.value);
+                  }}
+                  required
+                >
+                  {catalogList.map((cat) => (
+                    <option key={cat.id} value={cat.name}>
+                      {cat.name} ({cat.category})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Tên thiết bị */}
+              <div className="form-group">
+                <div className="label-row">
+                  <label htmlFor="equip-name-input" className="input-label required-label">
+                    Tên thiết bị
+                  </label>
+                  <span className="char-count">{equipName.length}/100</span>
+                </div>
+                <input
+                  id="equip-name-input"
+                  type="text"
+                  maxLength={100}
+                  className="mgmt-input"
+                  placeholder="Ví dụ: Quạt treo tường Mitsubishi..."
+                  value={equipName}
+                  onChange={(e) => setEquipName(e.target.value)}
+                  required
+                />
+              </div>
+
+              {/* Gán vào Phòng / Giường */}
+              <div className="form-group">
+                <label htmlFor="equip-location-select" className="input-label required-label">
+                  Vị trí phân bổ (Phòng / Giường)
+                </label>
+                <select
+                  id="equip-location-select"
+                  className="mgmt-select"
+                  value={selectedLocation}
+                  onChange={(e) => setSelectedLocation(e.target.value)}
+                  required
+                >
+                  {AVAILABLE_LOCATIONS.map((loc) => (
+                    <option key={loc} value={loc}>
+                      {loc}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Tình trạng */}
+              <div className="form-group">
+                <label htmlFor="equip-condition-select" className="input-label required-label">
+                  Tình trạng hoạt động
+                </label>
+                <select
+                  id="equip-condition-select"
+                  className="mgmt-select"
+                  value={equipCondition}
+                  onChange={(e) => setEquipCondition(e.target.value as any)}
+                  required
+                >
+                  <option value="Good">Tốt</option>
+                  <option value="Under repair">Đang sửa chữa</option>
+                  <option value="Broken">Hỏng</option>
+                </select>
+              </div>
+
+              {/* Action Buttons: Lưu / Hủy */}
+              <div className="editor-actions-row" style={{ marginTop: '24px' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setIsEquipFormOpen(false)}
+                >
+                  Hủy
+                </button>
+                <button type="submit" className="btn-primary">
+                  Lưu thiết bị
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
