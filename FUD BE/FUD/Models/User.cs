@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace FUD.Models;
@@ -31,6 +31,12 @@ public partial class User
 
     public DateTime CreatedAt { get; set; }
 
+    public DateTime? DeletedAt { get; set; }
+
+    public int FailedLoginCount { get; set; }
+
+    public DateTime? LockoutEnd { get; set; }
+
     public virtual Admin? Admin { get; set; }
 
     public virtual ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
@@ -42,6 +48,8 @@ public partial class User
     public virtual Manager? Manager { get; set; }
 
     public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
+
+    public virtual ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
 
     public virtual ICollection<RequestLog> RequestLogs { get; set; } = new List<RequestLog>();
 

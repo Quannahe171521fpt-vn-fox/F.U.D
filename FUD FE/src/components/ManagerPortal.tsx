@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { EquipmentManagement } from './EquipmentManagement';
 import { NewsManagement } from './NewsManagement';
+import { useAuth } from '../contexts/AuthContext';
 import type { NewsItem, EquipmentRecord, EquipmentCatalogItem } from '../types/management';
 
 interface ManagerPortalProps {
@@ -30,6 +31,17 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({
 }) => {
   // Sidebar navigation tabs
   const [activeTab, setActiveTab] = useState<'equipment' | 'news'>('equipment');
+  const { currentUser } = useAuth();
+
+  const roleBadge = currentUser?.primaryRole === 'Admin'
+    ? 'Quản trị viên (Admin)'
+    : currentUser?.primaryRole === 'Guard'
+      ? 'Đội Bảo vệ (Guard)'
+      : 'Ban Quản lý (Manager)';
+
+  const subText = currentUser?.fullName
+    ? `${currentUser.fullName} (${currentUser.code})`
+    : 'Cổng nghiệp vụ cán bộ';
 
   // Counts
   const brokenCount = equipmentList.filter((e) => e.condition === 'Broken' || e.condition === 'Under repair').length;
@@ -40,9 +52,9 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({
       {/* 1. Dedicated Admin Sidebar (Without logout or student info links) */}
       <aside className="manager-sidebar">
         <div className="sidebar-brand-block">
-          <div className="sidebar-brand-badge">Ban Quản lý</div>
+          <div className="sidebar-brand-badge">{roleBadge}</div>
           <h2 className="sidebar-brand-title">Hệ thống KTX FUD</h2>
-          <span className="sidebar-subtext">Cổng nghiệp vụ cán bộ</span>
+          <span className="sidebar-subtext">{subText}</span>
         </div>
 
         <nav className="sidebar-nav-list">

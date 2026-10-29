@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { Logo } from './Icons';
+import { useAuth } from '../contexts/AuthContext';
 
 interface NavbarProps {
   onOpenLogin: () => void;
   onNavigate: (sectionId: string) => void;
-  currentRole: 'guest' | 'student' | 'staff';
-  currentView: 'home' | 'announcements' | 'management';
-  onChangeView: (view: 'home' | 'announcements' | 'management') => void;
+  currentRole: 'guest' | 'student' | 'manager';
+  currentView: 'home' | 'announcements' | 'management' | 'admin' | 'guard';
+  onChangeView: (view: 'home' | 'announcements' | 'management' | 'admin' | 'guard') => void;
   onLogout: () => void;
 }
 
@@ -18,10 +19,22 @@ export const Navbar: React.FC<NavbarProps> = ({
   onChangeView,
   onLogout,
 }) => {
+  const { currentUser } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // If in Management Portal: keep minimal header with only Logo, Name and Logout
-  if (currentView === 'management') {
+  const getRoleDisplayName = () => {
+    if (!currentUser) return currentRole === 'manager' ? 'Cán bộ KTX' : 'Sinh viên';
+    const roleMap: Record<string, string> = {
+      Admin: 'Quản trị viên',
+      Manager: 'Ban Quản lý',
+      Guard: 'Đội Bảo vệ',
+      Student: 'Sinh viên',
+    };
+    return `${currentUser.fullName} (${roleMap[currentUser.primaryRole] || currentUser.primaryRole})`;
+  };
+
+  // If in Management Portal, Admin Portal, or Guard Portal: keep minimal header with only Logo, Name and Logout
+  if (currentView === 'management' || currentView === 'admin' || currentView === 'guard') {
     return (
       <header className="navbar-container">
         <div className="navbar-inner navbar-minimal">
@@ -30,7 +43,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
           <div className="navbar-right-minimal">
             <div className="user-action-group">
-              <span className="user-role-label">Cán bộ KTX</span>
+              <span className="user-role-label">{getRoleDisplayName()}</span>
               <button
                 type="button"
                 onClick={onLogout}
@@ -146,7 +159,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {currentRole !== 'guest' ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span className="user-role-label">
-                {currentRole === 'staff' ? 'Cán bộ KTX' : 'Sinh viên'}
+                {getRoleDisplayName()}
               </span>
               <button
                 type="button"
