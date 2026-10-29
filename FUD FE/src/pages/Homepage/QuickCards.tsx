@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRightIcon } from './Icons';
+import { ArrowRightIcon } from '../../components/Icons';
 
 interface QuickCardsProps {
   onSelectAction: (sectionId: string) => void;

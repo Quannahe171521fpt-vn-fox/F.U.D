@@ -1,5 +1,5 @@
 import React from 'react';
-import { PhoneIcon, MailIcon, ClockIcon, BuildingIcon, WrenchIcon, ShieldIcon } from './Icons';
+import { PhoneIcon, MailIcon, ClockIcon, BuildingIcon, WrenchIcon, ShieldIcon } from '../../components/Icons';
 
 export const SupportAndFeedbackSection: React.FC = () => {
   return (

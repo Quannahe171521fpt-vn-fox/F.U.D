@@ -1,13 +1,25 @@
-import React, { useState } from 'react';
-import { FAQS } from '../data/dormData';
-import { ChevronRightIcon } from './Icons';
+import React, { useState, useEffect } from 'react';
+import { ChevronRightIcon } from '../../components/Icons';
+import type { FaqItem } from '../../types/dormitory';
+import { dormInfoApi } from '../../services/api';
 
 export const FaqSection: React.FC = () => {
+  const [faqs, setFaqs] = useState<FaqItem[]>([]);
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [expandedId, setExpandedId] = useState<string | null>('faq-1');
 
-  const filteredFaqs = FAQS.filter((faq) => {
+  useEffect(() => {
+    dormInfoApi.getFaqs()
+      .then((data) => {
+        if (data && data.length > 0) {
+          setFaqs(data);
+        }
+      })
+      .catch((err) => console.error('Error fetching FAQs:', err));
+  }, []);
+
+  const filteredFaqs = faqs.filter((faq) => {
     const matchesCategory = activeCategory === 'all' || faq.category === activeCategory;
     const matchesQuery =
       faq.question.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -73,21 +85,24 @@ export const FaqSection: React.FC = () => {
         <div className="faq-search-box">
           <input
             type="text"
-            placeholder="Tìm kiếm câu hỏi (ví dụ: giờ giới nghiêm, đổi phòng, điện nước...)"
+            className="faq-search-input"
+            placeholder="Tìm kiếm câu hỏi hoặc nội dung..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="faq-search-input"
           />
         </div>
       </div>
 
-      {/* Accordion List */}
+      {/* FAQ Accordion List */}
       <div className="faq-accordion-list">
         {filteredFaqs.length > 0 ? (
           filteredFaqs.map((faq) => {
             const isExpanded = expandedId === faq.id;
             return (
-              <div key={faq.id} className={`faq-item ${isExpanded ? 'open' : ''}`}>
+              <div
+                key={faq.id}
+                className={`faq-item ${isExpanded ? 'expanded' : ''}`}
+              >
                 <button
                   type="button"
                   className="faq-question-btn"
@@ -95,8 +110,8 @@ export const FaqSection: React.FC = () => {
                   aria-expanded={isExpanded}
                 >
                   <span className="faq-question-text">{faq.question}</span>
-                  <span className={`faq-arrow-icon ${isExpanded ? 'rotated' : ''}`}>
-                    <ChevronRightIcon size={20} />
+                  <span className="faq-icon-arrow">
+                    <ChevronRightIcon size={18} />
                   </span>
                 </button>
                 {isExpanded && (
@@ -108,8 +123,8 @@ export const FaqSection: React.FC = () => {
             );
           })
         ) : (
-          <div className="faq-empty-state">
-            <p>Không tìm thấy câu hỏi phù hợp với từ khóa "{searchQuery}".</p>
+          <div className="empty-faq-message">
+            Không tìm thấy câu hỏi phù hợp với từ khóa của bạn.
           </div>
         )}
       </div>

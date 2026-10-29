@@ -24,6 +24,23 @@ namespace FUD
             builder.Services.AddScoped<IBlockService, BlockService>();
             builder.Services.AddScoped<IRoomService, RoomService>();
 
+            // ── Facilities: UC28 Equipment & UC29 News ─────────────────
+            builder.Services.AddScoped<IEquipmentRepository, EquipmentRepository>();
+            builder.Services.AddScoped<IEquipmentService, EquipmentService>();
+            builder.Services.AddScoped<INewsRepository, NewsRepository>();
+            builder.Services.AddScoped<INewsService, NewsService>();
+
+            // CORS policy for Frontend Vite
+            builder.Services.AddCors(options =>
+            {
+                options.AddPolicy("AllowAll", policy =>
+                {
+                    policy.AllowAnyOrigin()
+                          .AllowAnyHeader()
+                          .AllowAnyMethod();
+                });
+            });
+
             // Add services to the container.
             builder.Services.AddControllers();
             builder.Services.AddEndpointsApiExplorer();
@@ -60,10 +77,11 @@ namespace FUD
                 app.UseSwaggerUI();
             }
 
+            app.UseCors("AllowAll");
+
             app.UseHttpsRedirection();
 
             app.UseAuthorization();
-
 
             app.MapControllers();
 

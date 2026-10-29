@@ -1365,3 +1365,16 @@
   border-radius: 8px;
   color: #64748b;
 }
+
+/* Full Screen Table Layout for Management Pages when form is modal */
+.mgmt-full-grid {
+  display: block;
+  width: 100%;
+}
+
+.modal-editor-dialog {
+  max-width: 600px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
