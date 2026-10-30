@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 
@@ -82,6 +82,8 @@ public partial class FudContext : DbContext
     public virtual DbSet<PriceList> PriceLists { get; set; }
 
     public virtual DbSet<Refund> Refunds { get; set; }
+
+    public virtual DbSet<RefreshToken> RefreshTokens { get; set; }
 
     public virtual DbSet<RegistrationPeriod> RegistrationPeriods { get; set; }
 
@@ -1716,6 +1718,27 @@ public partial class FudContext : DbContext
                 .ToView("vw_Student_Outstanding");
 
             entity.Property(e => e.OutstandingAmount).HasColumnType("decimal(38, 2)");
+        });
+
+        modelBuilder.Entity<RefreshToken>(entity =>
+        {
+            entity.ToTable("Refresh_Tokens");
+
+            entity.HasKey(e => e.Id);
+
+            entity.HasIndex(e => e.TokenHash, "UX_RefreshTokens_TokenHash").IsUnique();
+            entity.HasIndex(e => e.UserId, "IX_RefreshTokens_UserId");
+
+            entity.Property(e => e.TokenHash).HasMaxLength(64).IsUnicode(false);
+            entity.Property(e => e.ReplacedByTokenHash).HasMaxLength(64).IsUnicode(false);
+            entity.Property(e => e.CreatedByIp).HasMaxLength(50).IsUnicode(false);
+            entity.Property(e => e.RevokedByIp).HasMaxLength(50).IsUnicode(false);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
+
+            entity.HasOne(d => d.User).WithMany(p => p.RefreshTokens)
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_RefreshTokens_Users");
         });
 
         OnModelCreatingPartial(modelBuilder);

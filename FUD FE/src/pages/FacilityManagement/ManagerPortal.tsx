@@ -3,8 +3,22 @@ import { EquipmentManagement } from './EquipmentManagement';
 import { NewsManagement } from './NewsManagement';
 import type { NewsItem, EquipmentRecord, EquipmentCatalogItem } from '../../types/management';
 import { equipmentApi, newsApi } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
+
 
 export const ManagerPortal: React.FC = () => {
+  const { currentUser } = useAuth();
+
+  const roleBadge = currentUser?.primaryRole === 'Admin'
+    ? 'Quản trị viên (Admin)'
+    : currentUser?.primaryRole === 'Guard'
+      ? 'Đội Bảo vệ (Guard)'
+      : 'Ban Quản lý (Manager)';
+
+  const subText = currentUser?.fullName
+    ? `${currentUser.fullName} (${currentUser.code})`
+    : 'Cổng nghiệp vụ cán bộ (Database)';
+
   // Sidebar navigation tabs
   const [activeTab, setActiveTab] = useState<'equipment' | 'news'>(() => {
     return (localStorage.getItem('fud_managerTab') as 'equipment' | 'news') || 'equipment';
@@ -225,9 +239,9 @@ export const ManagerPortal: React.FC = () => {
       {/* 1. Dedicated Admin Sidebar */}
       <aside className="manager-sidebar">
         <div className="sidebar-brand-block">
-          <div className="sidebar-brand-badge">Ban Quản lý</div>
+          <div className="sidebar-brand-badge">{roleBadge}</div>
           <h2 className="sidebar-brand-title">Hệ thống KTX FUD</h2>
-          <span className="sidebar-subtext">Cổng nghiệp vụ cán bộ (Database)</span>
+          <span className="sidebar-subtext">{subText}</span>
         </div>
 
         <nav className="sidebar-nav-list">

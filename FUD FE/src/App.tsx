@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { LoginModal } from './components/LoginModal';
-
+import { AdminPortal } from './components/AdminPortal';
+import { GuardPortal } from './components/GuardPortal';
+import { useAuth } from './contexts/AuthContext';
 // Pages split into dedicated folders
 import { HomePage } from './pages/Homepage/HomePage';
 import { ManagerPortal } from './pages/FacilityManagement/ManagerPortal';
@@ -15,12 +17,16 @@ import './styles/dormitory.css';
 import './styles/management.css';
 
 export function App() {
+  const { currentUser, logout: authLogout } = useAuth();
+
   const [isLoginOpen, setIsLoginOpen] = useState(false);
-  const [userRole, setUserRole] = useState<'guest' | 'student' | 'staff'>(() => {
-    return (localStorage.getItem('fud_userRole') as 'guest' | 'student' | 'staff') || 'guest';
+
+  const [userRole, setUserRole] = useState<'guest' | 'student' | 'manager'>(() => {
+    return (localStorage.getItem('fud_userRole') as 'guest' | 'student' | 'manager') || 'guest';
   });
-  const [currentView, setCurrentView] = useState<'home' | 'announcements' | 'management'>(() => {
-    const saved = localStorage.getItem('fud_currentView') as 'home' | 'announcements' | 'management';
+  // Main views: home, announcements, management (Ban Quản lý), admin (Quản trị viên), guard (Đội Bảo vệ)
+  const [currentView, setCurrentView] = useState<'home' | 'announcements' | 'management' | 'admin' | 'guard'>(() => {
+    const saved = localStorage.getItem('fud_currentView') as 'home' | 'announcements' | 'management' | 'admin' | 'guard';
     return saved || 'home';
   });
   const [selectedRoomId, setSelectedRoomId] = useState('room-4');
@@ -65,6 +71,32 @@ export function App() {
     fetchPublicNews();
   }, [currentView]);
 
+  useEffect(() => {
+    if (currentUser) {
+      const role = currentUser.primaryRole;
+      if (role === 'Admin') {
+        setUserRole('manager');
+        setCurrentView('admin');
+      } else if (role === 'Guard') {
+        setUserRole('manager');
+        setCurrentView('guard');
+      } else if (role === 'Manager') {
+        setUserRole('manager');
+        setCurrentView('management');
+      } else {
+        setUserRole('student');
+        if (currentView === 'management' || currentView === 'admin' || currentView === 'guard') {
+          setCurrentView('home');
+        }
+      }
+    } else {
+      setUserRole('guest');
+      if (currentView === 'management' || currentView === 'admin' || currentView === 'guard') {
+        setCurrentView('home');
+      }
+    }
+  }, [currentUser]);
+
   const scrollToSection = (sectionId: string) => {
     const el = document.getElementById(sectionId);
     if (el) {
@@ -77,14 +109,12 @@ export function App() {
     scrollToSection('registration-guide');
   };
 
-  const handleLoginSuccess = (role: 'student' | 'staff') => {
-    setUserRole(role);
-    if (role === 'staff') {
-      setCurrentView('management');
-    }
+  const handleLoginSuccess = () => {
+    // Điều hướng được tự động xử lý chuẩn xác theo currentUser.primaryRole trong useEffect
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await authLogout();
     setUserRole('guest');
     setCurrentView('home');
     localStorage.removeItem('fud_userRole');
@@ -103,7 +133,17 @@ export function App() {
         onLogout={handleLogout}
       />
 
-      {/* VIEW 1: Dedicated Management Portal in Facility Management folder (UC28 & UC29) */}
+      {/* VIEW 0: Admin Portal (Trang quản trị hệ thống dành riêng cho Admin) */}
+      {currentView === 'admin' && (
+        <AdminPortal onLogout={handleLogout} />
+      )}
+
+      {/* VIEW 0.5: Guard Portal (Trang nghiệp vụ dành riêng cho Bảo vệ) */}
+      {currentView === 'guard' && (
+        <GuardPortal onLogout={handleLogout} />
+      )}
+
+      {/* VIEW 1: Dedicated Management Portal with Sidebar (Ban Quản lý) */}
       {currentView === 'management' && (
         <ManagerPortal />
       )}
@@ -128,18 +168,16 @@ export function App() {
         />
       )}
 
-      {/* Footer */}
-      {currentView !== 'management' && (
-        <Footer
-          onNavigate={(sec) => {
-            if (currentView !== 'home') {
-              setCurrentView('home');
-              setTimeout(() => scrollToSection(sec), 100);
-            } else {
-              scrollToSection(sec);
-            }
-          }}
-        />
+      {/* Footer is only rendered on Homepage & Announcements, keeping Portals layout clean without line cuts */}
+      {currentView !== 'management' && currentView !== 'admin' && currentView !== 'guard' && (
+        <Footer onNavigate={(sec) => {
+          if (currentView !== 'home') {
+            setCurrentView('home');
+            setTimeout(() => scrollToSection(sec), 100);
+          } else {
+            scrollToSection(sec);
+          }
+        }} />
       )}
 
       {/* Login Modal */}
