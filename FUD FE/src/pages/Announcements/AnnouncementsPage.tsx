@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { NewsItem } from '../types/management';
+import type { NewsItem } from '../../types/management';
 
 interface AnnouncementsPageProps {
   newsList: NewsItem[];

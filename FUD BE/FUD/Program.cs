@@ -92,6 +92,13 @@ builder.Services.AddRateLimiter(options =>
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() 
                      ?? new[] { "http://localhost:5173" };
 
+
+// ── Facilities: UC28 Equipment & UC29 News ─────────────────
+builder.Services.AddScoped<IEquipmentRepository, EquipmentRepository>();
+builder.Services.AddScoped<IEquipmentService, EquipmentService>();
+builder.Services.AddScoped<INewsRepository, NewsRepository>();
+builder.Services.AddScoped<INewsService, NewsService>();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("FrontendOnly", policy =>
@@ -102,6 +109,22 @@ builder.Services.AddCors(options =>
               .AllowCredentials();
     });
 });
+// CORS policy for Frontend Vite
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
+});
+
+// Add services to the container.
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
 
 // 6. Authentication & JWT Bearer
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -155,6 +178,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
+
 // 7. Authorization Policies
 builder.Services.AddAuthorization(options =>
 {
@@ -162,11 +186,12 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("RequireManager", policy => policy.RequireRole("Manager"));
     options.AddPolicy("RequireGuard", policy => policy.RequireRole("Guard"));
     options.AddPolicy("RequireStudent", policy => policy.RequireRole("Student"));
-
+      
     options.FallbackPolicy = new AuthorizationPolicyBuilder()
         .RequireAuthenticatedUser()
         .Build();
 });
+
 
 // 8. Dependency Injection
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();

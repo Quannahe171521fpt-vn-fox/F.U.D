@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckIcon, ClockIcon, BuildingIcon, PhoneIcon } from './Icons';
+import { CheckIcon, ClockIcon, BuildingIcon, PhoneIcon } from '../../components/Icons';
 
 interface RegistrationProps {
   selectedRoomId?: string;

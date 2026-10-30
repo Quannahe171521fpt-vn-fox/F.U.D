@@ -99,13 +99,15 @@ export const Navbar: React.FC<NavbarProps> = ({
             Trang chủ
           </button>
 
-          <button
-            type="button"
-            onClick={() => onChangeView('announcements')}
-            className={`nav-link ${currentView === 'announcements' ? 'active-nav font-bold' : ''}`}
-          >
-            Thông báo
-          </button>
+          {currentRole !== 'guest' && (
+            <button
+              type="button"
+              onClick={() => onChangeView('announcements')}
+              className={`nav-link ${currentView === 'announcements' ? 'active-nav font-bold' : ''}`}
+            >
+              Thông báo
+            </button>
+          )}
 
           <button
             type="button"
@@ -207,16 +209,18 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             Trang chủ
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              onChangeView('announcements');
-              setMobileMenuOpen(false);
-            }}
-            className="mobile-nav-link"
-          >
-            Thông báo
-          </button>
+          {currentRole !== 'guest' && (
+            <button
+              type="button"
+              onClick={() => {
+                onChangeView('announcements');
+                setMobileMenuOpen(false);
+              }}
+              className="mobile-nav-link"
+            >
+              Thông báo
+            </button>
+          )}
           <button
             type="button"
             onClick={() => handleNavClick('dorm-info')}

@@ -4,6 +4,8 @@ export interface NewsItem {
   content: string;
   status: 'Published' | 'Draft';
   publishedDate: string | null; // formatted as dd/MM/yyyy or null for draft
+  createdDate?: string | null;
+  hiddenDate?: string | null;
   attachments?: {
     name: string;
     size: string;
