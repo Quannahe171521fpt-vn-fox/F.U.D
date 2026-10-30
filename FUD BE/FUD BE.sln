@@ -5,8 +5,7 @@ VisualStudioVersion = 17.9.34728.123
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FUD", "FUD\FUD.csproj", "{31EA8618-AD98-4024-AA41-F9D1F1158D7A}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FUD.Tests", "FUD.Tests\FUD.Tests.csproj", "{B13D767E-595D-4921-B0E3-F05A7E07B469}"
-EndProject
+
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
