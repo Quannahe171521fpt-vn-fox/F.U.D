@@ -1,4 +1,4 @@
-using FUD.Common;
+﻿using FUD.Common;
 using FUD.DTOs.Facilities.News;
 using FUD.Services.Interfaces.Facilities;
 using Microsoft.AspNetCore.Mvc;
@@ -24,6 +24,7 @@ namespace FUD.Controllers.Facilities
         }
 
         [HttpGet("published")]
+        [Microsoft.AspNetCore.Authorization.AllowAnonymous]
         public async Task<IActionResult> GetPublished()
         {
             var list = await _service.GetPublishedAsync();

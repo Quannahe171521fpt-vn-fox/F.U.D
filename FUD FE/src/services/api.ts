@@ -1,4 +1,5 @@
-const BASE_URL = 'http://localhost:5145/api';
+import { authFetch } from './apiClient';
+const BASE_URL = '/api';
 
 export interface PagedResult<T> {
   items: T[];
@@ -23,14 +24,14 @@ export const equipmentApi = {
     if (params?.page) query.append('page', params.page.toString());
     if (params?.pageSize) query.append('pageSize', params.pageSize.toString());
 
-    const res = await fetch(`${BASE_URL}/facilities/equipment?${query.toString()}`);
+    const res = await authFetch(`${BASE_URL}/facilities/equipment?${query.toString()}`);
     if (!res.ok) throw new Error('Không thể tải danh sách thiết bị');
     const json: ApiResponse<PagedResult<any>> = await res.json();
     return json.data;
   },
 
   getById: async (id: number) => {
-    const res = await fetch(`${BASE_URL}/facilities/equipment/${id}`);
+    const res = await authFetch(`${BASE_URL}/facilities/equipment/${id}`);
     const json = await res.json();
     return json.data;
   },
@@ -44,7 +45,7 @@ export const equipmentApi = {
     purchaseDate?: string;
     note?: string;
   }) => {
-    const res = await fetch(`${BASE_URL}/facilities/equipment`, {
+    const res = await authFetch(`${BASE_URL}/facilities/equipment`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -64,7 +65,7 @@ export const equipmentApi = {
     purchaseDate?: string;
     note?: string;
   }) => {
-    const res = await fetch(`${BASE_URL}/facilities/equipment/${id}`, {
+    const res = await authFetch(`${BASE_URL}/facilities/equipment/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -77,7 +78,7 @@ export const equipmentApi = {
   },
 
   move: async (id: number, payload: { roomId: number; bedId?: number | null }) => {
-    const res = await fetch(`${BASE_URL}/facilities/equipment/${id}/move`, {
+    const res = await authFetch(`${BASE_URL}/facilities/equipment/${id}/move`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -90,7 +91,7 @@ export const equipmentApi = {
   },
 
   changeCondition: async (id: number, condition: string) => {
-    const res = await fetch(`${BASE_URL}/facilities/equipment/${id}/condition`, {
+    const res = await authFetch(`${BASE_URL}/facilities/equipment/${id}/condition`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ condition }),
@@ -103,7 +104,7 @@ export const equipmentApi = {
   },
 
   liquidate: async (id: number) => {
-    const res = await fetch(`${BASE_URL}/facilities/equipment/${id}/liquidate`, {
+    const res = await authFetch(`${BASE_URL}/facilities/equipment/${id}/liquidate`, {
       method: 'POST',
     });
     const json = await res.json();
@@ -114,19 +115,19 @@ export const equipmentApi = {
   },
 
   getRepairHistory: async (id: number) => {
-    const res = await fetch(`${BASE_URL}/facilities/equipment/${id}/repair-history`);
+    const res = await authFetch(`${BASE_URL}/facilities/equipment/${id}/repair-history`);
     const json = await res.json();
     return json.data || [];
   },
 
   getCatalogs: async () => {
-    const res = await fetch(`${BASE_URL}/facilities/equipment/catalogs`);
+    const res = await authFetch(`${BASE_URL}/facilities/equipment/catalogs`);
     const json = await res.json();
     return json.data || [];
   },
 
   createCatalog: async (payload: { category: string; name: string }) => {
-    const res = await fetch(`${BASE_URL}/facilities/equipment/catalogs`, {
+    const res = await authFetch(`${BASE_URL}/facilities/equipment/catalogs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -139,7 +140,7 @@ export const equipmentApi = {
   },
 
   deleteCatalog: async (id: number) => {
-    const res = await fetch(`${BASE_URL}/facilities/equipment/catalogs/${id}`, {
+    const res = await authFetch(`${BASE_URL}/facilities/equipment/catalogs/${id}`, {
       method: 'DELETE',
     });
     const json = await res.json();
@@ -150,7 +151,7 @@ export const equipmentApi = {
   },
 
   getLocations: async () => {
-    const res = await fetch(`${BASE_URL}/facilities/equipment/locations`);
+    const res = await authFetch(`${BASE_URL}/facilities/equipment/locations`);
     const json = await res.json();
     return json.data || [];
   },
@@ -166,21 +167,21 @@ export const newsApi = {
     if (params?.page) query.append('page', params.page.toString());
     if (params?.pageSize) query.append('pageSize', params.pageSize.toString());
 
-    const res = await fetch(`${BASE_URL}/facilities/news?${query.toString()}`);
+    const res = await authFetch(`${BASE_URL}/facilities/news?${query.toString()}`);
     if (!res.ok) throw new Error('Không thể tải danh sách tin tức');
     const json: ApiResponse<PagedResult<any>> = await res.json();
     return json.data;
   },
 
   getPublished: async () => {
-    const res = await fetch(`${BASE_URL}/facilities/news/published`);
+    const res = await authFetch(`${BASE_URL}/facilities/news/published`);
     if (!res.ok) throw new Error('Không thể tải tin đã xuất bản');
     const json = await res.json();
     return json.data || [];
   },
 
   getById: async (id: number) => {
-    const res = await fetch(`${BASE_URL}/facilities/news/${id}`);
+    const res = await authFetch(`${BASE_URL}/facilities/news/${id}`);
     const json = await res.json();
     return json.data;
   },
@@ -192,7 +193,7 @@ export const newsApi = {
     action?: string; // 'Draft' | 'Publish'
     attachmentUrls?: string[];
   }) => {
-    const res = await fetch(`${BASE_URL}/facilities/news`, {
+    const res = await authFetch(`${BASE_URL}/facilities/news`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -211,7 +212,7 @@ export const newsApi = {
     action?: string;
     attachmentUrls?: string[];
   }) => {
-    const res = await fetch(`${BASE_URL}/facilities/news/${id}`, {
+    const res = await authFetch(`${BASE_URL}/facilities/news/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -224,7 +225,7 @@ export const newsApi = {
   },
 
   delete: async (id: number) => {
-    const res = await fetch(`${BASE_URL}/facilities/news/${id}`, {
+    const res = await authFetch(`${BASE_URL}/facilities/news/${id}`, {
       method: 'DELETE',
     });
     const json = await res.json();
@@ -235,7 +236,7 @@ export const newsApi = {
   },
 
   publish: async (id: number) => {
-    const res = await fetch(`${BASE_URL}/facilities/news/${id}/publish`, {
+    const res = await authFetch(`${BASE_URL}/facilities/news/${id}/publish`, {
       method: 'POST',
     });
     const json = await res.json();
@@ -246,7 +247,7 @@ export const newsApi = {
   },
 
   unpublish: async (id: number) => {
-    const res = await fetch(`${BASE_URL}/facilities/news/${id}/unpublish`, {
+    const res = await authFetch(`${BASE_URL}/facilities/news/${id}/unpublish`, {
       method: 'POST',
     });
     const json = await res.json();
@@ -278,3 +279,51 @@ export const dormInfoApi = {
   },
 };
 
+
+
+// Pricing API (UC12: Set Pricing) 
+
+// ── Pricing API (UC12: Set Pricing) ───────────────────────
+export const pricingApi = {
+  getTerms: async () => {
+    const res = await authFetch(`${BASE_URL}/pricing/terms`, {
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Không thể tải danh sách học kỳ');
+    }
+    return json.data || [];
+  },
+
+  getPricingByTerm: async (termId: number) => {
+    const res = await authFetch(`${BASE_URL}/pricing/terms/${termId}`, {
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Không thể tải bảng giá học kỳ');
+    }
+    return json.data;
+  },
+
+  savePricing: async (payload: {
+    termId: number;
+    items: { dormId: number; roomTypeId: number; currentPrice: number }[];
+    confirmApplyToNewBookingsOnly?: boolean;
+  }) => {
+    const res = await authFetch(`${BASE_URL}/pricing/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json();
+    if (res.status === 409) {
+      const err: any = new Error(json.message || 'Registration already started');
+      err.status = 409;
+      throw err;
+    }
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || (json.errors && json.errors.join(', ')) || 'Lỗi khi lưu bảng giá');
+    }
+    return json.data;
+  },
+};

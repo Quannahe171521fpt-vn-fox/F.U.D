@@ -35,7 +35,7 @@ export const RoomTypesSection: React.FC<RoomTypesSectionProps> = ({ onSelectRoom
         {roomTypes.map((room: RoomType) => (
           <div key={room.id} className={`room-card ${room.popular ? 'highlighted' : ''}`}>
             {room.popular && <div className="popular-badge">Được lựa chọn nhiều nhất</div>}
-            
+
             <div className="room-card-header">
               <h3 className="room-card-title">{room.name}</h3>
               <p className="room-card-desc">{room.description}</p>
@@ -58,16 +58,6 @@ export const RoomTypesSection: React.FC<RoomTypesSectionProps> = ({ onSelectRoom
                   </li>
                 ))}
               </ul>
-            </div>
-
-            <div className="room-action-box">
-              <button
-                type="button"
-                className={`btn-select-room ${room.popular ? 'primary' : 'outline'}`}
-                onClick={() => onSelectRoom(room.id)}
-              >
-                Chọn loại phòng này
-              </button>
             </div>
           </div>
         ))}
