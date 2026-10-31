@@ -10,14 +10,13 @@ import { AboutSection } from './AboutSection';
 
 interface HomePageProps {
   selectedRoomId: string;
-  onSelectRoom: (roomId: string) => void;
+  onSelectRoom?: (roomId: string) => void;
   onNavigateToSection: (sectionId: string) => void;
   onOpenAnnouncements: () => void;
 }
 
 export const HomePage: React.FC<HomePageProps> = ({
   selectedRoomId,
-  onSelectRoom,
   onNavigateToSection,
   onOpenAnnouncements,
 }) => {
@@ -46,7 +45,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       <DormInfoSection />
 
       {/* Room Types & Facilities */}
-      <RoomTypesSection onSelectRoom={onSelectRoom} />
+      <RoomTypesSection />
 
       {/* Registration Process & Online Dormitory Form */}
       <RegistrationGuideAndForm selectedRoomId={selectedRoomId} />
