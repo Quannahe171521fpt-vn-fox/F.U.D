@@ -3,11 +3,7 @@ import { CheckIcon } from '../../components/Icons';
 import type { RoomType } from '../../types/dormitory';
 import { dormInfoApi } from '../../services/api';
 
-interface RoomTypesSectionProps {
-  onSelectRoom: (roomId: string) => void;
-}
-
-export const RoomTypesSection: React.FC<RoomTypesSectionProps> = ({ onSelectRoom }) => {
+export const RoomTypesSection: React.FC = () => {
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
 
   useEffect(() => {
@@ -23,7 +19,7 @@ export const RoomTypesSection: React.FC<RoomTypesSectionProps> = ({ onSelectRoom
   return (
     <section className="room-types-section-container" id="room-types">
       <div className="section-header">
-        <span className="section-kicker">Cơ cấu phòng & Biểu phí</span>
+        <span className="section-kicker">Cơ cấu phòng &amp; Biểu phí</span>
         <h2 className="section-title">Các loại phòng ở tại KTX FPT</h2>
         <p className="section-description">
           Đa dạng sự lựa chọn tùy theo nhu cầu học tập, sinh hoạt và ngân sách của sinh viên.
@@ -35,7 +31,7 @@ export const RoomTypesSection: React.FC<RoomTypesSectionProps> = ({ onSelectRoom
         {roomTypes.map((room: RoomType) => (
           <div key={room.id} className={`room-card ${room.popular ? 'highlighted' : ''}`}>
             {room.popular && <div className="popular-badge">Được lựa chọn nhiều nhất</div>}
-            
+
             <div className="room-card-header">
               <h3 className="room-card-title">{room.name}</h3>
               <p className="room-card-desc">{room.description}</p>
@@ -47,7 +43,7 @@ export const RoomTypesSection: React.FC<RoomTypesSectionProps> = ({ onSelectRoom
             </div>
 
             <div className="room-amenities-list">
-              <div className="amenities-heading">Trang thiết bị & Tiện ích tiêu chuẩn:</div>
+              <div className="amenities-heading">Trang thiết bị &amp; Tiện ích tiêu chuẩn:</div>
               <ul>
                 {room.features.map((feature, idx) => (
                   <li key={idx}>
@@ -58,16 +54,6 @@ export const RoomTypesSection: React.FC<RoomTypesSectionProps> = ({ onSelectRoom
                   </li>
                 ))}
               </ul>
-            </div>
-
-            <div className="room-action-box">
-              <button
-                type="button"
-                className={`btn-select-room ${room.popular ? 'primary' : 'outline'}`}
-                onClick={() => onSelectRoom(room.id)}
-              >
-                Chọn loại phòng này
-              </button>
             </div>
           </div>
         ))}

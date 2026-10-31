@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿﻿using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.RateLimiting;
@@ -98,6 +98,9 @@ builder.Services.AddScoped<IEquipmentRepository, EquipmentRepository>();
 builder.Services.AddScoped<IEquipmentService, EquipmentService>();
 builder.Services.AddScoped<INewsRepository, NewsRepository>();
 builder.Services.AddScoped<INewsService, NewsService>();
+// UC12: Pricing Settings
+builder.Services.AddScoped<IPricingRepository, PricingRepository>();
+builder.Services.AddScoped<IPricingService, PricingService>();
 
 builder.Services.AddCors(options =>
 {
@@ -108,10 +111,7 @@ builder.Services.AddCors(options =>
               .AllowAnyMethod()
               .AllowCredentials();
     });
-});
-// CORS policy for Frontend Vite
-builder.Services.AddCors(options =>
-{
+
     options.AddPolicy("AllowAll", policy =>
     {
         policy.AllowAnyOrigin()
@@ -121,7 +121,12 @@ builder.Services.AddCors(options =>
 });
 
 // Add services to the container.
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(opts =>
+    {
+        opts.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        opts.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+    });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -206,7 +211,12 @@ builder.Services.AddScoped<IRoomRepository, RoomRepository>();
 builder.Services.AddScoped<IBlockService, BlockService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(opts =>
+    {
+        opts.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        opts.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+    });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
