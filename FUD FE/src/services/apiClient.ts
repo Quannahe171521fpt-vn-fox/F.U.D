@@ -1,4 +1,4 @@
-let memoryAccessToken: string | null = null;
+﻿let memoryAccessToken: string | null = null;
 let isRefreshing = false;
 let refreshPromise: Promise<string | null> | null = null;
 
