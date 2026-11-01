@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import type { TermLookupItem, PricingItem } from '../../types/management';
 import { pricingApi } from '../../services/api';
 
@@ -261,7 +261,7 @@ export const PricingManagement: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
         <div>
           <h1 style={{ fontSize: '1.75rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
-            Thiết lập bảng giá phòng (UC12 - Set Pricing)
+            Thiết lập bảng giá phòng
           </h1>
           <p style={{ color: '#64748b', fontSize: '0.925rem', marginTop: '0.35rem' }}>
             Cập nhật đơn giá theo loại phòng cho từng học kỳ. Giá áp dụng đồng nhất cho tất cả các tòa nhà.

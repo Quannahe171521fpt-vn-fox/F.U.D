@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { EquipmentManagement } from './EquipmentManagement';
 import { NewsManagement } from './NewsManagement';
 import { PricingManagement } from './PricingManagement';
+import { RecordViolationPage } from '../Violations/RecordViolationPage';
 import type { NewsItem, EquipmentRecord, EquipmentCatalogItem } from '../../types/management';
 import { equipmentApi, newsApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -21,8 +22,8 @@ export const ManagerPortal: React.FC = () => {
     : 'Cổng nghiệp vụ cán bộ (Database)';
 
   // Sidebar navigation tabs
-  const [activeTab, setActiveTab] = useState<'equipment' | 'news' | 'pricing'>(() => {
-    return (localStorage.getItem('fud_managerTab') as 'equipment' | 'news' | 'pricing') || 'equipment';
+  const [activeTab, setActiveTab] = useState<'equipment' | 'news' | 'pricing' | 'violations'>(() => {
+    return (localStorage.getItem('fud_managerTab') as 'equipment' | 'news' | 'pricing' | 'violations') || 'equipment';
   });
 
   useEffect(() => {
@@ -325,9 +326,7 @@ export const ManagerPortal: React.FC = () => {
             onPublishNews={handlePublishNews}
             onUnpublishNews={handleUnpublishNews}
           />
-        ) : (
-          <PricingManagement />
-        )}
+        ) : activeTab === 'pricing' ? ( <PricingManagement /> ) : ( <RecordViolationPage /> )}
       </main>
     </div>
   );

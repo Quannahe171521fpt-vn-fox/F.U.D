@@ -211,6 +211,14 @@ builder.Services.AddScoped<IRoomRepository, RoomRepository>();
 builder.Services.AddScoped<IBlockService, BlockService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
 
+// Storage & Cloudinary
+builder.Services.Configure<FUD.Settings.pattern.CloudinarySettings>(builder.Configuration.GetSection("Cloudinary"));
+builder.Services.AddScoped<FUD.Infrastructure.Storage.IFileStorage, FUD.Infrastructure.Storage.CloudinaryStorage>();
+
+// UC22: Violations DI
+builder.Services.AddScoped<FUD.Repositories.Interfaces.Violations.IViolationRepository, FUD.Repositories.Violations.ViolationRepository>();
+builder.Services.AddScoped<FUD.Services.Interfaces.Violations.IViolationService, FUD.Services.Violations.ViolationService>();
+
 builder.Services.AddControllers()
     .AddJsonOptions(opts =>
     {
