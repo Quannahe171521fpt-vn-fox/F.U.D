@@ -1,4 +1,4 @@
-﻿﻿using System.Security.Claims;
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.RateLimiting;
@@ -20,10 +20,27 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.Tokens;
 
+// 0. Load biến môi trường từ file .env trước khi khởi tạo WebApplicationBuilder
+var currentDirEnv = Path.Combine(Directory.GetCurrentDirectory(), ".env");
+
+var baseDirEnv = Path.Combine(AppContext.BaseDirectory, ".env");
+if (File.Exists(currentDirEnv))
+{
+    DotNetEnv.Env.Load(currentDirEnv);
+}
+else if (File.Exists(baseDirEnv))
+{
+    DotNetEnv.Env.Load(baseDirEnv);
+}
+else
+{
+    DotNetEnv.Env.TraversePath().Load();
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Load biến môi trường DotNetEnv
-DotNetEnv.Env.TraversePath().Load();
+// Đảm bảo các biến môi trường từ .env được nạp và ghi đè cấu hình trong appsettings.json
+builder.Configuration.AddEnvironmentVariables();
 
 // 1. CSDL
 builder.Services.AddDbContext<FudContext>(options =>
@@ -88,9 +105,18 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
-// 5. CORS
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() 
+// 5. CORS (Hỗ trợ cấu hình mảng trong appsettings hoặc chuỗi trong .env)
+var corsOriginsConfig = builder.Configuration["Cors:AllowedOrigins"];
+string[] allowedOrigins;
+if (!string.IsNullOrWhiteSpace(corsOriginsConfig))
+{
+    allowedOrigins = corsOriginsConfig.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+}
+else
+{
+    allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() 
                      ?? new[] { "http://localhost:5173" };
+}
 
 
 // ── Facilities: UC28 Equipment & UC29 News ─────────────────
@@ -101,6 +127,9 @@ builder.Services.AddScoped<INewsService, NewsService>();
 // UC12: Pricing Settings
 builder.Services.AddScoped<IPricingRepository, PricingRepository>();
 builder.Services.AddScoped<IPricingService, PricingService>();
+// UC: Term & Registration Config
+builder.Services.AddScoped<ITermRepository, TermRepository>();
+builder.Services.AddScoped<ITermService, TermService>();
 
 builder.Services.AddCors(options =>
 {
@@ -156,9 +185,33 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         {
             OnTokenValidated = async context =>
             {
+                if (context.Principal?.Identity is System.Security.Claims.ClaimsIdentity identity)
+                {
+                    var roles = identity.FindAll("role").Concat(identity.FindAll(System.Security.Claims.ClaimTypes.Role)).Select(c => c.Value).Distinct().ToList();
+                    foreach (var r in roles)
+                    {
+                        if (!identity.HasClaim(System.Security.Claims.ClaimTypes.Role, r))
+                            identity.AddClaim(new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, r));
+                        if (!identity.HasClaim("role", r))
+                            identity.AddClaim(new System.Security.Claims.Claim("role", r));
+                    }
+                    var sub = identity.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? identity.FindFirst("sub")?.Value ?? identity.FindFirst("nameid")?.Value;
+                    if (sub != null)
+                    {
+                        if (!identity.HasClaim(System.Security.Claims.ClaimTypes.NameIdentifier, sub))
+                            identity.AddClaim(new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, sub));
+                        if (!identity.HasClaim("sub", sub))
+                            identity.AddClaim(new System.Security.Claims.Claim("sub", sub));
+                        if (!identity.HasClaim("nameid", sub))
+                            identity.AddClaim(new System.Security.Claims.Claim("nameid", sub));
+                    }
+                }
+
                 var cache = context.HttpContext.RequestServices.GetRequiredService<IMemoryCache>();
                 var dbContext = context.HttpContext.RequestServices.GetRequiredService<FudContext>();
-                var userIdStr = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+                var userIdStr = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier)
+                    ?? context.Principal?.FindFirstValue("sub")
+                    ?? context.Principal?.FindFirstValue("nameid");
 
                 if (int.TryParse(userIdStr, out var userId))
                 {
@@ -230,7 +283,7 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// --- PIPELINE MIDDLEWARE CHUẨN XÁC ---
+
 
 // Bước 1: Forwarded Headers
 var forwardedOptions = new ForwardedHeadersOptions
@@ -251,7 +304,7 @@ else
     app.UseHsts();
 }
 
-app.UseHttpsRedirection();
+// app.UseHttpsRedirection();
 
 // Bước 2: Routing
 app.UseRouting();

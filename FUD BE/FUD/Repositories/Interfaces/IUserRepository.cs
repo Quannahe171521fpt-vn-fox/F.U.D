@@ -6,7 +6,7 @@ namespace FUD.Repositories.Interfaces;
 
 public interface IUserRepository
 {
-    Task<User?> GetByIdentifierAsync(string identifier);
+    Task<User?> GetByAccountAsync(string account);
     Task<User?> GetByIdAsync(int userId);
     Task<User?> GetByEmailAsync(string email);
     Task<User?> GetByGoogleIdAsync(string googleId);

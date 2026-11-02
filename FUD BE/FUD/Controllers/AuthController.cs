@@ -102,7 +102,9 @@ public class AuthController : ControllerBase
     [Authorize]
     public async Task<IActionResult> GetCurrentUser()
     {
-        var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier) 
+            ?? User.FindFirstValue("sub") 
+            ?? User.FindFirstValue("nameid");
         if (!int.TryParse(userIdStr, out var userId))
             return Unauthorized(ApiResponse.Fail("Token không hợp lệ"));
 

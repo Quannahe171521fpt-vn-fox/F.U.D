@@ -1,11 +1,11 @@
 import { authFetch, setAccessToken } from './apiClient';
 
-export async function loginWithCredentials(identifier: string, password: string) {
+export async function loginWithCredentials(account: string, password: string) {
   const res = await fetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ identifier, password }),
+    body: JSON.stringify({ account, password }),
   });
 
   const json = await res.json();

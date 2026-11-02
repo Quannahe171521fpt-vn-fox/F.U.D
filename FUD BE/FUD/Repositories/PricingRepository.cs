@@ -55,6 +55,21 @@ namespace FUD.Repositories
 
         public async Task<PriceList> CreatePriceListAsync(PriceList priceList)
         {
+            // SỬA LỖI KHÓA NGOẠI (Foreign Key):
+            // Bảng Price_Lists có ràng buộc CreatedById INT NOT NULL FOREIGN KEY REFERENCES Managers(UserId).
+            // Nếu người thao tác là tài khoản Admin (chỉ có trong bảng Admins, không nằm trong Managers),
+            // việc insert trực tiếp CreatedById của Admin sẽ gây lỗi vi phạm FK.
+            // Giải pháp: Kiểm tra xem CreatedById có trong Managers không, nếu không thì fallback sang Manager hợp lệ đầu tiên.
+            var managerExists = await _context.Managers.AnyAsync(m => m.UserId == priceList.CreatedById);
+            if (!managerExists)
+            {
+                var defaultManager = await _context.Managers.Select(m => m.UserId).FirstOrDefaultAsync();
+                if (defaultManager > 0)
+                {
+                    priceList.CreatedById = defaultManager;
+                }
+            }
+
             _context.PriceLists.Add(priceList);
             await _context.SaveChangesAsync();
             return priceList;
@@ -66,8 +81,38 @@ namespace FUD.Repositories
                 .Where(pi => pi.PriceListId == priceListId)
                 .ToListAsync();
 
-            _context.PriceItems.RemoveRange(existingItems);
-            _context.PriceItems.AddRange(items);
+            // SỬA LỖI DUPLICATE KEY CONSTRAINT (UQ_PriceItem):
+            // Trước đây dùng RemoveRange(existingItems) rồi AddRange(items).
+            // Do cơ chế Change Tracker của EF Core thực thi các lệnh INSERT trước DELETE trong cùng SaveChangesAsync,
+            // việc thêm mới các bản ghi có cùng (PriceListId, DormId, RoomTypeId) sẽ kích hoạt lỗi trùng lặp
+            // CONSTRAINT UQ_PriceItem UNIQUE (PriceListId, DormId, RoomTypeId) trong SQL Server.
+            // Giải pháp: Cập nhật in-place đơn giá của các bản ghi đã tồn tại, chỉ thêm mới nếu chưa có
+            // và chỉ xóa những bản ghi không còn trong danh sách.
+            foreach (var item in items)
+            {
+                var existing = existingItems.FirstOrDefault(pi =>
+                    pi.DormId == item.DormId && pi.RoomTypeId == item.RoomTypeId);
+
+                if (existing != null)
+                {
+                    existing.UnitPrice = item.UnitPrice;
+                    _context.PriceItems.Update(existing);
+                }
+                else
+                {
+                    item.PriceListId = priceListId;
+                    _context.PriceItems.Add(item);
+                }
+            }
+
+            // Xóa các item cũ không còn trong danh sách cập nhật mới
+            var incomingKeys = items.Select(i => (i.DormId, i.RoomTypeId)).ToHashSet();
+            var toRemove = existingItems.Where(e => !incomingKeys.Contains((e.DormId, e.RoomTypeId))).ToList();
+            if (toRemove.Any())
+            {
+                _context.PriceItems.RemoveRange(toRemove);
+            }
+
             await _context.SaveChangesAsync();
         }
 
@@ -77,4 +122,3 @@ namespace FUD.Repositories
         }
     }
 }
-
