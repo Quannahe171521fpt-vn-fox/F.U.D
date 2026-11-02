@@ -45,7 +45,7 @@ public class AuthService : IAuthService
 
     public async Task<(AuthResponseDto Response, string RawRefreshToken)> LoginWithCredentialsAsync(LoginRequestDto dto, string clientIp)
     {
-        var user = await _userRepo.GetByIdentifierAsync(dto.Identifier);
+        var user = await _userRepo.GetByAccountAsync(dto.Account);
 
         // 1. Chống User Enumeration & Timing Attack
         if (user == null)
@@ -64,6 +64,13 @@ public class AuthService : IAuthService
         if (user.AccountStatus != "Active")
         {
             throw new UnauthorizedAccessException("Tài khoản của bạn chưa được kích hoạt hoặc đã bị khóa.");
+        }
+
+        // 4. Sinh viên bắt buộc đăng nhập bằng Google Mail FPT, không đăng nhập bằng mật khẩu
+        var roles = user.UserRoleUsers.Select(ur => ur.Role.RoleName).ToList();
+        if (roles.Count == 1 && roles.Contains("Student"))
+        {
+            throw new UnauthorizedAccessException("Tài khoản sinh viên vui lòng đăng nhập bằng Google (@fpt.edu.vn).");
         }
 
         return await GenerateAuthResultAsync(user, clientIp);

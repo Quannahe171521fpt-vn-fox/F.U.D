@@ -13,7 +13,11 @@ interface RoomTypeGroup {
   items: PricingItem[];                  // tất cả items thuộc nhóm (nhiều Dom)
 }
 
-export const PricingManagement: React.FC = () => {
+interface PricingManagementProps {
+  targetTermId?: number | null;
+}
+
+export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTermId }) => {
   // State: Terms and selection
   const [terms, setTerms] = useState<TermLookupItem[]>([]);
   const [selectedTermId, setSelectedTermId] = useState<number | null>(null);
@@ -30,11 +34,21 @@ export const PricingManagement: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
 
   // Dialog Modals
   const [showWarningModal, setShowWarningModal] = useState<boolean>(false);
   const [showDiscardModal, setShowDiscardModal] = useState<boolean>(false);
   const [pendingTermChange, setPendingTermChange] = useState<number | null>(null);
+
+  // ĐỒNG BỘ ĐIỀU HƯỚNG:
+  // Khi Manager bấm "Cấu hình giá ->" từ màn hình Quản lý học kỳ (TermManagement),
+  // component sẽ tự động chọn đúng học kỳ được chuyển sang.
+  useEffect(() => {
+    if (targetTermId && terms.some((t) => t.id === targetTermId)) {
+      setSelectedTermId(targetTermId);
+    }
+  }, [targetTermId, terms]);
 
   // 1. Initial Load: Terms
   useEffect(() => {
@@ -44,14 +58,15 @@ export const PricingManagement: React.FC = () => {
   const loadTerms = async () => {
     try {
       setLoading(true);
+      setPageError(null);
       const data = await pricingApi.getTerms();
       setTerms(data);
       if (data && data.length > 0) {
         setSelectedTermId(data[0].id);
       }
     } catch (err: any) {
-      console.error(err);
-      alert(err.message || 'Lỗi khi tải danh sách học kỳ');
+      console.warn('Lỗi khi tải danh sách học kỳ:', err);
+      setPageError(err.message || 'Lỗi khi tải danh sách học kỳ');
     } finally {
       setLoading(false);
     }
@@ -68,6 +83,7 @@ export const PricingManagement: React.FC = () => {
     try {
       setLoading(true);
       setSuccessToast(null);
+      setPageError(null);
       setErrors({});
       const data = await pricingApi.getPricingByTerm(termId);
 
@@ -83,8 +99,8 @@ export const PricingManagement: React.FC = () => {
       });
       setEditedPrices(initialMap);
     } catch (err: any) {
-      console.error(err);
-      alert(err.message || 'Lỗi khi tải bảng giá');
+      console.warn('Lỗi khi tải bảng giá:', err);
+      setPageError(err.message || 'Lỗi khi tải bảng giá');
     } finally {
       setLoading(false);
     }
@@ -171,6 +187,7 @@ export const PricingManagement: React.FC = () => {
 
   // Handle Save
   const handleSaveClick = async () => {
+    if (roomTypeGroups.length === 0) return;
     if (!validate()) return;
     if (isRegistrationStarted) {
       setShowWarningModal(true);
@@ -214,7 +231,7 @@ export const PricingManagement: React.FC = () => {
       if (err.status === 409) {
         setShowWarningModal(true);
       } else {
-        alert(err.message || 'Lỗi khi lưu bảng giá');
+        setPageError(err.message || 'Lỗi khi lưu bảng giá');
       }
     } finally {
       setSaving(false);
@@ -291,6 +308,34 @@ export const PricingManagement: React.FC = () => {
           <button
             onClick={() => setSuccessToast(null)}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#065f46', fontWeight: 700 }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* 2b. Error Banner */}
+      {pageError && (
+        <div
+          style={{
+            padding: '1rem 1.25rem',
+            background: '#fef2f2',
+            border: '1px solid #ef4444',
+            borderRadius: '8px',
+            color: '#991b1b',
+            marginBottom: '1.25rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '1.2rem' }}>⚠️</span>
+            <span style={{ fontWeight: 500 }}>{pageError}</span>
+          </div>
+          <button
+            onClick={() => setPageError(null)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b', fontWeight: 700 }}
           >
             ✕
           </button>
@@ -497,7 +542,7 @@ export const PricingManagement: React.FC = () => {
           <button
             type="button"
             onClick={handleCancelClick}
-            disabled={saving || loading}
+            disabled={saving || loading || roomTypeGroups.length === 0}
             style={{
               padding: '0.65rem 1.5rem',
               borderRadius: '6px',
@@ -514,7 +559,7 @@ export const PricingManagement: React.FC = () => {
           <button
             type="button"
             onClick={handleSaveClick}
-            disabled={saving || loading}
+            disabled={saving || loading || roomTypeGroups.length === 0}
             style={{
               padding: '0.65rem 1.75rem',
               borderRadius: '6px',

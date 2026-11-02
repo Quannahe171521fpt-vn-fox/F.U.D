@@ -16,12 +16,13 @@ public class UserRepository : IUserRepository
         _context = context;
     }
 
-    public async Task<User?> GetByIdentifierAsync(string identifier)
+    public async Task<User?> GetByAccountAsync(string account)
     {
+        var clean = account.Trim();
         return await _context.Users
             .Include(u => u.UserRoleUsers)
                 .ThenInclude(ur => ur.Role)
-            .FirstOrDefaultAsync(u => (u.Code == identifier || u.Email == identifier) && u.DeletedAt == null);
+            .FirstOrDefaultAsync(u => (u.Email == clean || u.Code == clean) && u.DeletedAt == null);
     }
 
     public async Task<User?> GetByIdAsync(int userId)

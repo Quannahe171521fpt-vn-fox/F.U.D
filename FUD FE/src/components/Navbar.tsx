@@ -6,8 +6,8 @@ interface NavbarProps {
   onOpenLogin: () => void;
   onNavigate: (sectionId: string) => void;
   currentRole: 'guest' | 'student' | 'manager';
-  currentView: 'home' | 'announcements' | 'management' | 'admin' | 'guard';
-  onChangeView: (view: 'home' | 'announcements' | 'management' | 'admin' | 'guard') => void;
+  currentView: 'home' | 'announcements' | 'management' | 'admin' | 'guard' | 'student';
+  onChangeView: (view: 'home' | 'announcements' | 'management' | 'admin' | 'guard' | 'student') => void;
   onLogout: () => void;
 }
 
@@ -23,7 +23,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const getRoleDisplayName = () => {
-    if (!currentUser) return currentRole === 'manager' ? 'Cán bộ KTX' : 'Sinh viên';
+    if (!currentUser) return '';
     const roleMap: Record<string, string> = {
       Admin: 'Quản trị viên',
       Manager: 'Ban Quản lý',
@@ -34,7 +34,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   // If in Management Portal, Admin Portal, or Guard Portal: keep minimal header with only Logo, Name and Logout
-  if (currentView === 'management' || currentView === 'admin' || currentView === 'guard') {
+  if (currentUser && (currentView === 'management' || currentView === 'admin' || currentView === 'guard')) {
     return (
       <header className="navbar-container">
         <div className="navbar-inner navbar-minimal">
@@ -43,6 +43,22 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
           <div className="navbar-right-minimal">
             <div className="user-action-group">
+              <button
+                type="button"
+                onClick={() => onChangeView('home')}
+                style={{
+                  background: 'none',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '6px',
+                  padding: '6px 12px',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  color: '#475569',
+                  marginRight: '8px',
+                }}
+              >
+                ← Xem Trang chủ
+              </button>
               <span className="user-role-label">{getRoleDisplayName()}</span>
               <button
                 type="button"

@@ -1,4 +1,11 @@
-﻿import { authFetch } from './apiClient';
+import type {
+  TermManagementItem,
+  TermDetailItem,
+  CreateTermPayload,
+  UpdateTermPayload,
+  SaveSchedulePayload,
+} from '../types/management';
+import { authFetch } from './apiClient';
 const BASE_URL = '/api';
 
 async function parseJsonSafe(res: Response): Promise<any> {
@@ -25,6 +32,35 @@ export interface ApiResponse<T> {
   message: string;
   data: T;
   errors?: string[];
+}
+
+async function safeParseResponse<T = any>(res: Response, defaultError = 'Lỗi yêu cầu máy chủ'): Promise<ApiResponse<T>> {
+  if (res.status === 401) {
+    throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+  }
+  if (res.status === 403) {
+    throw new Error('Bạn không có quyền truy cập chức năng này (Yêu cầu tài khoản Ban Quản lý hoặc Admin).');
+  }
+
+  let text = '';
+  try {
+    text = await res.text();
+  } catch {
+    throw new Error(`${defaultError} (Mã lỗi: ${res.status})`);
+  }
+
+  if (!text || !text.trim()) {
+    if (!res.ok) {
+      throw new Error(`${defaultError} (Mã lỗi: ${res.status})`);
+    }
+    return { success: true, message: '', data: null as any };
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${defaultError} (Mã phản hồi: ${res.status})`);
+  }
 }
 
 // ── Equipment API (UC28) ──────────────────────────────────
@@ -301,7 +337,7 @@ export const pricingApi = {
     const res = await authFetch(`${BASE_URL}/pricing/terms`, {
       credentials: 'include',
     });
-    const json = await parseJsonSafe(res);
+    const json = await safeParseResponse<any[]>(res, 'Không thể tải danh sách học kỳ');
     if (!res.ok || !json.success) {
       throw new Error(json.message || 'Không thể tải danh sách học kỳ');
     }
@@ -312,7 +348,7 @@ export const pricingApi = {
     const res = await authFetch(`${BASE_URL}/pricing/terms/${termId}`, {
       credentials: 'include',
     });
-    const json = await parseJsonSafe(res);
+    const json = await safeParseResponse<any>(res, 'Không thể tải bảng giá học kỳ');
     if (!res.ok || !json.success) {
       throw new Error(json.message || 'Không thể tải bảng giá học kỳ');
     }
@@ -330,18 +366,20 @@ export const pricingApi = {
       credentials: 'include',
       body: JSON.stringify(payload),
     });
-    const json = await parseJsonSafe(res);
     if (res.status === 409) {
+      const json = await safeParseResponse<any>(res, 'Học kỳ đã bắt đầu');
       const err: any = new Error(json.message || 'Registration already started');
       err.status = 409;
       throw err;
     }
+    const json = await safeParseResponse<any>(res, 'Lỗi khi lưu bảng giá');
     if (!res.ok || !json.success) {
       throw new Error(json.message || (json.errors && json.errors.join(', ')) || 'Lỗi khi lưu bảng giá');
     }
     return json.data;
   },
 };
+
 
 
 // ── Violation API (UC22: Record Violation) ──────────────────
@@ -383,6 +421,7 @@ export interface ViolationItem {
   evidences: ViolationEvidence[];
 }
 
+// ── Violation API (UC22: Record Violation) ──────────────────
 export const violationApi = {
   getTypes: async (): Promise<ViolationType[]> => {
     const res = await authFetch(`${BASE_URL}/violations/types`);
@@ -443,6 +482,86 @@ export const violationApi = {
   },
 };
 
+// ── Term Management & Registration Schedule API ───────────
+export const termManagementApi = {
+  getAll: async (): Promise<TermManagementItem[]> => {
+    const res = await authFetch(`${BASE_URL}/manage/terms`);
+    const json = await safeParseResponse<TermManagementItem[]>(res, 'Không thể tải danh sách học kỳ');
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Không thể tải danh sách học kỳ');
+    }
+    return json.data || [];
+  },
+
+  getById: async (id: number): Promise<TermDetailItem> => {
+    const res = await authFetch(`${BASE_URL}/manage/terms/${id}`);
+    const json = await safeParseResponse<TermDetailItem>(res, 'Không thể tải chi tiết học kỳ');
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Không thể tải chi tiết học kỳ');
+    }
+    return json.data;
+  },
+
+  create: async (payload: CreateTermPayload): Promise<TermDetailItem> => {
+    const res = await authFetch(`${BASE_URL}/manage/terms`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<TermDetailItem>(res, 'Lỗi khi tạo học kỳ');
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || (json.errors && json.errors.join(', ')) || 'Lỗi khi tạo học kỳ');
+    }
+    return json.data;
+  },
+
+  update: async (id: number, payload: UpdateTermPayload): Promise<TermDetailItem> => {
+    const res = await authFetch(`${BASE_URL}/manage/terms/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<TermDetailItem>(res, 'Lỗi khi cập nhật học kỳ');
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || (json.errors && json.errors.join(', ')) || 'Lỗi khi cập nhật học kỳ');
+    }
+    return json.data;
+  },
+
+  delete: async (id: number): Promise<void> => {
+    const res = await authFetch(`${BASE_URL}/manage/terms/${id}`, {
+      method: 'DELETE',
+    });
+    const json = await safeParseResponse<void>(res, 'Không thể xóa học kỳ');
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Không thể xóa học kỳ');
+    }
+  },
+
+  saveSchedule: async (termId: number, payload: SaveSchedulePayload): Promise<TermDetailItem> => {
+    const res = await authFetch(`${BASE_URL}/manage/terms/${termId}/schedule`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<TermDetailItem>(res, 'Lỗi khi lưu lịch trình đăng ký');
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || (json.errors && json.errors.join(', ')) || 'Lỗi khi lưu lịch trình đăng ký');
+    }
+    return json.data;
+  },
+
+  togglePeriod: async (termId: number, periodId: number, active: boolean): Promise<void> => {
+    const res = await authFetch(`${BASE_URL}/manage/terms/${termId}/periods/${periodId}/toggle?active=${active}`, {
+      method: 'PATCH',
+    });
+    const json = await safeParseResponse<void>(res, 'Lỗi khi bật/tắt đợt đăng ký');
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Lỗi khi bật/tắt đợt đăng ký');
+    }
+  },
+};
+
 // ── Blocks & Rooms API ──────────────────────────────────────
 export interface BlockItem {
   id: number;
@@ -479,5 +598,5 @@ export const facilityCommonApi = {
     if (!res.ok) throw new Error('Không thể tải danh sách phòng');
     const json = await parseJsonSafe(res);
     return json.data?.items || json.data || [];
-  }
+  },
 };
