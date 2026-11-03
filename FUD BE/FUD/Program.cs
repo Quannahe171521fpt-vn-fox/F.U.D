@@ -263,6 +263,9 @@ builder.Services.AddScoped<IBlockRepository, BlockRepository>();
 builder.Services.AddScoped<IRoomRepository, RoomRepository>();
 builder.Services.AddScoped<IBlockService, BlockService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
+// UC-Dorm: Dorm Management
+builder.Services.AddScoped<FUD.Repositories.Interfaces.Facilities.IDormRepository, FUD.Repositories.Facilities.DormRepository>();
+builder.Services.AddScoped<FUD.Services.Interfaces.Facilities.IDormService, FUD.Services.Facilities.DormService>();
 
 // Storage & Cloudinary
 builder.Services.Configure<FUD.Settings.pattern.CloudinarySettings>(builder.Configuration.GetSection("Cloudinary"));
