@@ -600,3 +600,77 @@ export const facilityCommonApi = {
     return json.data?.items || json.data || [];
   },
 };
+
+// ── Dorm Management API ────────────────────────────────────
+export interface DormItem {
+  id: number;
+  campusId: number;
+  campusName: string;
+  code: string;
+  name: string;
+  address?: string;
+  status: string;
+  totalBlocks: number;
+}
+
+export const dormApi = {
+  getAll: async (params?: { campusName?: string; dormName?: string; status?: string; page?: number; pageSize?: number }): Promise<PagedResult<DormItem>> => {
+    const query = new URLSearchParams();
+    if (params?.campusName) query.append('campusName', params.campusName);
+    if (params?.dormName) query.append('dormName', params.dormName);
+    if (params?.status && params.status !== 'All') query.append('status', params.status);
+    if (params?.page) query.append('page', params.page.toString());
+    if (params?.pageSize) query.append('pageSize', params.pageSize.toString());
+
+    const res = await authFetch(`${BASE_URL}/dorms?${query.toString()}`);
+    const json = await safeParseResponse<PagedResult<DormItem>>(res, 'Không thể tải danh sách KTX');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải danh sách KTX');
+    return json.data;
+  },
+
+  getById: async (id: number): Promise<DormItem> => {
+    const res = await authFetch(`${BASE_URL}/dorms/${id}`);
+    const json = await safeParseResponse<DormItem>(res, 'Không thể tải thông tin KTX');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải thông tin KTX');
+    return json.data;
+  },
+
+  create: async (payload: { campusId: number; code: string; name: string; address?: string }): Promise<DormItem> => {
+    const res = await authFetch(`${BASE_URL}/dorms`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<DormItem>(res, 'Lỗi khi tạo KTX');
+    if (!res.ok || !json.success) throw new Error(json.message || (json.errors?.join(', ')) || 'Lỗi khi tạo KTX');
+    return json.data;
+  },
+
+  update: async (id: number, payload: { name: string; address?: string }): Promise<DormItem> => {
+    const res = await authFetch(`${BASE_URL}/dorms/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<DormItem>(res, 'Lỗi khi cập nhật KTX');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Lỗi khi cập nhật KTX');
+    return json.data;
+  },
+
+  updateStatus: async (id: number, status: 'Active' | 'Inactive'): Promise<DormItem> => {
+    const res = await authFetch(`${BASE_URL}/dorms/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    const json = await safeParseResponse<DormItem>(res, 'Lỗi khi đổi trạng thái KTX');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Lỗi khi đổi trạng thái KTX');
+    return json.data;
+  },
+
+  softDelete: async (id: number): Promise<void> => {
+    const res = await authFetch(`${BASE_URL}/dorms/${id}`, { method: 'DELETE' });
+    const json = await safeParseResponse<void>(res, 'Lỗi khi xóa KTX');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Lỗi khi xóa KTX');
+  },
+};

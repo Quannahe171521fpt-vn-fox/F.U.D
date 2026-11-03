@@ -1,9 +1,10 @@
-﻿import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { EquipmentManagement } from './EquipmentManagement';
 import { NewsManagement } from './NewsManagement';
 import { PricingManagement } from './PricingManagement';
 import { RecordViolationPage } from '../Violations/RecordViolationPage';
 import { TermManagement } from './TermManagement/TermManagement';
+import { DormManagement } from './DormManagement';
 import type { NewsItem, EquipmentRecord, EquipmentCatalogItem } from '../../types/management';
 import { equipmentApi, newsApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -23,8 +24,8 @@ export const ManagerPortal: React.FC = () => {
     : 'Cổng nghiệp vụ cán bộ (Database)';
 
   // Sidebar navigation tabs
-  const [activeTab, setActiveTab] = useState<'equipment' | 'news' | 'pricing' | 'terms' | 'violations'>(() => {
-    return (localStorage.getItem('fud_managerTab') as 'equipment' | 'news' | 'pricing' | 'terms' | 'violations') || 'terms';
+  const [activeTab, setActiveTab] = useState<'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm'>(() => {
+    return (localStorage.getItem('fud_managerTab') as 'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm') || 'terms';
   });
   const [pricingTargetTermId, setPricingTargetTermId] = useState<number | null>(null);
   const handleGoToPricing = (termId: number) => {
@@ -318,6 +319,18 @@ export const ManagerPortal: React.FC = () => {
               <span className="nav-item-counter">Theo học kỳ</span>
             </div>
           </button>
+
+          <button
+            type="button"
+            className={`sidebar-nav-item ${activeTab === 'dorm' ? 'active' : ''}`}
+            onClick={() => setActiveTab('dorm')}
+          >
+            <span className="nav-item-indicator"></span>
+            <div className="nav-item-content">
+              <span className="nav-item-name">Quản lý KTX</span>
+              <span className="nav-item-counter">Ký túc xá</span>
+            </div>
+          </button>
         </nav>
       </aside>
 
@@ -348,6 +361,8 @@ export const ManagerPortal: React.FC = () => {
           <PricingManagement targetTermId={pricingTargetTermId} />
         ) : activeTab === 'terms' ? (
           <TermManagement onGoToPricing={handleGoToPricing} />
+        ) : activeTab === 'dorm' ? (
+          <DormManagement />
         ) : (
           <RecordViolationPage />
         )}
