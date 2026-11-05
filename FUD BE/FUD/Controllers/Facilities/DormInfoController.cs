@@ -1,4 +1,4 @@
-using FUD.Common;
+﻿using FUD.Common;
 using FUD.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -50,7 +50,10 @@ namespace FUD.Controllers.Facilities
 
             // Build map: RoomTypeId -> giá nhỏ nhất trong các Dom
             var priceMap = new Dictionary<int, decimal>();
-            if (currentTerm?.PriceList != null)
+                        // SỬA LỖI NGHIỆP VỤ:
+            // Chỉ hiển thị giá phòng lên trang chủ cho sinh viên khi bảng giá đã ở trạng thái "Published".
+            // Tránh trường hợp Manager đang soạn thảo bảng giá nháp (Draft) mà giá chưa chính thức đã bị hiển thị ra ngoài.
+            if (currentTerm?.PriceList != null && currentTerm.PriceList.Status == "Published")
             {
                 priceMap = currentTerm.PriceList.PriceItems
                     .GroupBy(pi => pi.RoomTypeId)

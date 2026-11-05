@@ -21,18 +21,62 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const USER_KEY = 'fud_currentUser';
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<UserInfo | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserInfo | null>(() => {
+    try {
+      const saved = localStorage.getItem(USER_KEY);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const loggedInRef = React.useRef(false);
 
   useEffect(() => {
     let isMounted = true;
 
     async function initAuth() {
+      const token = getAccessToken();
+      // Nếu hoàn toàn không có token, chuyển thẳng sang trạng thái sẵn sàng (guest), không gọi /me gây 401
+      if (!token) {
+        if (isMounted) {
+          if (!loggedInRef.current) {
+            setCurrentUser(null);
+            try {
+              localStorage.removeItem(USER_KEY);
+            } catch {}
+          }
+          setIsLoading(false);
+        }
+        return;
+      }
+
       try {
         const user = await fetchCurrentUser();
-        if (user && isMounted) {
-          setCurrentUser(user);
+        if (isMounted) {
+          if (loggedInRef.current) return;
+
+          if (user) {
+            setCurrentUser(user);
+            try {
+              localStorage.setItem(USER_KEY, JSON.stringify(user));
+            } catch {}
+          } else {
+            setCurrentUser(null);
+            try {
+              localStorage.removeItem(USER_KEY);
+            } catch {}
+          }
+        }
+      } catch {
+        if (isMounted && !loggedInRef.current) {
+          setCurrentUser(null);
+          try {
+            localStorage.removeItem(USER_KEY);
+          } catch {}
         }
       } finally {
         if (isMounted) setIsLoading(false);
@@ -40,19 +84,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     initAuth();
-    return () => { isMounted = false; };
+
+    const handleExpired = () => {
+      if (isMounted && !loggedInRef.current) {
+        setCurrentUser(null);
+        try {
+          localStorage.removeItem(USER_KEY);
+        } catch {}
+      }
+    };
+    window.addEventListener('fud:session-expired', handleExpired);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('fud:session-expired', handleExpired);
+    };
   }, []);
 
   const loginSuccess = (token: string, user: UserInfo) => {
+    loggedInRef.current = true;
     setAccessToken(token);
     setCurrentUser(user);
+    try {
+      localStorage.setItem(USER_KEY, JSON.stringify(user));
+    } catch {}
+    setIsLoading(false);
   };
 
   const logout = async () => {
+    loggedInRef.current = false;
     try {
       await logoutApi();
     } finally {
+      setAccessToken(null);
       setCurrentUser(null);
+      try {
+        localStorage.removeItem(USER_KEY);
+      } catch {}
     }
   };
 

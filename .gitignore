@@ -1,4 +1,9 @@
-﻿.agents/
+.agents/
 .claude/
 docs/
 Expertise/
+.env
+*.env
+.env.local
+.env.*.local
+*.appsettings.json
