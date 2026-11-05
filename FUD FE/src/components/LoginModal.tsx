@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CloseIcon, UserIcon, ShieldIcon } from './Icons';
 import { useAuth } from '../contexts/AuthContext';
+import type { UserInfo } from '../contexts/AuthContext';
 import { loginWithCredentials, loginWithGoogle } from '../services/authApi';
 
 declare global {
@@ -12,15 +13,17 @@ declare global {
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLoginSuccess?: (role: 'student' | 'manager', username: string) => void;
+  onLoginSuccess?: (user: UserInfo) => void;
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess }) => {
   const [role, setRole] = useState<'student' | 'manager'>('student');
-  const [username, setUsername] = useState('');
+  const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [loginSuccess, setLoginSuccess] = useState(false);
+  const [loggedInUser, setLoggedInUser] = useState<UserInfo | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -41,12 +44,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
             setErrorMessage(null);
             try {
               const data = await loginWithGoogle(response.credential);
+              setLoggedInUser(data.user);
               setLoginSuccess(true);
               authLoginSuccess(data.accessToken, data.user);
               setTimeout(() => {
                 setLoginSuccess(false);
-                const mappedRole = (data.user.primaryRole === 'Admin' || data.user.primaryRole === 'Manager' || data.user.primaryRole === 'Guard') ? 'manager' : 'student';
-                onLoginSuccess?.(mappedRole, data.user.code);
+                setLoggedInUser(null);
+                onLoginSuccess?.(data.user);
                 onClose();
               }, 800);
             } catch (err: any) {
@@ -88,18 +92,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username || !password) return;
+    const cleanAccount = account.trim();
+    if (!cleanAccount || !password) return;
     setErrorMessage(null);
     setIsSubmitting(true);
 
     try {
-      const data = await loginWithCredentials(username, password);
+      const data = await loginWithCredentials(cleanAccount, password);
+      setLoggedInUser(data.user);
       setLoginSuccess(true);
       authLoginSuccess(data.accessToken, data.user);
       setTimeout(() => {
         setLoginSuccess(false);
-        const mappedRole = (data.user.primaryRole === 'Admin' || data.user.primaryRole === 'Manager' || data.user.primaryRole === 'Guard') ? 'manager' : 'student';
-        onLoginSuccess?.(mappedRole, data.user.code);
+        setLoggedInUser(null);
+        onLoginSuccess?.(data.user);
         onClose();
       }, 800);
     } catch (err: any) {
@@ -146,7 +152,35 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
           <div className="login-success-view">
             <div className="success-bubble">✓</div>
             <h4>Đăng nhập thành công!</h4>
-            <p>Chào mừng {role === 'student' ? 'sinh viên' : 'thầy cô'} quay trở lại hệ thống KTX.</p>
+            <p>
+              Chào mừng {loggedInUser?.fullName || 'bạn'} (
+              {loggedInUser?.primaryRole === 'Admin'
+                ? 'Quản trị viên'
+                : loggedInUser?.primaryRole === 'Guard'
+                ? 'Đội Bảo vệ'
+                : loggedInUser?.primaryRole === 'Manager'
+                ? 'Ban Quản lý'
+                : 'Sinh viên'}
+              ) đã quay trở lại hệ thống KTX.
+            </p>
+          </div>
+        ) : role === 'student' ? (
+          <div className="student-login-view" style={{ textAlign: 'center', padding: '16px 8px' }}>
+            {errorMessage && (
+              <div style={{ color: '#ef4444', backgroundColor: '#fee2e2', padding: '8px 12px', borderRadius: '6px', fontSize: '13px', marginBottom: '16px', textAlign: 'left' }}>
+                {errorMessage}
+              </div>
+            )}
+            <p style={{ color: '#4b5563', fontSize: '14px', lineHeight: '1.6', marginBottom: '20px' }}>
+              Sinh viên đăng nhập trực tiếp bằng tài khoản Google do trường cấp (<strong>@fpt.edu.vn</strong>).
+            </p>
+            <div id="google-btn-container" style={{ display: 'flex', justifyContent: 'center', minHeight: '44px', marginBottom: '16px' }}>
+              {/* Google official button will be rendered here */}
+            </div>
+            {isSubmitting && <div style={{ fontSize: '13px', color: '#f97316', marginTop: '8px' }}>Đang xác thực tài khoản Google...</div>}
+            <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '16px' }}>
+              * Lưu ý: Chỉ tài khoản sinh viên đã được kích hoạt trong hệ thống KTX mới có thể truy cập.
+            </div>
           </div>
         ) : (
           <form onSubmit={handleLoginSubmit} className="login-form">
@@ -157,25 +191,39 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
             )}
 
             <div className="form-field-group">
-              <label htmlFor="login-username" className="form-label">
-                {role === 'student' ? 'Email FPT (@fpt.edu.vn) hoặc MSSV' : 'Tên tài khoản / Email cán bộ'}
-              </label>
+              <label htmlFor="login-account" className="form-label">Tài khoản / Email cán bộ</label>
               <input
-                id="login-username"
+                id="login-account"
                 type="text"
                 required
-                placeholder={role === 'student' ? 'SE17001 hoặc nampsse17001@fpt.edu.vn' : 'ADMIN01 hoặc admin01@fpt.edu.vn'}
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                placeholder="mng01 hoặc mng01@fpt.edu.vn"
+                value={account}
+                onChange={(e) => setAccount(e.target.value)}
                 className="form-input"
               />
             </div>
 
             <div className="form-field-group">
-              <label htmlFor="login-password" className="form-label">Mật khẩu</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label htmlFor="login-password" className="form-label" style={{ marginBottom: 0 }}>Mật khẩu</label>
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#f97316',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    padding: 0
+                  }}
+                >
+                  {showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                </button>
+              </div>
               <input
                 id="login-password"
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 required
                 placeholder="••••••••••••"
                 value={password}
@@ -193,7 +241,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
                 />
                 <span>Ghi nhớ đăng nhập</span>
               </label>
-              <a href="#forgot" onClick={(e) => { e.preventDefault(); alert('Vui lòng liên hệ Ban Quản lý KTX hoặc quản trị viên IT để cấp lại mật khẩu.'); }} className="forgot-link">
+              <a href="#forgot" onClick={(e) => { e.preventDefault(); alert('Vui lòng liên hệ Quản trị viên IT để cấp lại mật khẩu.'); }} className="forgot-link">
                 Quên mật khẩu?
               </a>
             </div>
@@ -201,15 +249,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
             <button type="submit" className="login-submit-btn" disabled={isSubmitting}>
               {isSubmitting ? 'Đang xác thực...' : 'Đăng nhập hệ thống'}
             </button>
-
-            {role === 'student' && (
-              <div className="oauth-login-divider">
-                <span>Hoặc đăng nhập nhanh bằng</span>
-                <div id="google-btn-container" style={{ display: 'flex', justifyContent: 'center', marginTop: '12px', minHeight: '44px' }}>
-                  {/* Google official button will be rendered here */}
-                </div>
-              </div>
-            )}
           </form>
         )}
       </div>

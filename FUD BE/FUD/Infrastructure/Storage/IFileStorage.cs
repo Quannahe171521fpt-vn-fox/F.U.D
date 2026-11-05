@@ -1,6 +1,10 @@
-﻿namespace FUD.Infrastructure.Storage
+using Microsoft.AspNetCore.Http;
+
+namespace FUD.Infrastructure.Storage
 {
-    public class IFileStorage
+    public interface IFileStorage
     {
+        Task<string> UploadImageAsync(IFormFile file, string folder = "violations");
+        Task<List<string>> UploadImagesAsync(IEnumerable<IFormFile> files, string folder = "violations");
     }
 }

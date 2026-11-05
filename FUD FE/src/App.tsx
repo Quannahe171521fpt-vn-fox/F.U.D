@@ -4,7 +4,9 @@ import { Footer } from './components/Footer';
 import { LoginModal } from './components/LoginModal';
 import { AdminPortal } from './components/AdminPortal';
 import { GuardPortal } from './components/GuardPortal';
+import { StudentPortal } from './components/StudentPortal';
 import { useAuth } from './contexts/AuthContext';
+import type { UserInfo } from './contexts/AuthContext';
 // Pages split into dedicated folders
 import { HomePage } from './pages/Homepage/HomePage';
 import { ManagerPortal } from './pages/FacilityManagement/ManagerPortal';
@@ -17,16 +19,20 @@ import './styles/dormitory.css';
 import './styles/management.css';
 
 export function App() {
-  const { currentUser, logout: authLogout } = useAuth();
+  const { currentUser, isLoading, logout: authLogout } = useAuth();
 
   const [isLoginOpen, setIsLoginOpen] = useState(false);
 
   const [userRole, setUserRole] = useState<'guest' | 'student' | 'manager'>(() => {
+    const hasUser = !!localStorage.getItem('fud_currentUser');
+    if (!hasUser) return 'guest';
     return (localStorage.getItem('fud_userRole') as 'guest' | 'student' | 'manager') || 'guest';
   });
-  // Main views: home, announcements, management (Ban Quản lý), admin (Quản trị viên), guard (Đội Bảo vệ)
-  const [currentView, setCurrentView] = useState<'home' | 'announcements' | 'management' | 'admin' | 'guard'>(() => {
-    const saved = localStorage.getItem('fud_currentView') as 'home' | 'announcements' | 'management' | 'admin' | 'guard';
+  // Main views: home, announcements, management (Ban Quản lý), admin (Quản trị viên), guard (Đội Bảo vệ), student (Sinh viên)
+  const [currentView, setCurrentView] = useState<'home' | 'announcements' | 'management' | 'admin' | 'guard' | 'student'>(() => {
+    const hasUser = !!localStorage.getItem('fud_currentUser');
+    const saved = localStorage.getItem('fud_currentView') as 'home' | 'announcements' | 'management' | 'admin' | 'guard' | 'student';
+    if (!hasUser && saved !== 'announcements') return 'home';
     return saved || 'home';
   });
   const [selectedRoomId, setSelectedRoomId] = useState('room-4');
@@ -72,30 +78,53 @@ export function App() {
   }, [currentView]);
 
   useEffect(() => {
+    if (isLoading) return; // QUAN TRỌNG: Giữ nguyên view và role trong lúc AuthContext đang xác thực phiên khi vừa F5
+
     if (currentUser) {
       const role = currentUser.primaryRole;
       if (role === 'Admin') {
         setUserRole('manager');
-        setCurrentView('admin');
+        if (currentView === 'home' || currentView === 'student' || currentView === 'guard') {
+          setCurrentView('admin');
+        }
       } else if (role === 'Guard') {
         setUserRole('manager');
-        setCurrentView('guard');
+        if (currentView === 'home' || currentView === 'student' || currentView === 'admin' || currentView === 'management') {
+          setCurrentView('guard');
+        }
       } else if (role === 'Manager') {
         setUserRole('manager');
-        setCurrentView('management');
+        if (currentView === 'home' || currentView === 'student' || currentView === 'admin' || currentView === 'guard') {
+          setCurrentView('management');
+        }
       } else {
         setUserRole('student');
         if (currentView === 'management' || currentView === 'admin' || currentView === 'guard') {
-          setCurrentView('home');
+          setCurrentView('student');
         }
       }
     } else {
-      setUserRole('guest');
-      if (currentView === 'management' || currentView === 'admin' || currentView === 'guard') {
-        setCurrentView('home');
+      const token = localStorage.getItem('fud_accessToken');
+      if (!token) {
+        setUserRole('guest');
+        if (currentView !== 'home' && currentView !== 'announcements') {
+          setCurrentView('home');
+        }
       }
     }
-  }, [currentUser]);
+  }, [currentUser, isLoading]);
+
+  useEffect(() => {
+    const onSessionExpired = () => {
+      const token = localStorage.getItem('fud_accessToken');
+      if (!token) {
+        setUserRole('guest');
+        setCurrentView('home');
+      }
+    };
+    window.addEventListener('fud:session-expired', onSessionExpired);
+    return () => window.removeEventListener('fud:session-expired', onSessionExpired);
+  }, []);
 
   const scrollToSection = (sectionId: string) => {
     const el = document.getElementById(sectionId);
@@ -109,8 +138,22 @@ export function App() {
     scrollToSection('registration-guide');
   };
 
-  const handleLoginSuccess = () => {
-    // Điều hướng được tự động xử lý chuẩn xác theo currentUser.primaryRole trong useEffect
+  const handleLoginSuccess = (user: UserInfo) => {
+    // Điều hướng trực tiếp theo role ngay khi login thành công
+    const role = user.primaryRole;
+    if (role === 'Admin') {
+      setUserRole('manager');
+      setCurrentView('admin');
+    } else if (role === 'Guard') {
+      setUserRole('manager');
+      setCurrentView('guard');
+    } else if (role === 'Manager') {
+      setUserRole('manager');
+      setCurrentView('management');
+    } else {
+      setUserRole('student');
+      setCurrentView('student');
+    }
   };
 
   const handleLogout = async () => {
@@ -119,6 +162,8 @@ export function App() {
     setCurrentView('home');
     localStorage.removeItem('fud_userRole');
     localStorage.removeItem('fud_currentView');
+    localStorage.removeItem('fud_accessToken');
+    localStorage.removeItem('fud_currentUser');
   };
 
   return (
@@ -148,6 +193,16 @@ export function App() {
         <ManagerPortal />
       )}
 
+      {/* VIEW 1.5: Student Portal (Cổng Sinh viên) */}
+      {currentView === 'student' && (
+        <StudentPortal
+          onLogout={handleLogout}
+          onBackToHome={() => setCurrentView('home')}
+          onOpenAnnouncements={() => setCurrentView('announcements')}
+          onNavigateToSection={scrollToSection}
+        />
+      )}
+
       {/* VIEW 2: Dedicated Announcements Page */}
       {currentView === 'announcements' && (
         <main>
@@ -169,7 +224,7 @@ export function App() {
       )}
 
       {/* Footer is only rendered on Homepage & Announcements, keeping Portals layout clean without line cuts */}
-      {currentView !== 'management' && currentView !== 'admin' && currentView !== 'guard' && (
+      {currentView !== 'management' && currentView !== 'admin' && currentView !== 'guard' && currentView !== 'student' && (
         <Footer onNavigate={(sec) => {
           if (currentView !== 'home') {
             setCurrentView('home');

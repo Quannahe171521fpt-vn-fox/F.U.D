@@ -75,3 +75,59 @@ export interface SavePricingPayload {
   }[];
   confirmApplyToNewBookingsOnly?: boolean;
 }
+
+
+export interface RegistrationPeriodItem {
+  id?: number;
+  termId: number;
+  periodType: 'Keeping' | 'Booking';
+  startDate: string; // YYYY-MM-DD
+  endDate: string;   // YYYY-MM-DD
+  activeFlag: boolean;
+  statusText?: string; // 'Chưa cấu hình' | 'Chưa bắt đầu' | 'Đang mở' | 'Đã kết thúc' | 'Đã tắt'
+}
+
+export interface TermManagementItem {
+  id: number;
+  name: string;
+  academicYear: string;
+  displayName: string;
+  startDate: string;
+  endDate: string;
+  termStatus: 'Upcoming' | 'Ongoing' | 'Ended';
+  priceListStatus: 'NotCreated' | 'Draft' | 'Published';
+  priceListPublishedTime?: string | null;
+  isPricePublished: boolean;
+  keepingPeriod?: RegistrationPeriodItem | null;
+  bookingPeriod?: RegistrationPeriodItem | null;
+  hasDependentData: boolean;
+}
+
+export interface TermDetailItem extends TermManagementItem {
+  allPeriods: RegistrationPeriodItem[];
+}
+
+export interface CreateTermPayload {
+  name: string;
+  academicYear: string;
+  startDate: string;
+  endDate: string;
+}
+
+export interface UpdateTermPayload {
+  name: string;
+  academicYear: string;
+  startDate: string;
+  endDate: string;
+}
+
+export interface SaveSchedulePayload {
+  termId: number;
+  periods: {
+    id?: number;
+    periodType: 'Keeping' | 'Booking';
+    startDate: string;
+    endDate: string;
+    activeFlag: boolean;
+  }[];
+}
