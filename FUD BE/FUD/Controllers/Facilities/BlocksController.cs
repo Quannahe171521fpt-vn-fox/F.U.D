@@ -1,12 +1,14 @@
 using FUD.Common;
 using FUD.DTOs.Facilities.Block;
 using FUD.Services.Interfaces.Facilities;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FUD.Controllers.Facilities
 {
     [Route("api/blocks")]
     [ApiController]
+    [Authorize(Roles = "Manager")]
     public class BlocksController : ControllerBase
     {
         private readonly IBlockService _blockService;
