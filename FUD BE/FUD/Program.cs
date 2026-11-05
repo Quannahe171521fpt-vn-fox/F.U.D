@@ -251,13 +251,18 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                     var dbIdentity = context.Principal?.Identity as System.Security.Claims.ClaimsIdentity;
                     if (dbIdentity != null)
                     {
-                        // Gỡ toàn bộ role claim cũ trong token
-                        foreach (var claim in dbIdentity.FindAll(ClaimTypes.Role).ToList())
+                        // Gỡ toàn bộ role claim cũ trong token (cả 2 tên claim: ClaimTypes.Role và "role")
+                        foreach (var claim in dbIdentity.FindAll(ClaimTypes.Role)
+                                     .Concat(dbIdentity.FindAll("role"))
+                                     .ToList())
                             dbIdentity.RemoveClaim(claim);
 
-                        // Gắn lại role theo DB (nguồn sự thật)
+                        // Gắn lại role theo DB (nguồn sự thật), đồng bộ cả 2 tên claim
                         foreach (var role in dbRoles)
+                        {
                             dbIdentity.AddClaim(new Claim(ClaimTypes.Role, role));
+                            dbIdentity.AddClaim(new Claim("role", role));
+                        }
                     }
                 }
             }
@@ -310,15 +315,6 @@ builder.Services.AddScoped<FUD.Infrastructure.Storage.IFileStorage, FUD.Infrastr
 // UC22: Violations DI
 builder.Services.AddScoped<FUD.Repositories.Interfaces.Violations.IViolationRepository, FUD.Repositories.Violations.ViolationRepository>();
 builder.Services.AddScoped<FUD.Services.Interfaces.Violations.IViolationService, FUD.Services.Violations.ViolationService>();
-
-builder.Services.AddControllers()
-    .AddJsonOptions(opts =>
-    {
-        opts.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
-        opts.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
-    });
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
