@@ -1,12 +1,14 @@
 using FUD.Common;
 using FUD.DTOs.Facilities.Room;
 using FUD.Services.Interfaces.Facilities;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FUD.Controllers.Facilities
 {
     [Route("api/rooms")]
     [ApiController]
+    [Authorize(Roles = "Manager")]
     public class RoomsController : ControllerBase
     {
         private readonly IRoomService _roomService;
