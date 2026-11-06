@@ -31,10 +31,14 @@ public partial class User
 
     public DateTime CreatedAt { get; set; }
 
+    public DateTime? UpdatedAt { get; set; }
+
     public DateTime? DeletedAt { get; set; }
 
+    /// <summary>Số lần đăng nhập sai liên tiếp (dùng cho cơ chế khóa tài khoản tạm thời).</summary>
     public int FailedLoginCount { get; set; }
 
+    /// <summary>Thời điểm tài khoản được mở khóa trở lại (NULL = không bị khóa).</summary>
     public DateTime? LockoutEnd { get; set; }
 
     public virtual Admin? Admin { get; set; }
@@ -64,4 +68,8 @@ public partial class User
     public virtual ICollection<UserRole> UserRoleAssignedBies { get; set; } = new List<UserRole>();
 
     public virtual ICollection<UserRole> UserRoleUsers { get; set; } = new List<UserRole>();
+
+    public virtual ICollection<AccountStatusHistory> AccountStatusHistories { get; set; } = new List<AccountStatusHistory>();
+
+    public virtual ICollection<RoleChangeHistory> RoleChangeHistories { get; set; } = new List<RoleChangeHistory>();
 }
