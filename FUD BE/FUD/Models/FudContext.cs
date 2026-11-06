@@ -15,6 +15,8 @@ public partial class FudContext : DbContext
     {
     }
 
+    public virtual DbSet<AccountStatusHistory> AccountStatusHistories { get; set; }
+
     public virtual DbSet<Admin> Admins { get; set; }
 
     public virtual DbSet<AuditLog> AuditLogs { get; set; }
@@ -97,6 +99,8 @@ public partial class FudContext : DbContext
 
     public virtual DbSet<Role> Roles { get; set; }
 
+    public virtual DbSet<RoleChangeHistory> RoleChangeHistories { get; set; }
+
     public virtual DbSet<Room> Rooms { get; set; }
 
     public virtual DbSet<RoomType> RoomTypes { get; set; }
@@ -133,6 +137,79 @@ public partial class FudContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<AccountStatusHistory>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("PK_Account_Status_History");
+
+            entity.ToTable("Account_Status_History");
+
+            entity.HasIndex(e => new { e.UserId, e.ChangedAt }, "IX_AccountStatusHistory_User_Time")
+                .IsDescending(false, true);
+
+            entity.Property(e => e.OldStatus)
+                .HasMaxLength(20)
+                .IsUnicode(false);
+
+            entity.Property(e => e.NewStatus)
+                .HasMaxLength(20)
+                .IsUnicode(false);
+
+            entity.Property(e => e.Reason).HasMaxLength(50).IsUnicode(false);
+
+            entity.Property(e => e.Notes).HasMaxLength(500);
+
+            entity.Property(e => e.ChangedAt)
+                .HasDefaultValueSql("(getdate())")
+                .HasColumnType("datetime");
+
+            entity.Property(e => e.NotificationStatus)
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasDefaultValue("None");
+
+            entity.HasOne(d => d.User).WithMany(p => p.AccountStatusHistories)
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_AccountStatusHistory_Users");
+
+            entity.HasOne(d => d.ChangedByUser).WithMany()
+                .HasForeignKey(d => d.ChangedBy)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_AccountStatusHistory_ChangedBy_Users");
+        });
+
+        modelBuilder.Entity<RoleChangeHistory>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("PK_Role_Change_History");
+
+            entity.ToTable("Role_Change_History");
+
+            entity.HasIndex(e => new { e.UserId, e.ChangedAt }, "IX_RoleChangeHistory_User_Time")
+                .IsDescending(false, true);
+
+            entity.Property(e => e.Action)
+                .HasMaxLength(20)
+                .IsUnicode(false);
+
+            entity.Property(e => e.OldRoles).HasMaxLength(500);
+
+            entity.Property(e => e.NewRoles).HasMaxLength(500);
+
+            entity.Property(e => e.ChangedAt)
+                .HasDefaultValueSql("(getdate())")
+                .HasColumnType("datetime");
+
+            entity.HasOne(d => d.User).WithMany(p => p.RoleChangeHistories)
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_RoleChangeHistory_Users");
+
+            entity.HasOne(d => d.ChangedByUser).WithMany()
+                .HasForeignKey(d => d.ChangedBy)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_RoleChangeHistory_ChangedBy_Users");
+        });
+
         modelBuilder.Entity<Admin>(entity =>
         {
             entity.HasKey(e => e.UserId).HasName("PK__Admins__1788CC4CAAF73251");
@@ -1492,6 +1569,7 @@ public partial class FudContext : DbContext
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("(getdate())")
                 .HasColumnType("datetime");
+            entity.Property(e => e.UpdatedAt).HasColumnType("datetime");
             entity.Property(e => e.Email)
                 .HasMaxLength(100)
                 .IsUnicode(false);
@@ -1510,6 +1588,9 @@ public partial class FudContext : DbContext
                 .IsUnicode(false);
             entity.Property(e => e.SuspendedAt).HasColumnType("datetime");
             entity.Property(e => e.SuspensionReason).HasMaxLength(255);
+            entity.Property(e => e.FailedLoginCount)
+                .HasDefaultValue(0);
+            entity.Property(e => e.LockoutEnd).HasColumnType("datetime");
 
             entity.HasOne(d => d.SuspendedBy).WithMany(p => p.InverseSuspendedBy)
                 .HasForeignKey(d => d.SuspendedById)

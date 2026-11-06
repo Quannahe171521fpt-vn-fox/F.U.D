@@ -49,6 +49,7 @@ public class UserRepository : IUserRepository
             .FirstOrDefaultAsync(u => u.GoogleId == googleId && u.DeletedAt == null);
     }
 
+    /// <summary>Tăng số lần đăng nhập sai và đặt mốc khoá tài khoản (atomic, tránh race condition).</summary>
     public async Task AtomicIncrementFailedLoginAsync(int userId, DateTime? lockoutUntil)
     {
         await _context.Users
@@ -58,6 +59,7 @@ public class UserRepository : IUserRepository
                 .SetProperty(u => u.LockoutEnd, u => lockoutUntil ?? u.LockoutEnd));
     }
 
+    /// <summary>Reset bộ đếm đăng nhập sai sau khi đăng nhập thành công.</summary>
     public async Task AtomicResetFailedLoginAsync(int userId)
     {
         await _context.Users

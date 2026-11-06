@@ -4,6 +4,7 @@ using System.Text;
 using System.Threading.RateLimiting;
 using FUD.Common;
 using FUD.Infrastructure.Auth;
+using FUD.Infrastructure.Email;
 using FUD.Models;
 using FUD.Repositories;
 using FUD.Repositories.Facilities;
@@ -13,6 +14,7 @@ using FUD.Services;
 using FUD.Services.Facilities;
 using FUD.Services.Interfaces;
 using FUD.Services.Interfaces.Facilities;
+using FUD.Settings.pattern;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -182,7 +184,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             NameClaimType = "user_code"
         };
 
-        // Kiểm tra trạng thái Active qua MemoryCache (Đệm 60s để bảo vệ DB)
+        // Kiểm tra trạng thái Active + đồng bộ role từ DB (đệm 60s để bảo vệ DB)
         options.Events = new JwtBearerEvents
         {
             OnTokenValidated = async context =>
@@ -232,6 +234,37 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                     if (accountStatus == "Banned" || accountStatus == "Locked" || accountStatus == "NotFound")
                     {
                         context.Fail("Tài khoản của bạn đã bị khóa hoặc không tồn tại.");
+                        return;
+                    }
+
+                    // Đồng bộ role hiệu lực từ DB: đảm bảo quyền cấp/thu hồi có hiệu lực thật
+                    var rolesCacheKey = $"user_roles_{userId}";
+                    if (!cache.TryGetValue<string[]>(rolesCacheKey, out var cachedRoles) || cachedRoles == null)
+                    {
+                        cachedRoles = (await dbContext.UserRoles.AsNoTracking()
+                            .Where(ur => ur.UserId == userId)
+                            .Select(ur => ur.Role.RoleName)
+                            .ToListAsync()).ToArray();
+
+                        cache.Set(rolesCacheKey, cachedRoles, TimeSpan.FromSeconds(60));
+                    }
+
+                    var dbRoles = cachedRoles;
+                    var dbIdentity = context.Principal?.Identity as System.Security.Claims.ClaimsIdentity;
+                    if (dbIdentity != null)
+                    {
+                        // Gỡ toàn bộ role claim cũ trong token (cả 2 tên claim: ClaimTypes.Role và "role")
+                        foreach (var claim in dbIdentity.FindAll(ClaimTypes.Role)
+                                     .Concat(dbIdentity.FindAll("role"))
+                                     .ToList())
+                            dbIdentity.RemoveClaim(claim);
+
+                        // Gắn lại role theo DB (nguồn sự thật), đồng bộ cả 2 tên claim
+                        foreach (var role in dbRoles)
+                        {
+                            dbIdentity.AddClaim(new Claim(ClaimTypes.Role, role));
+                            dbIdentity.AddClaim(new Claim("role", role));
+                        }
                     }
                 }
             }
@@ -259,6 +292,14 @@ builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+
+// ── Account Management DI (UC: Create Account / Assign Roles / Suspend / Restore) ──
+builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));
+builder.Services.AddScoped<INotificationService, GmailNotificationService>();
+builder.Services.AddScoped<IAccountRepository, AccountRepository>();
+builder.Services.AddScoped<IAccountHistoryRepository, AccountHistoryRepository>();
+builder.Services.AddScoped<IAccountService, AccountService>();
+builder.Services.AddAccountValidators();
 
 // Facilities DI
 builder.Services.AddScoped<IBlockRepository, BlockRepository>();
