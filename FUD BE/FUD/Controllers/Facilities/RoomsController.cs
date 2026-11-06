@@ -8,7 +8,7 @@ namespace FUD.Controllers.Facilities
 {
     [Route("api/rooms")]
     [ApiController]
-    [Authorize(Roles = "Manager")]
+    [Authorize(Roles = "Manager,Guard,Admin")]
     public class RoomsController : ControllerBase
     {
         private readonly IRoomService _roomService;

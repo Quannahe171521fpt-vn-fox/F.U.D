@@ -2,14 +2,14 @@ import { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { LoginModal } from './components/LoginModal';
-import { AdminPortal } from './components/AdminPortal';
-import { GuardPortal } from './components/GuardPortal';
-import { StudentPortal } from './components/StudentPortal';
+import { AdminPortal } from './role portal/AdminPortal';
+import { GuardPortal } from './role portal/GuardPortal';
+import { StudentPortal } from './role portal/StudentPortal';
 import { useAuth } from './contexts/AuthContext';
 import type { UserInfo } from './contexts/AuthContext';
 // Pages split into dedicated folders
 import { HomePage } from './pages/Homepage/HomePage';
-import { ManagerPortal } from './pages/FacilityManagement/ManagerPortal';
+import { ManagerPortal } from './role portal/ManagerPortal';
 import { AnnouncementsPage } from './pages/Announcements/AnnouncementsPage';
 
 import { newsApi } from './services/api';
@@ -30,10 +30,21 @@ export function App() {
   });
   // Main views: home, announcements, management (Ban Quản lý), admin (Quản trị viên), guard (Đội Bảo vệ), student (Sinh viên)
   const [currentView, setCurrentView] = useState<'home' | 'announcements' | 'management' | 'admin' | 'guard' | 'student'>(() => {
-    const hasUser = !!localStorage.getItem('fud_currentUser');
-    const saved = localStorage.getItem('fud_currentView') as 'home' | 'announcements' | 'management' | 'admin' | 'guard' | 'student';
-    if (!hasUser && saved !== 'announcements') return 'home';
-    return saved || 'home';
+    const rawUser = localStorage.getItem('fud_currentUser');
+    if (!rawUser) {
+      const saved = localStorage.getItem('fud_currentView');
+      return saved === 'announcements' ? 'announcements' : 'home';
+    }
+    try {
+      const user = JSON.parse(rawUser);
+      const role = user.primaryRole;
+      if (role === 'Admin') return 'admin';
+      if (role === 'Guard') return 'guard';
+      if (role === 'Manager') return 'management';
+      return 'student';
+    } catch {
+      return 'home';
+    }
   });
   const [selectedRoomId, setSelectedRoomId] = useState('room-4');
 
@@ -84,22 +95,22 @@ export function App() {
       const role = currentUser.primaryRole;
       if (role === 'Admin') {
         setUserRole('manager');
-        if (currentView === 'home' || currentView === 'student' || currentView === 'guard') {
+        if (currentView !== 'admin') {
           setCurrentView('admin');
         }
       } else if (role === 'Guard') {
         setUserRole('manager');
-        if (currentView === 'home' || currentView === 'student' || currentView === 'admin' || currentView === 'management') {
+        if (currentView !== 'guard') {
           setCurrentView('guard');
         }
       } else if (role === 'Manager') {
         setUserRole('manager');
-        if (currentView === 'home' || currentView === 'student' || currentView === 'admin' || currentView === 'guard') {
+        if (currentView !== 'management') {
           setCurrentView('management');
         }
       } else {
         setUserRole('student');
-        if (currentView === 'management' || currentView === 'admin' || currentView === 'guard') {
+        if (currentView !== 'student') {
           setCurrentView('student');
         }
       }
@@ -197,9 +208,7 @@ export function App() {
       {currentView === 'student' && (
         <StudentPortal
           onLogout={handleLogout}
-          onBackToHome={() => setCurrentView('home')}
           onOpenAnnouncements={() => setCurrentView('announcements')}
-          onNavigateToSection={scrollToSection}
         />
       )}
 

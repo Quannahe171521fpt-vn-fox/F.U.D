@@ -416,12 +416,23 @@ export interface ViolationItem {
   violationTypeName: string;
   occurrenceTime: string;
   description: string;
+  initialLevel?: string;
+  finalLevel?: string;
+  managerNote?: string;
+  requestDeadline?: string;
   status: string;
   recordedByName?: string;
+  evaluatedByName?: string;
+  finalizedTime?: string;
+  termName?: string;
   evidences: ViolationEvidence[];
+  priorViolationsCount?: number;
+  studentAccountStatus?: string;
+  suspensionReason?: string;
+  linkedRequestId?: number;
 }
 
-// ── Violation API (UC22: Record Violation) ──────────────────
+// ── Violation API (UC19, UC20, UC21, UC22, UC23) ───────────────
 export const violationApi = {
   getTypes: async (): Promise<ViolationType[]> => {
     const res = await authFetch(`${BASE_URL}/violations/types`);
@@ -448,17 +459,6 @@ export const violationApi = {
     return json.data;
   },
 
-  checkDuplicate: async (studentIds: number[], violationTypeId: number, occurrenceTime: string): Promise<{ hasDuplicate: boolean; existingViolations: ViolationItem[]; message: string }> => {
-    const query = new URLSearchParams({
-      studentIds: studentIds.join(','),
-      violationTypeId: violationTypeId.toString(),
-      occurrenceTime,
-    });
-    const res = await authFetch(`${BASE_URL}/violations/check-duplicate?${query.toString()}`);
-    const json = await parseJsonSafe(res);
-    return json?.data || { hasDuplicate: false, existingViolations: [], message: '' };
-  },
-
   recordViolation: async (formData: FormData): Promise<ViolationItem[]> => {
     const res = await authFetch(`${BASE_URL}/violations/record`, {
       method: 'POST',
@@ -471,14 +471,74 @@ export const violationApi = {
     return json.data;
   },
 
-  getViolations: async (params?: { roomId?: number; studentId?: number }): Promise<ViolationItem[]> => {
+  getViolations: async (params?: { roomId?: number; studentId?: number; status?: string }): Promise<ViolationItem[]> => {
     const query = new URLSearchParams();
     if (params?.roomId) query.append('roomId', params.roomId.toString());
     if (params?.studentId) query.append('studentId', params.studentId.toString());
+    if (params?.status) query.append('status', params.status);
     const res = await authFetch(`${BASE_URL}/violations?${query.toString()}`);
     if (!res.ok) throw new Error('Không thể tải danh sách vi phạm');
     const json = await parseJsonSafe(res);
     return json.data || [];
+  },
+
+  getById: async (id: number): Promise<ViolationItem> => {
+    const res = await authFetch(`${BASE_URL}/violations/${id}`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok || (json && json.success === false)) {
+      throw new Error(json?.message || `Không tìm thấy biên bản vi phạm (HTTP ${res.status})`);
+    }
+    return json?.data;
+  },
+
+  // UC19: Thông báo vi phạm của sinh viên
+  getStudentNotices: async (): Promise<ViolationItem[]> => {
+    const res = await authFetch(`${BASE_URL}/violations/student/notices`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok || (json && json.success === false)) {
+      throw new Error(json?.message || 'Không thể tải thông báo vi phạm');
+    }
+    return json?.data || [];
+  },
+
+  // UC21: Lịch sử vi phạm của sinh viên
+  getStudentHistory: async (params?: { term?: string; status?: string }): Promise<ViolationItem[]> => {
+    const query = new URLSearchParams();
+    if (params?.term) query.append('term', params.term);
+    if (params?.status) query.append('status', params.status);
+    const res = await authFetch(`${BASE_URL}/violations/student/history?${query.toString()}`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok || (json && json.success === false)) {
+      throw new Error(json?.message || 'Không thể tải lịch sử vi phạm');
+    }
+    return json?.data || [];
+  },
+
+  // UC23: Ban Quản lý định mức vi phạm ban đầu
+  evaluateViolation: async (violationId: number, payload: { initialLevel: string; managerNote?: string }): Promise<ViolationItem> => {
+    const res = await authFetch(`${BASE_URL}/violations/${violationId}/evaluate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await parseJsonSafe(res);
+    if (!res.ok || (json && json.success === false)) {
+      throw new Error(json?.message || `Lỗi khi định mức vi phạm (HTTP ${res.status})`);
+    }
+    return json?.data;
+  },
+
+  // Mở khóa đình chỉ book phòng & giữ phòng cho sinh viên
+  unsuspendStudent: async (studentId: number, note?: string): Promise<void> => {
+    const res = await authFetch(`${BASE_URL}/violations/unsuspend-student/${studentId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note }),
+    });
+    const json = await parseJsonSafe(res);
+    if (!res.ok || (json && json.success === false)) {
+      throw new Error(json?.message || `Không thể mở khóa tài khoản (HTTP ${res.status})`);
+    }
   },
 };
 
@@ -672,5 +732,74 @@ export const dormApi = {
     const res = await authFetch(`${BASE_URL}/dorms/${id}`, { method: 'DELETE' });
     const json = await safeParseResponse<void>(res, 'Lỗi khi xóa KTX');
     if (!res.ok || !json.success) throw new Error(json.message || 'Lỗi khi xóa KTX');
+  },
+};
+
+
+// ── Requests API (Booking, BedTransfer, Checkout, Complaint, Others) ───────────
+export interface RequestItemDto {
+  id: number;
+  requestCode: string;
+  studentId: number;
+  studentName: string;
+  studentCode: string;
+  roomInfo: string;
+  requestType: string;
+  status: string;
+  reason?: string;
+  rejectReason?: string;
+  createdTime: string;
+  processedTime?: string;
+  processedByName?: string;
+  studentAccountStatus?: string;
+  suspensionReason?: string;
+  complaint?: {
+    targetType: string;
+    violationId?: number;
+    violationCode?: string;
+    violationTypeName?: string;
+    content: string;
+    resolutionNote?: string;
+    evidences: string[];
+  };
+}
+
+export const requestApi = {
+  getAll: async (params?: { requestType?: string; status?: string }): Promise<RequestItemDto[]> => {
+    const query = new URLSearchParams();
+    if (params?.requestType) query.append('requestType', params.requestType);
+    if (params?.status) query.append('status', params.status);
+    const res = await authFetch(`${BASE_URL}/requests?${query.toString()}`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(json?.message || 'Không thể tải danh sách đơn yêu cầu');
+    return Array.isArray(json) ? json : json?.data || [];
+  },
+
+  getMyRequests: async (): Promise<RequestItemDto[]> => {
+    const res = await authFetch(`${BASE_URL}/requests/my-requests`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(json?.message || 'Không thể tải danh sách đơn của bạn');
+    return Array.isArray(json) ? json : json?.data || [];
+  },
+
+  create: async (formData: FormData): Promise<RequestItemDto> => {
+    const res = await authFetch(`${BASE_URL}/requests`, {
+      method: 'POST',
+      body: formData,
+    });
+    const json = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(json?.message || 'Không thể gửi đơn yêu cầu');
+    return json?.data || json;
+  },
+
+  process: async (id: number, payload: { decision: string; note?: string; adjustedLevel?: string }): Promise<RequestItemDto> => {
+    const res = await authFetch(`${BASE_URL}/requests/${id}/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(json?.message || 'Không thể xử lý đơn yêu cầu');
+    return json?.data || json;
   },
 };

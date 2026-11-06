@@ -18,4 +18,6 @@ public class UserInfoDto
     public string Email { get; set; } = null!;
     public string PrimaryRole { get; set; } = null!;
     public List<string> Roles { get; set; } = new();
+    public string AccountStatus { get; set; } = "Active";
+    public string? SuspensionReason { get; set; }
 }

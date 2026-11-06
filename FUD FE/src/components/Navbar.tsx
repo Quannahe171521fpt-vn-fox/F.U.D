@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 interface NavbarProps {
   onOpenLogin: () => void;
   onNavigate: (sectionId: string) => void;
-  currentRole: 'guest' | 'student' | 'manager';
+  currentRole?: 'guest' | 'student' | 'manager';
   currentView: 'home' | 'announcements' | 'management' | 'admin' | 'guard' | 'student';
   onChangeView: (view: 'home' | 'announcements' | 'management' | 'admin' | 'guard' | 'student') => void;
   onLogout: () => void;
@@ -14,7 +14,6 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   onOpenLogin,
   onNavigate,
-  currentRole,
   currentView,
   onChangeView,
   onLogout,
@@ -33,8 +32,10 @@ export const Navbar: React.FC<NavbarProps> = ({
     return `${currentUser.fullName} (${roleMap[currentUser.primaryRole] || currentUser.primaryRole})`;
   };
 
-  // If in Management Portal, Admin Portal, or Guard Portal: keep minimal header with only Logo, Name and Logout
-  if (currentUser && (currentView === 'management' || currentView === 'admin' || currentView === 'guard')) {
+  // Khi đã đăng nhập vào các Portal (Manager, Admin, Guard, Student):
+  // Xóa nút "Xem Trang chủ" / navigation trang chủ ở header theo yêu cầu:
+  // "khi đăng nhập vào từng role xóa nút xem trang chủ ở header"
+  if (currentUser) {
     return (
       <header className="navbar-container">
         <div className="navbar-inner navbar-minimal">
@@ -43,22 +44,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
           <div className="navbar-right-minimal">
             <div className="user-action-group">
-              <button
-                type="button"
-                onClick={() => onChangeView('home')}
-                style={{
-                  background: 'none',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: '6px',
-                  padding: '6px 12px',
-                  fontSize: '13px',
-                  cursor: 'pointer',
-                  color: '#475569',
-                  marginRight: '8px',
-                }}
-              >
-                ← Xem Trang chủ
-              </button>
               <span className="user-role-label">{getRoleDisplayName()}</span>
               <button
                 type="button"
@@ -75,7 +60,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     );
   }
 
-  // If in Homepage or Announcements: Keep FULL original Homepage Header
+  // Khách (Guest) chưa đăng nhập: Hiển thị đầy đủ thanh điều hướng Trang chủ KTX
   const handleNavClick = (id: string) => {
     if (currentView !== 'home') {
       onChangeView('home');
@@ -102,7 +87,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <Logo />
         </a>
 
-        {/* Desktop Navigation Links (Full homepage links kept as original) */}
+        {/* Desktop Navigation Links */}
         <nav className="navbar-nav">
           <button
             type="button"
@@ -114,16 +99,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             Trang chủ
           </button>
-
-          {currentRole !== 'guest' && (
-            <button
-              type="button"
-              onClick={() => onChangeView('announcements')}
-              className={`nav-link ${currentView === 'announcements' ? 'active-nav font-bold' : ''}`}
-            >
-              Thông báo
-            </button>
-          )}
 
           <button
             type="button"
@@ -173,30 +148,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             Giới thiệu
           </button>
 
-          {/* Login or User Status */}
-          {currentRole !== 'guest' ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span className="user-role-label">
-                {getRoleDisplayName()}
-              </span>
-              <button
-                type="button"
-                onClick={onLogout}
-                className="btn-logout"
-              >
-                Đăng xuất
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={onOpenLogin}
-              className="navbar-login-btn"
-              id="navbar-login-button"
-            >
-              Đăng nhập
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onOpenLogin}
+            className="navbar-login-btn"
+            id="navbar-login-button"
+          >
+            Đăng nhập
+          </button>
         </nav>
 
         {/* Mobile Hamburger Button */}
@@ -225,18 +184,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             Trang chủ
           </button>
-          {currentRole !== 'guest' && (
-            <button
-              type="button"
-              onClick={() => {
-                onChangeView('announcements');
-                setMobileMenuOpen(false);
-              }}
-              className="mobile-nav-link"
-            >
-              Thông báo
-            </button>
-          )}
           <button
             type="button"
             onClick={() => handleNavClick('dorm-info')}
@@ -279,29 +226,16 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             About
           </button>
-          {currentRole !== 'guest' ? (
-            <button
-              type="button"
-              onClick={() => {
-                setMobileMenuOpen(false);
-                onLogout();
-              }}
-              className="navbar-login-btn mobile-login-btn"
-            >
-              Đăng xuất
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                setMobileMenuOpen(false);
-                onOpenLogin();
-              }}
-              className="navbar-login-btn mobile-login-btn"
-            >
-              Login
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => {
+              setMobileMenuOpen(false);
+              onOpenLogin();
+            }}
+            className="navbar-login-btn mobile-login-btn"
+          >
+            Login
+          </button>
         </div>
       )}
     </header>

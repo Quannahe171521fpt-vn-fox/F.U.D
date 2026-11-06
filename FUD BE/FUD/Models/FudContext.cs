@@ -131,8 +131,6 @@ public partial class FudContext : DbContext
 
     public virtual DbSet<ViolationEvidence> ViolationEvidences { get; set; }
 
-    public virtual DbSet<ViolationExplanation> ViolationExplanations { get; set; }
-
     public virtual DbSet<ViolationType> ViolationTypes { get; set; }
 
     public virtual DbSet<VwStudentOutstanding> VwStudentOutstandings { get; set; }
@@ -1694,7 +1692,7 @@ public partial class FudContext : DbContext
             entity.Property(e => e.Code)
                 .HasMaxLength(50)
                 .IsUnicode(false);
-            entity.Property(e => e.ExplanationDeadline).HasColumnType("datetime");
+            entity.Property(e => e.RequestDeadline).HasColumnName("RequestDeadline").HasColumnType("datetime");
             entity.Property(e => e.FinalLevel).HasMaxLength(100);
             entity.Property(e => e.FinalizedTime).HasColumnType("datetime");
             entity.Property(e => e.InitialLevel).HasMaxLength(100);
@@ -1748,37 +1746,10 @@ public partial class FudContext : DbContext
                 .HasMaxLength(20)
                 .IsUnicode(false);
 
-            entity.HasOne(d => d.Explanation).WithMany(p => p.ViolationEvidences)
-                .HasForeignKey(d => d.ExplanationId)
-                .HasConstraintName("FK__Violation__Expla__1881A0DE");
-
             entity.HasOne(d => d.Violation).WithMany(p => p.ViolationEvidences)
                 .HasForeignKey(d => d.ViolationId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK__Violation__Viola__178D7CA5");
-        });
-
-        modelBuilder.Entity<ViolationExplanation>(entity =>
-        {
-            entity.HasKey(e => e.Id).HasName("PK__Violatio__3214EC07CE1DED5F");
-
-            entity.ToTable("Violation_Explanations");
-
-            entity.HasIndex(e => e.ViolationId, "UQ__Violatio__18B6DC09BE22DF20").IsUnique();
-
-            entity.Property(e => e.SubmissionTime)
-                .HasDefaultValueSql("(getdate())")
-                .HasColumnType("datetime");
-
-            entity.HasOne(d => d.Student).WithMany(p => p.ViolationExplanations)
-                .HasForeignKey(d => d.StudentId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK__Violation__Stude__13BCEBC1");
-
-            entity.HasOne(d => d.Violation).WithOne(p => p.ViolationExplanation)
-                .HasForeignKey<ViolationExplanation>(d => d.ViolationId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK__Violation__Viola__12C8C788");
         });
 
         modelBuilder.Entity<ViolationType>(entity =>

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace FUD.Models;
@@ -26,8 +26,6 @@ public partial class Student
     public virtual ICollection<Residency> Residencies { get; set; } = new List<Residency>();
 
     public virtual User User { get; set; } = null!;
-
-    public virtual ICollection<ViolationExplanation> ViolationExplanations { get; set; } = new List<ViolationExplanation>();
 
     public virtual ICollection<Violation> Violations { get; set; } = new List<Violation>();
 }

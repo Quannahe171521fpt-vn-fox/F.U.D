@@ -9,6 +9,8 @@ export interface UserInfo {
   email: string;
   primaryRole: 'Admin' | 'Manager' | 'Guard' | 'Student';
   roles: string[];
+  accountStatus?: string;
+  suspensionReason?: string;
 }
 
 interface AuthContextType {
