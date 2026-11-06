@@ -8,7 +8,7 @@ namespace FUD.Controllers.Facilities
 {
     [Route("api/blocks")]
     [ApiController]
-    [Authorize(Roles = "Manager")]
+    [Authorize(Roles = "Manager,Guard,Admin")]
     public class BlocksController : ControllerBase
     {
         private readonly IBlockService _blockService;

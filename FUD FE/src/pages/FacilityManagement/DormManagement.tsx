@@ -258,13 +258,29 @@ export const DormManagement: React.FC = () => {
               disabled={page <= 1}
               onClick={() => setPage(p => p - 1)}
             >← Trước</button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-              <button
-                key={p}
-                className={`btn-page ${p === page ? 'active' : ''}`}
-                onClick={() => setPage(p)}
-              >{p}</button>
-            ))}
+            {(() => {
+              const pages: (number | '...')[] = [];
+              for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || Math.abs(i - page) <= 1) {
+                  pages.push(i);
+                } else if (pages[pages.length - 1] !== '...') {
+                  pages.push('...');
+                }
+              }
+              return pages.map((p, idx) =>
+                p === '...' ? (
+                  <span key={`dots-${idx}`} style={{ padding: '0 6px', color: '#94a3b8', lineHeight: '30px' }}>
+                    …
+                  </span>
+                ) : (
+                  <button
+                    key={p}
+                    className={`btn-page ${p === page ? 'active' : ''}`}
+                    onClick={() => setPage(p as number)}
+                  >{p}</button>
+                )
+              );
+            })()}
             <button
               className="btn-page"
               disabled={page >= totalPages}

@@ -1,31 +1,22 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { EquipmentManagement } from './EquipmentManagement';
-import { NewsManagement } from './NewsManagement';
-import { PricingManagement } from './PricingManagement';
-import { RecordViolationPage } from '../Violations/RecordViolationPage';
-import { TermManagement } from './TermManagement/TermManagement';
-import { DormManagement } from './DormManagement';
-import type { NewsItem, EquipmentRecord, EquipmentCatalogItem } from '../../types/management';
-import { equipmentApi, newsApi } from '../../services/api';
-import { useAuth } from '../../contexts/AuthContext';
-
+import { EquipmentManagement } from '../pages/FacilityManagement/EquipmentManagement';
+import { NewsManagement } from '../pages/FacilityManagement/NewsManagement';
+import { PricingManagement } from '../pages/FacilityManagement/PricingManagement';
+import { TermManagement } from '../pages/FacilityManagement/TermManagement/TermManagement';
+import { DormManagement } from '../pages/FacilityManagement/DormManagement';
+import { ManagerViolationManagement } from '../pages/Violations/ManagerViolationManagement';
+import { ManagerRequestManagement } from '../pages/Requests/ManagerRequestManagement';
+import { SharedSidebar, type SidebarSection } from './SharedSidebar';
+import type { NewsItem, EquipmentRecord, EquipmentCatalogItem } from '../types/management';
+import { equipmentApi, newsApi } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 export const ManagerPortal: React.FC = () => {
-  const { currentUser } = useAuth();
-
-  const roleBadge = currentUser?.primaryRole === 'Admin'
-    ? 'Quản trị viên (Admin)'
-    : currentUser?.primaryRole === 'Guard'
-      ? 'Đội Bảo vệ (Guard)'
-      : 'Ban Quản lý (Manager)';
-
-  const subText = currentUser?.fullName
-    ? `${currentUser.fullName} (${currentUser.code})`
-    : 'Cổng nghiệp vụ cán bộ (Database)';
+  const { currentUser, logout } = useAuth();
 
   // Sidebar navigation tabs
-  const [activeTab, setActiveTab] = useState<'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm'>(() => {
-    return (localStorage.getItem('fud_managerTab') as 'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm') || 'terms';
+  const [activeTab, setActiveTab] = useState<'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'requests'>(() => {
+    return (localStorage.getItem('fud_managerTab') as 'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'requests') || 'terms';
   });
   const [pricingTargetTermId, setPricingTargetTermId] = useState<number | null>(null);
   const handleGoToPricing = (termId: number) => {
@@ -50,7 +41,7 @@ export const ManagerPortal: React.FC = () => {
     try {
       // 1. Load equipments from DB
       try {
-        const eqData = await equipmentApi.getAll({ pageSize: 100 });
+        const eqData = await equipmentApi.getAll({ pageSize: 10000 });
         if (eqData && eqData.items) {
           const mappedEquip: EquipmentRecord[] = eqData.items.map((e: any) => ({
             id: e.id,
@@ -132,7 +123,7 @@ export const ManagerPortal: React.FC = () => {
     loadData();
   }, [loadData]);
 
-  // Handlers for News - Direct Database interaction
+  // Handlers for News
   const handleSaveNews = async (newsItem: NewsItem) => {
     try {
       if (newsItem.id && newsItem.id < 1000000000) {
@@ -175,7 +166,7 @@ export const ManagerPortal: React.FC = () => {
     }
   };
 
-  // Handlers for Equipment - Direct Database interaction
+  // Handlers for Equipment
   const handleSaveEquipment = async (record: EquipmentRecord) => {
     try {
       const matchRoom = record.location.match(/(\d+)/);
@@ -237,102 +228,80 @@ export const ManagerPortal: React.FC = () => {
     }
   };
 
-  // Counts
   const brokenCount = equipmentList.filter(
     (e) => e.condition === 'Broken' || e.condition === 'Under repair'
   ).length;
   const draftNewsCount = newsList.filter((n) => n.status === 'Draft').length;
 
+  // Chia theo 3 nhóm yêu cầu: Quản trị nghiệp vụ, Ký túc xá, Quản trị violations
+  const managerSections: SidebarSection[] = [
+    {
+      label: 'QUẢN TRỊ NGHIỆP VỤ',
+      items: [
+        {
+          id: 'terms',
+          name: 'Cấu hình học kỳ & Lịch',
+          counter: 'Giữ chỗ & Đăng ký',
+        },
+        {
+          id: 'pricing',
+          name: 'Thiết lập bảng giá',
+          counter: 'Theo học kỳ',
+        },
+        {
+          id: 'news',
+          name: 'Quản lý Tin tức',
+          counter: `${newsList.length} bản tin`,
+          pill: draftNewsCount > 0 ? { count: draftNewsCount, label: 'nháp', color: '#F59E0B' } : undefined,
+        },
+      ],
+    },
+    {
+      label: 'KÝ TÚC XÁ',
+      items: [
+        {
+          id: 'dorm',
+          name: 'Quản lý KTX',
+          counter: 'Ký túc xá & Tòa nhà',
+        },
+        {
+          id: 'equipment',
+          name: 'Quản lý Thiết bị',
+          counter: `${equipmentList.length} tài sản`,
+          pill: brokenCount > 0 ? { count: brokenCount, label: 'lỗi', color: '#EF4444' } : undefined,
+        },
+      ],
+    },
+    {
+      label: 'QUẢN TRỊ VI PHẠM & ĐƠN TỪ',
+      items: [
+        {
+          id: 'violations',
+          name: 'Quản lý vi phạm',
+          counter: 'Thẩm định & Xử lý biên bản',
+        },
+        {
+          id: 'requests',
+          name: 'Xử lý đơn yêu cầu',
+          counter: 'Kháng cáo, đổi phòng, trả phòng',
+        },
+      ],
+    },
+  ];
+
   return (
     <div className="manager-dashboard-layout">
-      {/* 1. Dedicated Admin Sidebar */}
-      <aside className="manager-sidebar">
-        <div className="sidebar-brand-block">
-          <div className="sidebar-brand-badge">{roleBadge}</div>
-          <h2 className="sidebar-brand-title">Hệ thống KTX FUD</h2>
-          <span className="sidebar-subtext">{subText}</span>
-        </div>
-
-        <nav className="sidebar-nav-list">
-          <div className="sidebar-nav-section-label">QUẢN TRỊ NGHIỆP VỤ</div>
-
-          <button
-            type="button"
-            className={`sidebar-nav-item ${activeTab === 'equipment' ? 'active' : ''}`}
-            onClick={() => setActiveTab('equipment')}
-          >
-            <span className="nav-item-indicator"></span>
-            <div className="nav-item-content">
-              <span className="nav-item-name">Quản lý Thiết bị</span>
-              <span className="nav-item-counter">{equipmentList.length} tài sản</span>
-            </div>
-            {brokenCount > 0 && (
-              <span
-                className="sidebar-alert-pill"
-                title={`${brokenCount} thiết bị cần sửa chữa hoặc hỏng`}
-              >
-                {brokenCount} lỗi
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            className={`sidebar-nav-item ${activeTab === 'news' ? 'active' : ''}`}
-            onClick={() => setActiveTab('news')}
-          >
-            <span className="nav-item-indicator"></span>
-            <div className="nav-item-content">
-              <span className="nav-item-name">Quản lý Tin tức</span>
-              <span className="nav-item-counter">{newsList.length} bản tin</span>
-            </div>
-            {draftNewsCount > 0 && (
-              <span
-                className="sidebar-draft-pill"
-                title={`${draftNewsCount} bản tin nháp`}
-              >
-                {draftNewsCount} nháp
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            className={`sidebar-nav-item ${activeTab === 'terms' ? 'active' : ''}`}
-            onClick={() => setActiveTab('terms')}
-          >
-            <span className="nav-item-indicator"></span>
-            <div className="nav-item-content">
-              <span className="nav-item-name">Cấu hình học kỳ & Lịch</span>
-              <span className="nav-item-counter">Giữ chỗ & Đăng ký</span>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            className={`sidebar-nav-item ${activeTab === 'pricing' ? 'active' : ''}`}
-            onClick={() => setActiveTab('pricing')}
-          >
-            <span className="nav-item-indicator"></span>
-            <div className="nav-item-content">
-              <span className="nav-item-name">Thiết lập bảng giá</span>
-              <span className="nav-item-counter">Theo học kỳ</span>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            className={`sidebar-nav-item ${activeTab === 'dorm' ? 'active' : ''}`}
-            onClick={() => setActiveTab('dorm')}
-          >
-            <span className="nav-item-indicator"></span>
-            <div className="nav-item-content">
-              <span className="nav-item-name">Quản lý KTX</span>
-              <span className="nav-item-counter">Ký túc xá</span>
-            </div>
-          </button>
-        </nav>
-      </aside>
+      {/* Sidebar dùng chung chuẩn theo từng Role */}
+      <SharedSidebar
+        roleBadge="BAN QUẢN LÝ"
+        roleBadgeColor={{ bg: '#FFF7ED', text: '#EA580C' }}
+        title="Hệ thống KTX FUD"
+        subText={currentUser?.fullName ? `${currentUser.fullName} (${currentUser.code})` : 'Cổng Ban Quản lý'}
+        sections={managerSections}
+        activeId={activeTab}
+        onSelect={(id) => setActiveTab(id as any)}
+        onLogout={logout}
+      />
 
       {/* 2. Main Content Area */}
       <main className="manager-main-content">
@@ -363,8 +332,10 @@ export const ManagerPortal: React.FC = () => {
           <TermManagement onGoToPricing={handleGoToPricing} />
         ) : activeTab === 'dorm' ? (
           <DormManagement />
+        ) : activeTab === 'requests' ? (
+          <ManagerRequestManagement />
         ) : (
-          <RecordViolationPage />
+          <ManagerViolationManagement />
         )}
       </main>
     </div>

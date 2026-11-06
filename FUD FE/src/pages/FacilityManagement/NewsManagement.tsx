@@ -323,16 +323,32 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
                 >
                   Trước
                 </button>
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                  <button
-                    key={page}
-                    type="button"
-                    className={`page-btn ${page === validCurrentPage ? 'active' : ''}`}
-                    onClick={() => setCurrentPage(page)}
-                  >
-                    {page}
-                  </button>
-                ))}
+                {(() => {
+                  const pages: (number | '...')[] = [];
+                  for (let i = 1; i <= totalPages; i++) {
+                    if (i === 1 || i === totalPages || Math.abs(i - validCurrentPage) <= 1) {
+                      pages.push(i);
+                    } else if (pages[pages.length - 1] !== '...') {
+                      pages.push('...');
+                    }
+                  }
+                  return pages.map((page, idx) =>
+                    page === '...' ? (
+                      <span key={`dots-${idx}`} className="page-dots">
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={`page-${page}`}
+                        type="button"
+                        className={`page-btn ${page === validCurrentPage ? 'active' : ''}`}
+                        onClick={() => setCurrentPage(page as number)}
+                      >
+                        {page}
+                      </button>
+                    )
+                  );
+                })()}
                 <button
                   type="button"
                   className="page-btn nav-btn"

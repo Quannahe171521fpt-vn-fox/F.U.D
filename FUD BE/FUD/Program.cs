@@ -130,6 +130,8 @@ builder.Services.AddScoped<IPricingService, PricingService>();
 // UC: Term & Registration Config
 builder.Services.AddScoped<ITermRepository, TermRepository>();
 builder.Services.AddScoped<ITermService, TermService>();
+// Email Sender
+builder.Services.AddScoped<FUD.Infrastructure.Email.IEmailSender, FUD.Infrastructure.Email.GmailSmtpSender>();
 
 builder.Services.AddCors(options =>
 {
@@ -227,7 +229,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                         cache.Set(cacheKey, accountStatus, TimeSpan.FromSeconds(60));
                     }
 
-                    if (accountStatus != "Active")
+                    if (accountStatus == "Banned" || accountStatus == "Locked" || accountStatus == "NotFound")
                     {
                         context.Fail("Tài khoản của bạn đã bị khóa hoặc không tồn tại.");
                     }
@@ -274,6 +276,10 @@ builder.Services.AddScoped<FUD.Infrastructure.Storage.IFileStorage, FUD.Infrastr
 // UC22: Violations DI
 builder.Services.AddScoped<FUD.Repositories.Interfaces.Violations.IViolationRepository, FUD.Repositories.Violations.ViolationRepository>();
 builder.Services.AddScoped<FUD.Services.Interfaces.Violations.IViolationService, FUD.Services.Violations.ViolationService>();
+
+// Requests DI
+builder.Services.AddScoped<FUD.Repositories.Interfaces.Requests.IRequestRepository, FUD.Repositories.Requests.RequestRepository>();
+builder.Services.AddScoped<FUD.Services.Interfaces.Requests.IRequestService, FUD.Services.Requests.RequestService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(opts =>

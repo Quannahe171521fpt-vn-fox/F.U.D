@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   violationApi,
   facilityCommonApi,
@@ -6,7 +6,6 @@ import {
   type RoomStudent,
   type BlockItem,
   type RoomItem,
-  type ViolationItem,
 } from '../../services/api';
 import '../../styles/violation.css';
 
@@ -34,18 +33,13 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
   const [selectedTypeId, setSelectedTypeId] = useState<string>('');
   const [occurrenceTime, setOccurrenceTime] = useState<string>(() => {
     const now = new Date();
-    const offset = now.getTimezoneOffset() * 60000;
-    return new Date(now.getTime() - offset).toISOString().slice(0, 16);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
   });
   const [description, setDescription] = useState<string>('');
   const [files, setFiles] = useState<File[]>([]);
   const [filePreviews, setFilePreviews] = useState<{ file: File; url: string }[]>([]);
 
-  // Duplicate warning states
-  const [duplicateWarning, setDuplicateWarning] = useState<{
-    message: string;
-    existingViolations: ViolationItem[];
-  } | null>(null);
 
   // Status message
   const [loading, setLoading] = useState<boolean>(false);
@@ -57,31 +51,25 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
     const initData = async () => {
       try {
         const [blocksData, typesData] = await Promise.all([
-          facilityCommonApi.getBlocks().catch(() => [
-            { id: 1, name: 'Tòa A' },
-            { id: 2, name: 'Tòa B' },
-            { id: 3, name: 'Tòa C' }
-          ]),
-          violationApi.getTypes().catch(() => [
-            { id: 1, name: 'Gây ồn ào sau giờ quy định' },
-            { id: 2, name: 'Sử dụng thiết bị điện không cho phép (bếp từ, bếp từ...)' },
-            { id: 3, name: 'Không giữ gìn vệ sinh chung' },
-            { id: 4, name: 'Tàng trữ chất cấm, rượu bia' },
-            { id: 5, name: 'Chứa chấp người ngoài qua đêm' }
-          ])
+          facilityCommonApi.getBlocks(),
+          violationApi.getTypes()
         ]);
 
-        setBlocks(blocksData);
-        setViolationTypes(typesData);
+        const validBlocks = blocksData || [];
+        const validTypes = typesData || [];
 
-        if (blocksData.length > 0) {
-          setSelectedBlockId(blocksData[0].id.toString());
+        setBlocks(validBlocks);
+        setViolationTypes(validTypes);
+
+        if (validBlocks.length > 0) {
+          setSelectedBlockId(validBlocks[0].id.toString());
         }
-        if (typesData.length > 0) {
-          setSelectedTypeId(typesData[0].id.toString());
+        if (validTypes.length > 0) {
+          setSelectedTypeId(validTypes[0].id.toString());
         }
       } catch (err: any) {
         console.error('Error loading initial data:', err);
+        setErrorMsg('Không thể tải danh sách Tòa hoặc Loại vi phạm từ hệ thống.');
       }
     };
 
@@ -94,20 +82,22 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
 
     const fetchRooms = async () => {
       try {
-        const roomsData = await facilityCommonApi.getRoomsByBlock(parseInt(selectedBlockId, 10))
-          .catch(() => [
-            { id: 1, blockId: parseInt(selectedBlockId, 10), roomNumber: 'A-102', floor: 1, status: 'Occupied' },
-            { id: 2, blockId: parseInt(selectedBlockId, 10), roomNumber: 'A-103', floor: 1, status: 'Occupied' }
-          ]);
-        setRooms(roomsData);
-        if (roomsData.length > 0) {
-          setSelectedRoomId(roomsData[0].id.toString());
+        const roomsData = await facilityCommonApi.getRoomsByBlock(parseInt(selectedBlockId, 10));
+        const validRooms = roomsData || [];
+        setRooms(validRooms);
+        if (validRooms.length > 0) {
+          setSelectedRoomId(validRooms[0].id.toString());
         } else {
           setSelectedRoomId('');
           setRoomStudents([]);
+          setSelectedStudentIds([]);
         }
       } catch (err: any) {
         console.error('Error loading rooms:', err);
+        setRooms([]);
+        setSelectedRoomId('');
+        setRoomStudents([]);
+        setSelectedStudentIds([]);
       }
     };
 
@@ -118,39 +108,19 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
   useEffect(() => {
     if (!selectedRoomId) {
       setRoomStudents([]);
+      setSelectedStudentIds([]);
       return;
     }
 
     const fetchStudents = async () => {
       try {
-        const studentsData = await violationApi.getStudentsByRoom(parseInt(selectedRoomId, 10))
-          .catch(() => [
-            {
-              studentId: 4,
-              studentCode: 'HE180123',
-              fullName: 'Nguyễn Văn An',
-              bedCode: 'G02',
-              statusDescription: 'Đang ở · Giường G02'
-            },
-            {
-              studentId: 5,
-              studentCode: 'HE180145',
-              fullName: 'Trần Minh Đức',
-              bedCode: 'G03',
-              statusDescription: 'Đang ở · Giường G03'
-            },
-            {
-              studentId: 6,
-              studentCode: 'HE180167',
-              fullName: 'Phạm Quốc Huy',
-              bedCode: 'G04',
-              statusDescription: 'Đang ở · Giường G04'
-            }
-          ]);
-        setRoomStudents(studentsData);
-        setSelectedStudentIds([4, 5].filter(id => studentsData.some(s => s.studentId === id)));
+        const studentsData = await violationApi.getStudentsByRoom(parseInt(selectedRoomId, 10));
+        setRoomStudents(studentsData || []);
+        setSelectedStudentIds([]);
       } catch (err: any) {
         console.error('Error loading room students:', err);
+        setRoomStudents([]);
+        setSelectedStudentIds([]);
       }
     };
 
@@ -212,8 +182,8 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
     setFilePreviews(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Submit Violation Recording
-  const executeSubmit = async (confirmedDuplicate = false) => {
+  // Submit Violation Recording (UC22: Bỏ kiểm tra trùng lặp)
+  const executeSubmit = async () => {
     setErrorMsg('');
     setSuccessMsg('');
 
@@ -232,38 +202,15 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
       return;
     }
 
-    // Kiểm tra trùng lặp hồ sơ trước khi lưu
-    if (!confirmedDuplicate) {
-      try {
-        const dupCheck = await violationApi.checkDuplicate(
-          selectedStudentIds,
-          parseInt(selectedTypeId, 10),
-          new Date(occurrenceTime).toISOString()
-        );
-
-        if (dupCheck.hasDuplicate) {
-          setDuplicateWarning({
-            message: dupCheck.message,
-            existingViolations: dupCheck.existingViolations,
-          });
-          return;
-        }
-      } catch (err) {
-        console.warn('Lỗi khi kiểm tra trùng lặp:', err);
-      }
-    }
-
     setLoading(true);
 
     try {
       const formData = new FormData();
       formData.append('roomId', selectedRoomId);
       formData.append('violationTypeId', selectedTypeId);
+      // occurrenceTime từ input dạng 'YYYY-MM-DDTHH:mm', chuyển sang UTC ISO String
       formData.append('occurrenceTime', new Date(occurrenceTime).toISOString());
       formData.append('description', description);
-      if (confirmedDuplicate) {
-        formData.append('confirmedDuplicate', 'true');
-      }
 
       selectedStudentIds.forEach(sId => {
         formData.append('studentIds', sId.toString());
@@ -275,9 +222,8 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
 
       await violationApi.recordViolation(formData);
 
-      setDuplicateWarning(null);
       setSuccessMsg(
-        `Ghi nhận vi phạm thành công cho ${selectedStudentIds.length} sinh viên! Ảnh đã được tải trực tiếp lên Cloudinary an toàn.`
+        `Ghi nhận vi phạm thành công cho ${selectedStudentIds.length} sinh viên! Ảnh đã được tải lên.`
       );
 
       setDescription('');
@@ -288,21 +234,14 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
         setTimeout(onSuccessNavigate, 1500);
       }
     } catch (err: any) {
-      if (err.message && err.message.includes('trùng lặp')) {
-        setDuplicateWarning({
-          message: err.message,
-          existingViolations: [],
-        });
-      } else {
-        setErrorMsg(err.message || 'Lỗi khi ghi nhận vi phạm');
-      }
+      setErrorMsg(err.message || 'Lỗi khi ghi nhận vi phạm');
     } finally {
       setLoading(false);
     }
   };
 
   const selectedStudentsList = roomStudents.filter(s => selectedStudentIds.includes(s.studentId));
-  const currentRoomNumber = rooms.find(r => r.id.toString() === selectedRoomId)?.roomNumber || 'A-102';
+  const currentRoomNumber = rooms.find(r => r.id.toString() === selectedRoomId)?.roomNumber || '';
 
   return (
     <div className="violation-record-container">
@@ -310,89 +249,14 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
       <div className="violation-record-header">
         <h1>Ghi nhận vi phạm</h1>
         <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>
-          Lập biên bản vi phạm nội quy KTX cho sinh viên và đẩy ảnh minh chứng lên Cloudinary
+          Lập biên bản vi phạm nội quy KTX cho sinh viên và đẩy ảnh minh chứng
         </p>
       </div>
 
       {errorMsg && <div className="violation-alert violation-alert-error">{errorMsg}</div>}
       {successMsg && <div className="violation-alert violation-alert-success">{successMsg}</div>}
 
-      {/* CẢNH BÁO HỒ SƠ TRÙNG LẶP */}
-      {duplicateWarning && (
-        <div
-          style={{
-            backgroundColor: '#FEF2F2',
-            border: '2px solid #EF4444',
-            borderRadius: '10px',
-            padding: '20px',
-            marginBottom: '24px',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#991B1B', fontWeight: 700, fontSize: 16 }}>
-            <span>⚠️</span>
-            <span>PHÁT HIỆN HỒ SƠ VI PHẠM TRÙNG LẶP</span>
-          </div>
-
-          <p style={{ color: '#7F1D1D', fontSize: 13, margin: '10px 0 14px' }}>
-            {duplicateWarning.message} Hệ thống yêu cầu nhân viên bảo vệ xác nhận hoặc xem lại hồ sơ đã có:
-          </p>
-
-          <div style={{ background: '#ffffff', borderRadius: 8, border: '1px solid #FECACA', overflow: 'hidden', marginBottom: 16 }}>
-            <table className="violation-table" style={{ margin: 0 }}>
-              <thead>
-                <tr>
-                  <th>Mã biên bản</th>
-                  <th>Sinh viên</th>
-                  <th>Phòng</th>
-                  <th>Loại vi phạm</th>
-                  <th>Thời điểm ghi nhận</th>
-                  <th>Trạng thái</th>
-                </tr>
-              </thead>
-              <tbody>
-                {duplicateWarning.existingViolations.map(ev => (
-                  <tr key={ev.id}>
-                    <td style={{ fontWeight: 700, color: '#DC2626' }}>{ev.code}</td>
-                    <td>{ev.studentName} ({ev.studentCode})</td>
-                    <td>{ev.roomNumber}</td>
-                    <td>{ev.violationTypeName}</td>
-                    <td>{new Date(ev.occurrenceTime).toLocaleString('vi-VN')}</td>
-                    <td>{ev.status}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => setDuplicateWarning(null)}
-            >
-              Hủy bỏ & Xem lại
-            </button>
-            <button
-              type="button"
-              style={{
-                padding: '9px 18px',
-                backgroundColor: '#DC2626',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: 6,
-                fontWeight: 600,
-                fontSize: 13,
-                cursor: 'pointer',
-              }}
-              onClick={() => executeSubmit(true)}
-            >
-              Tôi xác nhận vẫn muốn tạo hồ sơ mới
-            </button>
-          </div>
-        </div>
-      )}
-
-      <form onSubmit={e => { e.preventDefault(); executeSubmit(false); }}>
+      <form onSubmit={e => { e.preventDefault(); executeSubmit(); }}>
         {/* CARD 1: Phòng và sinh viên liên quan */}
         <div className="violation-card-section">
           <div className="violation-card-title">Phòng và sinh viên liên quan</div>
@@ -592,7 +456,7 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
 
             <div className="violation-upload-box">
               <div className="violation-upload-note">
-                JPG/PNG · Tối đa 5 MB mỗi ảnh · Ít nhất 1 ảnh (Đẩy trực tiếp lên Cloudinary)
+                JPG/PNG · Tối đa 5 MB mỗi ảnh · Ít nhất 1 ảnh (Đẩy trực tiếp lên)
               </div>
 
               <label className="btn-secondary" style={{ display: 'inline-block', cursor: 'pointer' }}>
@@ -660,7 +524,7 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
             className="btn-submit"
             disabled={loading}
           >
-            {loading ? 'Đang kiểm tra & Tải lên Cloudinary...' : 'Ghi nhận vi phạm'}
+            {loading ? 'Đang kiểm tra & Tải lên...' : 'Ghi nhận vi phạm'}
           </button>
         </div>
       </form>

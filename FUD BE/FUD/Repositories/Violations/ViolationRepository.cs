@@ -1,4 +1,4 @@
-﻿using FUD.Models;
+using FUD.Models;
 using FUD.Repositories.Interfaces.Violations;
 using Microsoft.EntityFrameworkCore;
 
@@ -47,6 +47,7 @@ namespace FUD.Repositories.Violations
                 .Include(r => r.Bed)
                     .ThenInclude(b => b.Room)
                         .ThenInclude(rm => rm.Block)
+                .Include(r => r.Term)
                 .FirstOrDefaultAsync(r => r.StudentId == studentId && r.Status == "Active");
         }
 
@@ -60,7 +61,6 @@ namespace FUD.Repositories.Violations
             var today = DateTime.UtcNow;
             var datePrefix = $"VIO-{today:yyyyMMdd}-";
             
-            // Get count of violations created today
             var count = await _context.Violations
                 .CountAsync(v => v.Code.StartsWith(datePrefix));
 
@@ -73,7 +73,7 @@ namespace FUD.Repositories.Violations
             await _context.SaveChangesAsync();
         }
 
-        public async Task<List<Violation>> GetViolationsAsync(int? roomId = null, int? studentId = null)
+        public async Task<List<Violation>> GetViolationsAsync(int? roomId = null, int? studentId = null, string? status = null)
         {
             var query = _context.Violations
                 .AsNoTracking()
@@ -81,7 +81,10 @@ namespace FUD.Repositories.Violations
                 .Include(v => v.Student).ThenInclude(s => s.User)
                 .Include(v => v.Room).ThenInclude(r => r.Block)
                 .Include(v => v.RecordedBy).ThenInclude(g => g.User)
+                .Include(v => v.EvaluatedBy).ThenInclude(m => m.User)
+                .Include(v => v.Residency).ThenInclude(res => res!.Term)
                 .Include(v => v.ViolationEvidences)
+                .Include(v => v.ComplaintRequests)
                 .AsQueryable();
 
             if (roomId.HasValue)
@@ -94,29 +97,63 @@ namespace FUD.Repositories.Violations
                 query = query.Where(v => v.StudentId == studentId.Value);
             }
 
+            if (!string.IsNullOrWhiteSpace(status))
+            {
+                query = query.Where(v => v.Status == status);
+            }
+
             return await query.OrderByDescending(v => v.OccurrenceTime).ToListAsync();
         }
 
-        public async Task<List<Violation>> FindDuplicateViolationsAsync(List<int> studentIds, int violationTypeId, DateTime occurrenceTime)
+        public async Task<Violation?> GetViolationByIdAsync(int id)
         {
-            // Trùng lặp: cùng sinh viên, cùng loại vi phạm và cùng ngày (hoặc trong khoảng +- 12 giờ để không bị lệch múi giờ UTC/Local)
-            // Lấy bắt đầu và kết thúc của ngày xảy ra vi phạm
-            var dateOnly = occurrenceTime.Date;
-            var fromTime = dateOnly.AddDays(-1);
-            var toTime = dateOnly.AddDays(2);
-
             return await _context.Violations
-                .AsNoTracking()
                 .Include(v => v.ViolationType)
                 .Include(v => v.Student).ThenInclude(s => s.User)
                 .Include(v => v.Room).ThenInclude(r => r.Block)
                 .Include(v => v.RecordedBy).ThenInclude(g => g.User)
+                .Include(v => v.EvaluatedBy).ThenInclude(m => m.User)
+                .Include(v => v.Residency).ThenInclude(res => res!.Term)
                 .Include(v => v.ViolationEvidences)
-                .Where(v => studentIds.Contains(v.StudentId)
-                            && v.ViolationTypeId == violationTypeId
-                            && (v.OccurrenceTime.Date == occurrenceTime.Date
-                                || (v.OccurrenceTime >= fromTime && v.OccurrenceTime <= toTime)))
-                .ToListAsync();
+                .Include(v => v.ComplaintRequests)
+                .FirstOrDefaultAsync(v => v.Id == id);
+        }
+
+        public async Task<Violation?> GetViolationByCodeAsync(string code)
+        {
+            return await _context.Violations
+                .Include(v => v.ViolationType)
+                .Include(v => v.Student).ThenInclude(s => s.User)
+                .Include(v => v.Room).ThenInclude(r => r.Block)
+                .Include(v => v.RecordedBy).ThenInclude(g => g.User)
+                .Include(v => v.EvaluatedBy).ThenInclude(m => m.User)
+                .Include(v => v.Residency).ThenInclude(res => res!.Term)
+                .Include(v => v.ViolationEvidences)
+                .Include(v => v.ComplaintRequests)
+                .FirstOrDefaultAsync(v => v.Code == code);
+        }
+
+        public async Task UpdateViolationAsync(Violation violation)
+        {
+            _context.Violations.Update(violation);
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task<User?> GetUserByIdAsync(int userId)
+        {
+            return await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+        }
+
+        public async Task UpdateUserAsync(User user)
+        {
+            _context.Users.Update(user);
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task<int> GetStudentPriorViolationsCountAsync(int studentId, int currentViolationId)
+        {
+            return await _context.Violations
+                .CountAsync(v => v.StudentId == studentId && v.Id != currentViolationId && v.Status == "Finalized");
         }
     }
 }

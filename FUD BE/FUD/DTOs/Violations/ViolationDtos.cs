@@ -23,7 +23,6 @@ namespace FUD.DTOs.Violations
         public int ViolationTypeId { get; set; }
         public DateTime OccurrenceTime { get; set; }
         public string Description { get; set; } = string.Empty;
-        public bool ConfirmedDuplicate { get; set; } = false;
         public List<IFormFile> Evidences { get; set; } = new List<IFormFile>();
     }
 
@@ -48,15 +47,32 @@ namespace FUD.DTOs.Violations
         public string ViolationTypeName { get; set; } = string.Empty;
         public DateTime OccurrenceTime { get; set; }
         public string? Description { get; set; }
+        public string? InitialLevel { get; set; }
+        public string? FinalLevel { get; set; }
+        public string? ManagerNote { get; set; }
+        public DateTime? RequestDeadline { get; set; }
         public string Status { get; set; } = string.Empty;
         public string? RecordedByName { get; set; }
+        public string? EvaluatedByName { get; set; }
+        public DateTime? FinalizedTime { get; set; }
+        public string? TermName { get; set; }
         public List<ViolationEvidenceDto> Evidences { get; set; } = new List<ViolationEvidenceDto>();
+        public int PriorViolationsCount { get; set; }
+
+        // Trạng thái tài khoản & liên kết đơn khiếu nại (Request Complaint)
+        public string? StudentAccountStatus { get; set; }
+        public string? SuspensionReason { get; set; }
+        public int? LinkedRequestId { get; set; }
     }
 
-    public class DuplicateViolationCheckResultDto
+    public class EvaluateViolationRequestDto
     {
-        public bool HasDuplicate { get; set; }
-        public List<ViolationItemDto> ExistingViolations { get; set; } = new List<ViolationItemDto>();
-        public string Message { get; set; } = string.Empty;
+        public string InitialLevel { get; set; } = string.Empty;
+        public string? ManagerNote { get; set; }
+    }
+
+    public class UnsuspendStudentDto
+    {
+        public string? Note { get; set; }
     }
 }

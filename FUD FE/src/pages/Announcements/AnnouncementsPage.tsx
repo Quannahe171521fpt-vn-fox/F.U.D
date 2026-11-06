@@ -133,16 +133,32 @@ export const AnnouncementsPage: React.FC<AnnouncementsPageProps> = ({
               Trang trước
             </button>
             <div className="announcement-pages-group">
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                <button
-                  key={page}
-                  type="button"
-                  className={`announcement-page-btn ${page === validCurrentPage ? 'active' : ''}`}
-                  onClick={() => setCurrentPage(page)}
-                >
-                  {page}
-                </button>
-              ))}
+              {(() => {
+                const pages: (number | '...')[] = [];
+                for (let i = 1; i <= totalPages; i++) {
+                  if (i === 1 || i === totalPages || Math.abs(i - validCurrentPage) <= 1) {
+                    pages.push(i);
+                  } else if (pages[pages.length - 1] !== '...') {
+                    pages.push('...');
+                  }
+                }
+                return pages.map((page, idx) =>
+                  page === '...' ? (
+                    <span key={`dots-${idx}`} style={{ padding: '0 6px', color: '#94a3b8', lineHeight: '38px' }}>
+                      …
+                    </span>
+                  ) : (
+                    <button
+                      key={page}
+                      type="button"
+                      className={`announcement-page-btn ${page === validCurrentPage ? 'active' : ''}`}
+                      onClick={() => setCurrentPage(page as number)}
+                    >
+                      {page}
+                    </button>
+                  )
+                );
+              })()}
             </div>
             <button
               type="button"

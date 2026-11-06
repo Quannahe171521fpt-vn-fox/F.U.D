@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace FUD.Models;
@@ -31,7 +31,7 @@ public partial class Violation
 
     public string? ManagerNote { get; set; }
 
-    public DateTime? ExplanationDeadline { get; set; }
+    public DateTime? RequestDeadline { get; set; }
 
     public string Status { get; set; } = null!;
 
@@ -50,8 +50,6 @@ public partial class Violation
     public virtual Student Student { get; set; } = null!;
 
     public virtual ICollection<ViolationEvidence> ViolationEvidences { get; set; } = new List<ViolationEvidence>();
-
-    public virtual ViolationExplanation? ViolationExplanation { get; set; }
 
     public virtual ViolationType ViolationType { get; set; } = null!;
 }
