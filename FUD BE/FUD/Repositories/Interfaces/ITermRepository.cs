@@ -15,5 +15,11 @@ namespace FUD.Repositories.Interfaces
         Task SaveRegistrationPeriodsAsync(int termId, List<RegistrationPeriod> periods);
         Task<bool> IsPriceListPublishedAsync(int termId);
         Task TogglePeriodActiveAsync(int periodId, bool active);
+
+        /// <summary>
+        /// Tìm các kỳ đăng ký (Registration_Period) cùng loại ở các học kỳ khác có khoảng thời gian
+        /// chồng lấn với khoảng thời gian đang xét. Dùng để chặn chồng kỳ cùng loại (GB-04).
+        /// </summary>
+        Task<List<RegistrationPeriod>> GetOverlappingPeriodsAsync(string periodType, DateOnly startDate, DateOnly endDate, int excludeTermId);
     }
 }
