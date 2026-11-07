@@ -79,16 +79,32 @@ export const StudentNewsSection: React.FC<StudentNewsSectionProps> = ({ newsList
                   &larr; Trang trước
                 </button>
                 <div className="home-page-numbers">
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                    <button
-                      key={page}
-                      type="button"
-                      className={`home-number-btn ${page === validCurrentPage ? 'active' : ''}`}
-                      onClick={() => setCurrentPage(page)}
-                    >
-                      {page}
-                    </button>
-                  ))}
+                  {(() => {
+                    const pages: (number | '...')[] = [];
+                    for (let i = 1; i <= totalPages; i++) {
+                      if (i === 1 || i === totalPages || Math.abs(i - validCurrentPage) <= 1) {
+                        pages.push(i);
+                      } else if (pages[pages.length - 1] !== '...') {
+                        pages.push('...');
+                      }
+                    }
+                    return pages.map((page, idx) =>
+                      page === '...' ? (
+                        <span key={`dots-${idx}`} style={{ padding: '0 6px', color: '#94a3b8' }}>
+                          …
+                        </span>
+                      ) : (
+                        <button
+                          key={page}
+                          type="button"
+                          className={`home-number-btn ${page === validCurrentPage ? 'active' : ''}`}
+                          onClick={() => setCurrentPage(page as number)}
+                        >
+                          {page}
+                        </button>
+                      )
+                    );
+                  })()}
                 </div>
                 <button
                   type="button"

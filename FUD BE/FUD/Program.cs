@@ -132,6 +132,8 @@ builder.Services.AddScoped<IPricingService, PricingService>();
 // UC: Term & Registration Config
 builder.Services.AddScoped<ITermRepository, TermRepository>();
 builder.Services.AddScoped<ITermService, TermService>();
+// Email Sender
+builder.Services.AddScoped<FUD.Infrastructure.Email.IEmailSender, FUD.Infrastructure.Email.GmailSmtpSender>();
 
 builder.Services.AddCors(options =>
 {
@@ -229,7 +231,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                         cache.Set(cacheKey, accountStatus, TimeSpan.FromSeconds(60));
                     }
 
-                    if (accountStatus != "Active")
+                    if (accountStatus == "Banned" || accountStatus == "Locked" || accountStatus == "NotFound")
                     {
                         context.Fail("Tài khoản của bạn đã bị khóa hoặc không tồn tại.");
                         return;
@@ -323,6 +325,18 @@ builder.Services.AddScoped<FUD.Services.Interfaces.Keeping.IKeepingService, FUD.
 builder.Services.AddScoped<FUD.Services.Keeping.KeepingPeriodCloseJob>();
 // Job đóng kỳ giữ phòng: tự động trả giường về pool booking sau khi kỳ Keeping kết thúc.
 builder.Services.AddHostedService<FUD.Services.Keeping.KeepingPeriodCloseHostedService>();
+// Requests DI
+builder.Services.AddScoped<FUD.Repositories.Interfaces.Requests.IRequestRepository, FUD.Repositories.Requests.RequestRepository>();
+builder.Services.AddScoped<FUD.Services.Interfaces.Requests.IRequestService, FUD.Services.Requests.RequestService>();
+
+builder.Services.AddControllers()
+    .AddJsonOptions(opts =>
+    {
+        opts.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        opts.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+    });
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 

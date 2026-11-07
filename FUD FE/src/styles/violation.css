@@ -1,4 +1,4 @@
-﻿.violation-record-container {
+.violation-record-container {
   max-width: 1000px; width: 100%; box-sizing: border-box;
   margin: 0 auto;
   padding: 8px 12px 40px;
@@ -285,5 +285,160 @@
   background: #fef2f2;
   border: 1px solid #fecaca;
   color: #991b1b;
+}
+
+/* ========================================================
+   CHUẨN HÓA BẢNG: KHÔNG CO, KHÔNG THANH TRƯỢT, CHỐNG TRÀN CHỮ
+   ======================================================== */
+.fud-table-wrapper {
+  width: 100%;
+  box-sizing: border-box;
+  background-color: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  overflow: hidden; /* Tuyệt đối không dùng thanh trượt ngang */
+}
+
+.fud-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed; /* Khóa tỷ lệ cột chính xác để không bao giờ xuất hiện thanh trượt */
+  margin: 0;
+}
+
+.fud-table th {
+  background-color: #f8fafc;
+  border-bottom: 2px solid #e2e8f0;
+  padding: 10px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.fud-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+  font-size: 12px;
+  color: #1e293b;
+  overflow: hidden;
+}
+
+.fud-table tr:last-child td {
+  border-bottom: none;
+}
+
+.fud-table tr:hover td {
+  background-color: #f8fafc;
+}
+
+/* Cắt chữ ngắn: 1 dòng kèm dấu ... (mã, tên, phòng, ngày...) */
+.cell-text-1line {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  cursor: default;
+}
+
+/* Cắt chữ dài: 3 dòng kèm dấu ... (hành vi vi phạm, mô tả, nội dung đơn...) */
+.cell-text-3line,
+.cell-text-2line {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+  line-height: 1.35;
+  cursor: default;
+}
+
+/* Violation Modal Popup Styles */
+.violation-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 20px;
+  backdrop-filter: blur(2px);
+}
+
+.violation-modal-content {
+  background-color: #ffffff;
+  border-radius: 12px;
+  max-width: 650px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 24px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  animation: violationModalFadeIn 0.2s ease-out;
+}
+
+@keyframes violationModalFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+
+/* ========================================================
+   RESPONSIVE DESIGN FOR VIOLATIONS & PORTALS
+   ======================================================== */
+@media (max-width: 900px) {
+  .violation-record-container {
+    padding: 12px 12px 24px;
+  }
+  .violation-grid-2 {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .violation-search-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .violation-search-row button {
+    width: 100%;
+  }
+  .violation-table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .violation-table th, .violation-table td {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  .violation-file-preview-list {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  }
+  .violation-footer-actions {
+    flex-direction: column-reverse;
+  }
+  .violation-footer-actions button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 600px) {
+  .violation-card-section {
+    padding: 16px;
+  }
+  .violation-record-header h1 {
+    font-size: 20px;
+  }
 }
 

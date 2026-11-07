@@ -15,6 +15,7 @@ interface EquipmentManagementProps {
 export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
   equipmentList,
   catalogList,
+  locationList,
   onSaveEquipment,
   onDeleteEquipment,
   onSaveCatalogItem,
@@ -26,6 +27,8 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
   const [conditionFilter, setConditionFilter] = useState<'All' | 'Good' | 'Under repair' | 'Broken'>('All');
+  const [categoryFilter, setCategoryFilter] = useState<string>('All');
+  const [locationFilter, setLocationFilter] = useState<string>('All');
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -56,11 +59,33 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
 
   const searchInputId = useId();
   const conditionFilterId = useId();
+  const categoryFilterId = useId();
+  const locationFilterId = useId();
 
   const showNotification = (msg: string) => {
     setSuccessMessage(msg);
     setTimeout(() => setSuccessMessage(null), 3500);
   };
+
+  // Unique categories and locations for filters
+  const availableCategories = React.useMemo(() => {
+    const set = new Set<string>();
+    equipmentList.forEach((e) => {
+      if (e.category) set.add(e.category);
+    });
+    catalogList.forEach((c) => {
+      if (c.category) set.add(c.category);
+    });
+    return Array.from(set).sort();
+  }, [equipmentList, catalogList]);
+
+  const availableLocations = React.useMemo(() => {
+    const set = new Set<string>(locationList || AVAILABLE_LOCATIONS);
+    equipmentList.forEach((e) => {
+      if (e.location) set.add(e.location);
+    });
+    return Array.from(set).sort();
+  }, [equipmentList, locationList]);
 
   // Filtered Equipment Records
   const filteredEquipment = equipmentList.filter((item) => {
@@ -72,7 +97,13 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
     const matchesCondition =
       conditionFilter === 'All' || item.condition === conditionFilter;
 
-    return matchesSearch && matchesCondition;
+    const matchesCategory =
+      categoryFilter === 'All' || item.category === categoryFilter;
+
+    const matchesLocation =
+      locationFilter === 'All' || item.location === locationFilter;
+
+    return matchesSearch && matchesCondition && matchesCategory && matchesLocation;
   });
 
   // Calculate pagination for equipment records
@@ -90,6 +121,16 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
 
   const handleConditionChange = (condition: 'All' | 'Good' | 'Under repair' | 'Broken') => {
     setConditionFilter(condition);
+    setCurrentPage(1);
+  };
+
+  const handleCategoryChange = (category: string) => {
+    setCategoryFilter(category);
+    setCurrentPage(1);
+  };
+
+  const handleLocationChange = (location: string) => {
+    setLocationFilter(location);
     setCurrentPage(1);
   };
 
@@ -315,7 +356,7 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
               </div>
             </div>
 
-            {/* Filters Row: Search + Condition Dropdown */}
+            {/* Filters Row: Search + Condition, Category, Location Dropdowns */}
             <div className="equipment-filters-row">
               <div className="search-field-wrap">
                 <input
@@ -339,6 +380,40 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
               </div>
 
               <div className="filter-dropdown-wrap">
+                <label htmlFor={categoryFilterId} className="dropdown-label">Phân loại:</label>
+                <select
+                  id={categoryFilterId}
+                  value={categoryFilter}
+                  onChange={(e) => handleCategoryChange(e.target.value)}
+                  className="mgmt-select"
+                >
+                  <option value="All">Tất cả phân loại</option>
+                  {availableCategories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="filter-dropdown-wrap">
+                <label htmlFor={locationFilterId} className="dropdown-label">Vị trí:</label>
+                <select
+                  id={locationFilterId}
+                  value={locationFilter}
+                  onChange={(e) => handleLocationChange(e.target.value)}
+                  className="mgmt-select"
+                >
+                  <option value="All">Tất cả vị trí</option>
+                  {availableLocations.map((loc) => (
+                    <option key={loc} value={loc}>
+                      {loc}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="filter-dropdown-wrap">
                 <label htmlFor={conditionFilterId} className="dropdown-label">Tình trạng:</label>
                 <select
                   id={conditionFilterId}
@@ -352,6 +427,23 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
                   <option value="Broken">Hỏng</option>
                 </select>
               </div>
+
+              {(searchQuery || categoryFilter !== 'All' || locationFilter !== 'All' || conditionFilter !== 'All') && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ padding: '6px 12px', fontSize: '13px' }}
+                  onClick={() => {
+                    setSearchQuery('');
+                    setCategoryFilter('All');
+                    setLocationFilter('All');
+                    setConditionFilter('All');
+                    setCurrentPage(1);
+                  }}
+                >
+                  Đặt lại bộ lọc
+                </button>
+              )}
             </div>
 
             {/* Table */}
@@ -459,16 +551,32 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
                   >
                     Trước
                   </button>
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                    <button
-                      key={page}
-                      type="button"
-                      className={`page-btn ${page === validCurrentPage ? 'active' : ''}`}
-                      onClick={() => setCurrentPage(page)}
-                    >
-                      {page}
-                    </button>
-                  ))}
+                  {(() => {
+                    const pages: (number | '...')[] = [];
+                    for (let i = 1; i <= totalPages; i++) {
+                      if (i === 1 || i === totalPages || Math.abs(i - validCurrentPage) <= 1) {
+                        pages.push(i);
+                      } else if (pages[pages.length - 1] !== '...') {
+                        pages.push('...');
+                      }
+                    }
+                    return pages.map((p, idx) =>
+                      p === '...' ? (
+                        <span key={`dots-${idx}`} className="page-dots">
+                          …
+                        </span>
+                      ) : (
+                        <button
+                          key={`page-${p}`}
+                          type="button"
+                          className={`page-btn ${p === validCurrentPage ? 'active' : ''}`}
+                          onClick={() => setCurrentPage(p as number)}
+                        >
+                          {p}
+                        </button>
+                      )
+                    );
+                  })()}
                   <button
                     type="button"
                     className="page-btn nav-btn"
