@@ -187,5 +187,18 @@ namespace FUD.Repositories
                 await _context.SaveChangesAsync();
             }
         }
+
+        public async Task<List<RegistrationPeriod>> GetOverlappingPeriodsAsync(
+            string periodType, DateOnly startDate, DateOnly endDate, int excludeTermId)
+        {
+            // Hai khoảng [a,b] và [c,d] chồng lấn khi a <= d AND c <= b.
+            return await _context.RegistrationPeriods
+                .AsNoTracking()
+                .Where(rp => rp.PeriodType == periodType
+                          && rp.TermId != excludeTermId
+                          && rp.StartDate <= endDate
+                          && rp.EndDate >= startDate)
+                .ToListAsync();
+        }
     }
 }

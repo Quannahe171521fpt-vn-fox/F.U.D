@@ -318,6 +318,13 @@ builder.Services.AddScoped<FUD.Infrastructure.Storage.IFileStorage, FUD.Infrastr
 builder.Services.AddScoped<FUD.Repositories.Interfaces.Violations.IViolationRepository, FUD.Repositories.Violations.ViolationRepository>();
 builder.Services.AddScoped<FUD.Services.Interfaces.Violations.IViolationService, FUD.Services.Violations.ViolationService>();
 
+// ── UC02: Keeping Room DI ──
+builder.Services.AddScoped<FUD.Repositories.Interfaces.Keeping.IKeepingRepository, FUD.Repositories.Keeping.KeepingRepository>();
+builder.Services.AddScoped<FUD.Services.Interfaces.Keeping.IKeepingEligibilityService, FUD.Services.Keeping.KeepingEligibilityService>();
+builder.Services.AddScoped<FUD.Services.Interfaces.Keeping.IKeepingService, FUD.Services.Keeping.KeepingService>();
+builder.Services.AddScoped<FUD.Services.Keeping.KeepingPeriodCloseJob>();
+// Job đóng kỳ giữ phòng: tự động trả giường về pool booking sau khi kỳ Keeping kết thúc.
+builder.Services.AddHostedService<FUD.Services.Keeping.KeepingPeriodCloseHostedService>();
 // Requests DI
 builder.Services.AddScoped<FUD.Repositories.Interfaces.Requests.IRequestRepository, FUD.Repositories.Requests.RequestRepository>();
 builder.Services.AddScoped<FUD.Services.Interfaces.Requests.IRequestService, FUD.Services.Requests.RequestService>();

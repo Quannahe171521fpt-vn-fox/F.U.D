@@ -177,6 +177,21 @@ namespace FUD.Services
                 }
             }
 
+            // 4. GB-04: chặn chồng kỳ cùng loại ở các học kỳ khác.
+            // Chỉ kiểm tra cho loại Keeping (giữ phòng) — UC02.
+            foreach (var p in dto.Periods.Where(p => p.PeriodType == "Keeping"))
+            {
+                var overlaps = await _termRepository.GetOverlappingPeriodsAsync(
+                    "Keeping", p.StartDate, p.EndDate, termId);
+
+                if (overlaps.Any())
+                {
+                    throw new ArgumentException(
+                        "Kỳ giữ phòng (Keeping) bị trùng thời gian với một kỳ giữ phòng của học kỳ khác. "
+                        + "Vui lòng chỉ mở một kỳ giữ phòng tại một thời điểm.");
+                }
+            }
+
             var entities = dto.Periods.Select(p => new RegistrationPeriod
             {
                 Id = p.Id ?? 0,
@@ -200,6 +215,23 @@ namespace FUD.Services
                 if (!isPricePublished)
                 {
                     throw new InvalidOperationException("Không thể kích hoạt đợt đăng ký: kỳ học chưa có bảng giá ở trạng thái Published.");
+                }
+
+                // GB-04: chặn mở kỳ Giữ phòng (Keeping) chồng lấn với kỳ giữ phòng của học kỳ khác.
+                var period = (await _termRepository.GetPeriodsByTermIdAsync(termId))
+                    .FirstOrDefault(p => p.Id == periodId);
+
+                if (period != null && period.PeriodType == "Keeping")
+                {
+                    var overlaps = await _termRepository.GetOverlappingPeriodsAsync(
+                        "Keeping", period.StartDate, period.EndDate, termId);
+
+                    if (overlaps.Any())
+                    {
+                        throw new ArgumentException(
+                            "Kỳ giữ phòng (Keeping) bị trùng thời gian với một kỳ giữ phòng của học kỳ khác. "
+                            + "Vui lòng chỉ mở một kỳ giữ phòng tại một thời điểm.");
+                    }
                 }
             }
 
