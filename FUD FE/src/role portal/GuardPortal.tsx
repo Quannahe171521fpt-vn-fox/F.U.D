@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { RecordViolationPage } from '../pages/Violations/RecordViolationPage';
 import { ViolationListPage } from '../pages/Violations/ViolationListPage';
+import { GuardCheckinPage } from '../pages/Checkin/GuardCheckinPage';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
 
 interface GuardPortalProps {
@@ -10,9 +11,16 @@ interface GuardPortalProps {
 
 export const GuardPortal: React.FC<GuardPortalProps> = ({ onLogout }) => {
   const { currentUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<'create' | 'list' | 'overview'>('create');
+  const [activeTab, setActiveTab] = useState<'checkin' | 'checkin-list' | 'create' | 'list' | 'overview'>('checkin');
 
   const guardSections: SidebarSection[] = [
+    {
+      label: 'BÀN GIAO PHÒNG (CHECK-IN)',
+      items: [
+        { id: 'checkin', name: 'Check-in nhận phòng', counter: 'Lập biên bản bàn giao' },
+        { id: 'checkin-list', name: 'Biên bản đã Check-in', counter: 'Tra cứu & In biên bản' },
+      ],
+    },
     {
       label: 'HỒ SƠ VI PHẠM',
       items: [
@@ -44,7 +52,11 @@ export const GuardPortal: React.FC<GuardPortalProps> = ({ onLogout }) => {
 
       {/* Vùng nội dung chính */}
       <main className="manager-main-content">
-        {activeTab === 'create' ? (
+        {activeTab === 'checkin' ? (
+          <GuardCheckinPage mode="create" onNavigateHistory={() => setActiveTab('checkin-list')} />
+        ) : activeTab === 'checkin-list' ? (
+          <GuardCheckinPage mode="history" />
+        ) : activeTab === 'create' ? (
           <RecordViolationPage onSuccessNavigate={() => setActiveTab('list')} />
         ) : activeTab === 'list' ? (
           <ViolationListPage />
@@ -101,7 +113,7 @@ export const GuardPortal: React.FC<GuardPortalProps> = ({ onLogout }) => {
                 <div><strong>Mã cán bộ:</strong> {currentUser?.code || 'GRD01'}</div>
                 <div><strong>Email công vụ:</strong> {currentUser?.email || 'guard@fpt.edu.vn'}</div>
                 <div><strong>Ca trực:</strong> Toàn thời gian ký túc xá</div>
-                <div><strong>Nhiệm vụ chính:</strong> Tuần tra, lập biên bản ghi nhận vi phạm</div>
+                <div><strong>Nhiệm vụ chính:</strong> Bàn giao nhận phòng (Check-in), tuần tra & lập biên bản vi phạm</div>
               </div>
             </div>
           </div>

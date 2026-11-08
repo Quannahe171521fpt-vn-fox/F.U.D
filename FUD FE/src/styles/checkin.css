@@ -1,0 +1,324 @@
+.checkin-page-wrapper {
+  padding: 24px 32px;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.checkin-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+  gap: 16px;
+}
+
+.checkin-header h1 {
+  font-size: 22px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 4px 0;
+}
+
+.checkin-header p {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+}
+
+.checkin-filter-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.checkin-filter-row {
+  display: grid;
+  grid-template-columns: 200px 200px 1fr auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.checkin-pending-table-wrap {
+  margin-top: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.checkin-pending-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.checkin-pending-table th {
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 600;
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.checkin-pending-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+}
+
+.checkin-pending-table tr:hover td {
+  background-color: #f8fafc;
+}
+
+.checkin-pending-table tr.selected-row td {
+  background-color: #ecfdf5;
+}
+
+.checkin-status-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.checkin-status-badge.completed {
+  background: #d1fae5;
+  color: #047857;
+}
+
+/* ── Paper Form Layout (Biên bản bàn giao tài sản FPT) ── */
+.fpt-handover-paper {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 32px 36px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+  color: #0f172a;
+  font-family: "Times New Roman", Times, serif;
+}
+
+.fpt-paper-top {
+  display: grid;
+  grid-template-columns: 42% 58%;
+  border: 1px solid #1e293b;
+  border-bottom: none;
+}
+
+.fpt-paper-top-left {
+  padding: 10px 12px;
+  text-align: center;
+  border-right: 1px solid #1e293b;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.fpt-logo-text {
+  font-family: Arial, sans-serif;
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: 0.5px;
+  color: #ea580c;
+  margin-bottom: 2px;
+}
+
+.fpt-org-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: #ea580c;
+  text-transform: uppercase;
+}
+
+.fpt-paper-top-right {
+  padding: 10px 12px;
+  text-align: center;
+}
+
+.fpt-nation-title {
+  font-weight: 700;
+  font-size: 14px;
+  text-transform: uppercase;
+}
+
+.fpt-nation-sub {
+  font-size: 13.5px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.fpt-paper-banner {
+  border: 1px solid #1e293b;
+  border-bottom: none;
+  text-align: center;
+  padding: 8px 12px;
+  font-weight: 700;
+  font-size: 15px;
+  text-transform: uppercase;
+}
+
+.fpt-paper-parties {
+  border: 1px solid #1e293b;
+  border-bottom: none;
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.fpt-party-heading {
+  font-weight: 700;
+}
+
+.fpt-party-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fpt-inline-input {
+  font-family: inherit;
+  font-size: 14px;
+  border: none;
+  border-bottom: 1px dotted #475569;
+  padding: 2px 6px;
+  min-width: 220px;
+  outline: none;
+  background: #f8fafc;
+}
+
+.fpt-inline-input:focus {
+  border-bottom-color: #059669;
+  background: #ecfdf5;
+}
+
+.fpt-equip-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.fpt-equip-table th,
+.fpt-equip-table td {
+  border: 1px solid #1e293b;
+  padding: 6px 10px;
+  vertical-align: middle;
+}
+
+.fpt-equip-table th {
+  font-weight: 700;
+  text-align: center;
+  background: #f8fafc;
+}
+
+.fpt-equip-select {
+  font-family: Arial, sans-serif;
+  font-size: 12.5px;
+  padding: 4px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.fpt-equip-note-input {
+  font-family: inherit;
+  font-size: 13.5px;
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+.fpt-meter-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-top: 1px solid #1e293b;
+  margin: 4px -10px -6px -10px;
+}
+
+.fpt-meter-cell {
+  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fpt-meter-cell:first-child {
+  border-right: 1px solid #1e293b;
+}
+
+.fpt-meter-input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px dotted #64748b;
+  font-family: inherit;
+  font-size: 13.5px;
+  padding: 2px 4px;
+  outline: none;
+}
+
+.fpt-paper-footer {
+  border: 1px solid #1e293b;
+  border-top: none;
+  padding: 14px 20px 64px 20px;
+}
+
+.fpt-date-line {
+  text-align: right;
+  font-style: italic;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.fpt-signatures-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  text-align: center;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.fpt-sig-name {
+  margin-top: 56px;
+  font-weight: 600;
+  font-size: 13.5px;
+}
+
+.checkin-actions-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .fpt-handover-paper,
+  .fpt-handover-paper * {
+    visibility: visible;
+  }
+
+  .fpt-handover-paper {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}
