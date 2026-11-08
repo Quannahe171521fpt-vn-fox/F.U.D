@@ -735,6 +735,226 @@ export const dormApi = {
   },
 };
 
+// ── Block Management API ────────────────────────────────────
+export interface BlockDto {
+  id: number;
+  dormId: number;
+  dormName: string;
+  code: string;
+  name: string;
+  numberOfFloors?: number;
+  genderType: string;
+  status: string;
+  totalRooms: number;
+}
+
+export interface BlockQuery {
+  dormName?: string;
+  blockName?: string;
+  genderType?: string;
+  status?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface CreateBlockPayload {
+  dormId: number;
+  code: string;
+  name: string;
+  numberOfFloors?: number;
+  genderType: string;
+}
+
+export interface UpdateBlockPayload {
+  name: string;
+  numberOfFloors?: number;
+}
+
+export const blockApi = {
+  getAll: async (params?: BlockQuery): Promise<PagedResult<BlockDto>> => {
+    const query = new URLSearchParams();
+    if (params?.dormName) query.append('dormName', params.dormName);
+    if (params?.blockName) query.append('blockName', params.blockName);
+    if (params?.genderType && params.genderType !== 'All') query.append('genderType', params.genderType);
+    if (params?.status && params.status !== 'All') query.append('status', params.status);
+    if (params?.page) query.append('page', params.page.toString());
+    if (params?.pageSize) query.append('pageSize', params.pageSize.toString());
+
+    const res = await authFetch(`${BASE_URL}/blocks?${query.toString()}`);
+    const json = await safeParseResponse<PagedResult<BlockDto>>(res, 'Không thể tải danh sách tòa nhà');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải danh sách tòa nhà');
+    return json.data;
+  },
+
+  getById: async (id: number): Promise<BlockDto> => {
+    const res = await authFetch(`${BASE_URL}/blocks/${id}`);
+    const json = await safeParseResponse<BlockDto>(res, 'Không thể tải thông tin tòa nhà');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải thông tin tòa nhà');
+    return json.data;
+  },
+
+  getRooms: async (id: number): Promise<RoomDto[]> => {
+    const res = await authFetch(`${BASE_URL}/blocks/${id}/rooms`);
+    const json = await safeParseResponse<RoomDto[]>(res, 'Không thể tải danh sách phòng của tòa');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải danh sách phòng của tòa');
+    return json.data;
+  },
+
+  create: async (payload: CreateBlockPayload): Promise<BlockDto> => {
+    const res = await authFetch(`${BASE_URL}/blocks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<BlockDto>(res, 'Lỗi khi tạo tòa nhà');
+    if (!res.ok || !json.success) throw new Error(json.message || (json.errors?.join(', ')) || 'Lỗi khi tạo tòa nhà');
+    return json.data;
+  },
+
+  update: async (id: number, payload: UpdateBlockPayload): Promise<BlockDto> => {
+    const res = await authFetch(`${BASE_URL}/blocks/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<BlockDto>(res, 'Lỗi khi cập nhật tòa nhà');
+    if (!res.ok || !json.success) throw new Error(json.message || (json.errors?.join(', ')) || 'Lỗi khi cập nhật tòa nhà');
+    return json.data;
+  },
+
+  updateStatus: async (id: number, status: 'Active' | 'Maintenance'): Promise<BlockDto> => {
+    const res = await authFetch(`${BASE_URL}/blocks/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    const json = await safeParseResponse<BlockDto>(res, 'Lỗi khi đổi trạng thái tòa nhà');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Lỗi khi đổi trạng thái tòa nhà');
+    return json.data;
+  },
+
+  updateGender: async (id: number, genderType: 'Male' | 'Female'): Promise<BlockDto> => {
+    const res = await authFetch(`${BASE_URL}/blocks/${id}/gender`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ genderType }),
+    });
+    const json = await safeParseResponse<BlockDto>(res, 'Lỗi khi đổi giới tính tòa nhà');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Lỗi khi đổi giới tính tòa nhà');
+    return json.data;
+  },
+};
+
+// ── Room Management API ────────────────────────────────────
+export interface RoomDto {
+  id: number;
+  blockId: number;
+  blockName: string;
+  blockGenderType: string;
+  roomTypeId: number;
+  roomTypeName: string;
+  bedCapacity: number;
+  roomNumber: string;
+  floorLevel?: number;
+  status: string;
+  totalBeds: number;
+  freeBeds: number;
+}
+
+export interface RoomTypeLookup {
+  id: number;
+  name: string;
+  bedCapacity: number;
+}
+
+export interface RoomQuery {
+  blockName?: string;
+  roomNumber?: string;
+  roomTypeId?: number;
+  genderType?: string;
+  status?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface CreateRoomPayload {
+  blockId: number;
+  roomTypeId: number;
+  roomNumber: string;
+  floorLevel?: number;
+}
+
+export interface UpdateRoomPayload {
+  roomTypeId: number;
+  roomNumber: string;
+  floorLevel?: number;
+}
+
+export const roomApi = {
+  getAll: async (params?: RoomQuery): Promise<PagedResult<RoomDto>> => {
+    const query = new URLSearchParams();
+    if (params?.blockName) query.append('blockName', params.blockName);
+    if (params?.roomNumber) query.append('roomNumber', params.roomNumber);
+    if (params?.roomTypeId) query.append('roomTypeId', params.roomTypeId.toString());
+    if (params?.genderType && params.genderType !== 'All') query.append('genderType', params.genderType);
+    if (params?.status && params.status !== 'All') query.append('status', params.status);
+    if (params?.page) query.append('page', params.page.toString());
+    if (params?.pageSize) query.append('pageSize', params.pageSize.toString());
+
+    const res = await authFetch(`${BASE_URL}/rooms?${query.toString()}`);
+    const json = await safeParseResponse<PagedResult<RoomDto>>(res, 'Không thể tải danh sách phòng');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải danh sách phòng');
+    return json.data;
+  },
+
+  getById: async (id: number): Promise<RoomDto> => {
+    const res = await authFetch(`${BASE_URL}/rooms/${id}`);
+    const json = await safeParseResponse<RoomDto>(res, 'Không thể tải thông tin phòng');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải thông tin phòng');
+    return json.data;
+  },
+
+  getTypes: async (): Promise<RoomTypeLookup[]> => {
+    const res = await authFetch(`${BASE_URL}/rooms/types`);
+    const json = await safeParseResponse<RoomTypeLookup[]>(res, 'Không thể tải danh sách loại phòng');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải danh sách loại phòng');
+    return json.data;
+  },
+
+  create: async (payload: CreateRoomPayload): Promise<RoomDto> => {
+    const res = await authFetch(`${BASE_URL}/rooms`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<RoomDto>(res, 'Lỗi khi tạo phòng');
+    if (!res.ok || !json.success) throw new Error(json.message || (json.errors?.join(', ')) || 'Lỗi khi tạo phòng');
+    return json.data;
+  },
+
+  update: async (id: number, payload: UpdateRoomPayload): Promise<RoomDto> => {
+    const res = await authFetch(`${BASE_URL}/rooms/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<RoomDto>(res, 'Lỗi khi cập nhật phòng');
+    if (!res.ok || !json.success) throw new Error(json.message || (json.errors?.join(', ')) || 'Lỗi khi cập nhật phòng');
+    return json.data;
+  },
+
+  updateStatus: async (id: number, status: 'Active' | 'Maintenance'): Promise<RoomDto> => {
+    const res = await authFetch(`${BASE_URL}/rooms/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    const json = await safeParseResponse<RoomDto>(res, 'Lỗi khi đổi trạng thái phòng');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Lỗi khi đổi trạng thái phòng');
+    return json.data;
+  },
+};
+
 
 // ── Requests API (Booking, BedTransfer, Checkout, Complaint, Others) ───────────
 export interface RequestItemDto {

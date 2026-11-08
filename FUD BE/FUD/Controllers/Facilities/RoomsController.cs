@@ -81,5 +81,12 @@ namespace FUD.Controllers.Facilities
             catch (KeyNotFoundException ex) { return NotFound(ApiResponse.Fail(ex.Message)); }
         }
 
+        [HttpGet("types")]
+        public async Task<IActionResult> GetRoomTypes()
+        {
+            var types = await _roomService.GetRoomTypesAsync();
+            return Ok(ApiResponse<object>.Ok(types));
+        }
+
     }
 }

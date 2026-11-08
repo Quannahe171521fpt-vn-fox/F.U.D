@@ -4,6 +4,8 @@ import { NewsManagement } from '../pages/FacilityManagement/NewsManagement';
 import { PricingManagement } from '../pages/FacilityManagement/PricingManagement';
 import { TermManagement } from '../pages/FacilityManagement/TermManagement/TermManagement';
 import { DormManagement } from '../pages/FacilityManagement/DormManagement';
+import { BlockManagement } from '../pages/FacilityManagement/BlockManagement';
+import { RoomManagement } from '../pages/FacilityManagement/RoomManagement';
 import { ManagerViolationManagement } from '../pages/Violations/ManagerViolationManagement';
 import { ManagerRequestManagement } from '../pages/Requests/ManagerRequestManagement';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
@@ -15,8 +17,8 @@ export const ManagerPortal: React.FC = () => {
   const { currentUser, logout } = useAuth();
 
   // Sidebar navigation tabs
-  const [activeTab, setActiveTab] = useState<'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'requests'>(() => {
-    return (localStorage.getItem('fud_managerTab') as 'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'requests') || 'terms';
+  const [activeTab, setActiveTab] = useState<'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'blocks' | 'rooms' | 'requests'>(() => {
+    return (localStorage.getItem('fud_managerTab') as 'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'blocks' | 'rooms' | 'requests') || 'terms';
   });
   const [pricingTargetTermId, setPricingTargetTermId] = useState<number | null>(null);
   const handleGoToPricing = (termId: number) => {
@@ -262,7 +264,17 @@ export const ManagerPortal: React.FC = () => {
         {
           id: 'dorm',
           name: 'Quản lý KTX',
-          counter: 'Ký túc xá & Tòa nhà',
+          counter: 'Ký túc xá',
+        },
+        {
+          id: 'blocks',
+          name: 'Quản lý Tòa nhà',
+          counter: 'Danh sách Block',
+        },
+        {
+          id: 'rooms',
+          name: 'Quản lý Phòng',
+          counter: 'Phòng & Giường',
         },
         {
           id: 'equipment',
@@ -332,6 +344,10 @@ export const ManagerPortal: React.FC = () => {
           <TermManagement onGoToPricing={handleGoToPricing} />
         ) : activeTab === 'dorm' ? (
           <DormManagement />
+        ) : activeTab === 'blocks' ? (
+          <BlockManagement />
+        ) : activeTab === 'rooms' ? (
+          <RoomManagement />
         ) : activeTab === 'requests' ? (
           <ManagerRequestManagement />
         ) : (
