@@ -116,7 +116,7 @@ if (!string.IsNullOrWhiteSpace(corsOriginsConfig))
 }
 else
 {
-    allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() 
+    allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
                      ?? new[] { "http://localhost:5173" };
 }
 
@@ -279,7 +279,7 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("RequireManager", policy => policy.RequireRole("Manager"));
     options.AddPolicy("RequireGuard", policy => policy.RequireRole("Guard"));
     options.AddPolicy("RequireStudent", policy => policy.RequireRole("Student"));
-      
+
     options.FallbackPolicy = new AuthorizationPolicyBuilder()
         .RequireAuthenticatedUser()
         .Build();

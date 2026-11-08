@@ -92,6 +92,13 @@ namespace FUD.Repositories.Facilities
                 .ToListAsync();
         }
 
+        public async Task<IEnumerable<RoomType>> GetRoomTypesAsync()
+        {
+            return await _context.RoomTypes
+                .OrderBy(rt => rt.BedCapacity)
+                .ToListAsync();
+        }
+
         public async Task<Room> CreateAsync(Room room)
         {
             _context.Rooms.Add(room);

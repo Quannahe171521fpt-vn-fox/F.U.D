@@ -17,6 +17,8 @@ namespace FUD.Repositories.Interfaces.Facilities
 
         Task<IEnumerable<Bed>> GetBedsByRoomIdAsync(int roomId);
 
+        Task<IEnumerable<RoomType>> GetRoomTypesAsync();
+
         Task<Room> CreateAsync(Room room);
         Task<Room> UpdateAsync(Room room);
     }

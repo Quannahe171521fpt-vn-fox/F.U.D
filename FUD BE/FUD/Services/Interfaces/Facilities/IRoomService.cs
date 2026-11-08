@@ -12,5 +12,7 @@ namespace FUD.Services.Interfaces.Facilities
 
         /// <summary>Đổi trạng thái Room — "Bảo trì cả phòng" trên UI (đổi luôn tất cả Beds)</summary>
         Task<RoomDto> UpdateStatusAsync(int id, UpdateRoomStatusDto dto);
+
+        Task<IEnumerable<RoomTypeLookupDto>> GetRoomTypesAsync();
     }
 }

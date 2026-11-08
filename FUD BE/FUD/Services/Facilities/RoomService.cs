@@ -88,6 +88,17 @@ namespace FUD.Services.Facilities
             return MapToDto(result!);
         }
 
+        public async Task<IEnumerable<RoomTypeLookupDto>> GetRoomTypesAsync()
+        {
+            var types = await _roomRepo.GetRoomTypesAsync();
+            return types.Select(t => new RoomTypeLookupDto
+            {
+                Id = t.Id,
+                Name = t.Name,
+                BedCapacity = t.BedCapacity
+            });
+        }
+
         private static RoomDto MapToDto(Room r) => new()
         {
             Id = r.Id,
