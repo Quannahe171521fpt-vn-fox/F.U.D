@@ -116,7 +116,7 @@ if (!string.IsNullOrWhiteSpace(corsOriginsConfig))
 }
 else
 {
-    allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() 
+    allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
                      ?? new[] { "http://localhost:5173" };
 }
 
@@ -159,7 +159,6 @@ builder.Services.AddControllers()
     {
         opts.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
         opts.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
-        opts.JsonSerializerOptions.Converters.Add(new FUD.Common.FlexibleStringConverter());
     });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -280,7 +279,7 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("RequireManager", policy => policy.RequireRole("Manager"));
     options.AddPolicy("RequireGuard", policy => policy.RequireRole("Guard"));
     options.AddPolicy("RequireStudent", policy => policy.RequireRole("Student"));
-      
+
     options.FallbackPolicy = new AuthorizationPolicyBuilder()
         .RequireAuthenticatedUser()
         .Build();
@@ -293,10 +292,6 @@ builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
-
-//9. Utilites
-builder.Services.AddScoped<FUD.Repositories.Interfaces.Utilities.IEwRepository, FUD.Repositories.Utilities.EwRepository>();
-builder.Services.AddScoped<FUD.Services.Interfaces.Utilities.IEwService, FUD.Services.Utilities.EwService>();
 
 // ── Account Management DI (UC: Create Account / Assign Roles / Suspend / Restore) ──
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));
@@ -340,7 +335,6 @@ builder.Services.AddControllers()
     {
         opts.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
         opts.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
-        opts.JsonSerializerOptions.Converters.Add(new FUD.Common.FlexibleStringConverter());
     });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
