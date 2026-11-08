@@ -803,3 +803,163 @@ export const requestApi = {
     return json?.data || json;
   },
 };
+
+
+// ── Check-in Handover API (Guard) ─────────────────────────────
+export interface PendingCheckinStudent {
+  bookingRequestId?: number;
+  residencyId?: number;
+  studentId: number;
+  studentCode: string;
+  studentName: string;
+  gender: string;
+  phone?: string;
+  email?: string;
+  cohort?: string;
+  major?: string;
+  blockId: number;
+  blockCode: string;
+  blockName: string;
+  roomId: number;
+  roomNumber: string;
+  bedId: number;
+  bedCode: string;
+  termId: number;
+  termName: string;
+  bookingStatus: string;
+}
+
+export interface RoomEquipmentCheckin {
+  equipmentId: number;
+  catalogId: number;
+  catalogName: string;
+  category: string;
+  assetCode: string;
+  bedId?: number;
+  bedCode?: string;
+  currentCondition: 'Good' | 'Damaged' | 'Missing';
+  note?: string;
+}
+
+export interface CheckinItemInput {
+  equipmentId: number;
+  itemCondition: 'Good' | 'Damaged' | 'Missing';
+  note?: string;
+}
+
+export interface CreateCheckinHandoverPayload {
+  bookingRequestId?: number;
+  residencyId?: number;
+  studentId: number;
+  roomId: number;
+  bedId: number;
+  studentTitle?: string;
+  otherItems?: string;
+  electricityL?: string;
+  electricityR?: string;
+  waterL?: string;
+  waterR?: string;
+  items: CheckinItemInput[];
+}
+
+export interface CheckinHandoverItemDetail {
+  id: number;
+  equipmentId: number;
+  catalogName: string;
+  category: string;
+  assetCode: string;
+  bedCode?: string;
+  quantity: number;
+  itemCondition: 'Good' | 'Damaged' | 'Missing';
+  note?: string;
+}
+
+export interface CheckinHandoverDetail {
+  id: number;
+  residencyId: number;
+  studentId: number;
+  studentCode: string;
+  studentName: string;
+  studentTitle: string;
+  guardId: number;
+  guardCode: string;
+  guardName: string;
+  blockId: number;
+  blockCode: string;
+  blockName: string;
+  roomId: number;
+  roomNumber: string;
+  bedId: number;
+  bedCode: string;
+  termName: string;
+  status: string;
+  hasDamageOrMissingFlag: boolean;
+  otherItems?: string;
+  electricityL?: string;
+  electricityR?: string;
+  waterL?: string;
+  waterR?: string;
+  createdTime: string;
+  completedTime?: string;
+  items: CheckinHandoverItemDetail[];
+}
+
+export const checkinApi = {
+  getPendingStudents: async (params?: { blockId?: number; roomId?: number; search?: string }): Promise<PendingCheckinStudent[]> => {
+    const query = new URLSearchParams();
+    if (params?.blockId) query.append('blockId', params.blockId.toString());
+    if (params?.roomId) query.append('roomId', params.roomId.toString());
+    if (params?.search) query.append('search', params.search);
+    const res = await authFetch(`${BASE_URL}/checkin/pending-students?${query.toString()}`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok || (json && json.success === false)) {
+      throw new Error(json?.message || 'Không thể tải danh sách sinh viên chờ Check-in');
+    }
+    return json?.data || [];
+  },
+
+  getRoomEquipments: async (roomId: number, bedId?: number): Promise<RoomEquipmentCheckin[]> => {
+    const query = bedId ? `?bedId=${bedId}` : '';
+    const res = await authFetch(`${BASE_URL}/checkin/room-equipments/${roomId}${query}`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok || (json && json.success === false)) {
+      throw new Error(json?.message || 'Không thể tải danh sách thiết bị của phòng');
+    }
+    return json?.data || [];
+  },
+
+  completeCheckin: async (payload: CreateCheckinHandoverPayload): Promise<CheckinHandoverDetail> => {
+    const res = await authFetch(`${BASE_URL}/checkin/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await parseJsonSafe(res);
+    if (!res.ok || (json && json.success === false)) {
+      throw new Error(json?.message || 'Lỗi khi thực hiện Check-in');
+    }
+    return json?.data;
+  },
+
+  getHistory: async (params?: { blockId?: number; roomId?: number; search?: string }): Promise<CheckinHandoverDetail[]> => {
+    const query = new URLSearchParams();
+    if (params?.blockId) query.append('blockId', params.blockId.toString());
+    if (params?.roomId) query.append('roomId', params.roomId.toString());
+    if (params?.search) query.append('search', params.search);
+    const res = await authFetch(`${BASE_URL}/checkin/history?${query.toString()}`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok || (json && json.success === false)) {
+      throw new Error(json?.message || 'Không thể tải lịch sử biên bản Check-in');
+    }
+    return json?.data || [];
+  },
+
+  getById: async (id: number): Promise<CheckinHandoverDetail> => {
+    const res = await authFetch(`${BASE_URL}/checkin/${id}`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok || (json && json.success === false)) {
+      throw new Error(json?.message || 'Không tìm thấy biên bản bàn giao');
+    }
+    return json?.data;
+  },
+};

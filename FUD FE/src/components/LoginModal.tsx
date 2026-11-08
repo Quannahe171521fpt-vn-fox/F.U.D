@@ -172,7 +172,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
               </div>
             )}
             <p style={{ color: '#4b5563', fontSize: '14px', lineHeight: '1.6', marginBottom: '20px' }}>
-              Sinh viên đăng nhập trực tiếp bằng tài khoản Google do trường cấp (<strong>@fpt.edu.vn</strong>).
+              Sinh viên đăng nhập trực tiếp bằng tài khoản Google đã được kích hoạt trong hệ thống.
             </p>
             <div id="google-btn-container" style={{ display: 'flex', justifyContent: 'center', minHeight: '44px', marginBottom: '16px' }}>
               {/* Google official button will be rendered here */}

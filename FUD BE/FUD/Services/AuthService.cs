@@ -66,11 +66,11 @@ public class AuthService : IAuthService
             throw new UnauthorizedAccessException("Tài khoản của bạn chưa được kích hoạt hoặc đã bị khóa.");
         }
 
-        // 4. Sinh viên bắt buộc đăng nhập bằng Google Mail FPT, không đăng nhập bằng mật khẩu
+        // 4. Sinh viên bắt buộc đăng nhập bằng Google, không đăng nhập bằng mật khẩu
         var roles = user.UserRoleUsers.Select(ur => ur.Role.RoleName).ToList();
         if (roles.Count == 1 && roles.Contains("Student"))
         {
-            throw new UnauthorizedAccessException("Tài khoản sinh viên vui lòng đăng nhập bằng Google (@fpt.edu.vn).");
+            throw new UnauthorizedAccessException("Tài khoản sinh viên vui lòng đăng nhập bằng Google.");
         }
 
         return await GenerateAuthResultAsync(user, clientIp);
@@ -96,12 +96,7 @@ public class AuthService : IAuthService
         if (!payload.EmailVerified)
             throw new UnauthorizedAccessException("Email Google chưa được xác thực.");
 
-        // Kiểm tra domain FPT Education
         var email = payload.Email.ToLowerInvariant();
-        if (!email.EndsWith("@fpt.edu.vn") && !email.EndsWith("@fe.edu.vn"))
-        {
-            throw new UnauthorizedAccessException("Hệ thống chỉ chấp nhận tài khoản Google thuộc tổ chức FPT Education.");
-        }
 
         // Tìm User theo GoogleId hoặc Email
         var user = await _userRepo.GetByGoogleIdAsync(payload.Subject) 
