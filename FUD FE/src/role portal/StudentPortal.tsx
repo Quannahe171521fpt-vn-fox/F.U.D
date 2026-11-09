@@ -5,6 +5,7 @@ import { StudentViolationHistoryPage } from '../pages/Violations/StudentViolatio
 import { SubmitRequestPage } from '../pages/Requests/SubmitRequestPage';
 import { StudentRequestListPage } from '../pages/Requests/StudentRequestListPage';
 import { AnnouncementsPage } from '../pages/Announcements/AnnouncementsPage';
+import { StudentCheckinRecordsPage } from '../pages/Checkin/StudentCheckinRecordsPage';
 import { newsApi } from '../services/api';
 import type { NewsItem } from '../types/management';
 import { useAuth } from '../contexts/AuthContext';
@@ -43,6 +44,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
       label: 'HỒ SƠ CÁ NHÂN',
       items: [
         { id: 'profile', name: 'Thông tin sinh viên' },
+      ],
+    },
+    {
+      label: 'NỘI TRÚ & PHÒNG Ở',
+      items: [
+        { id: 'checkin-records', name: 'Biên bản nhận phòng' },
       ],
     },
     {
@@ -126,6 +133,10 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
 
         {activeTab === 'submit-request' && (
           <SubmitRequestPage onSubmitted={() => setActiveTab('request-list')} />
+        )}
+
+        {activeTab === 'checkin-records' && (
+          <StudentCheckinRecordsPage onBackToProfile={() => setActiveTab('profile')} />
         )}
 
         {/* Xem trực tiếp Bảng tin Thông báo ngay bên trong StudentPortal */}
@@ -252,6 +263,30 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
                   }}
                 >
                   Xem Lịch sử vi phạm
+                </button>
+              </div>
+
+              <div style={{ marginTop: 12 }}>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('checkin-records')}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    backgroundColor: '#FFF7ED',
+                    color: '#C2410C',
+                    border: '1px solid #FDBA74',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span>📋</span> Xem Biên bản bàn giao nhận phòng (Check-in)
                 </button>
               </div>
 

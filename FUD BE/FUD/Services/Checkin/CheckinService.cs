@@ -458,6 +458,24 @@ namespace FUD.Services.Checkin
             return mapped;
         }
 
+        public async Task<List<CheckinHandoverResponseDto>> GetStudentCheckinsAsync(int studentUserId)
+        {
+            var list = await _context.Handovers
+                .AsNoTracking()
+                .Include(h => h.Guard).ThenInclude(g => g.User)
+                .Include(h => h.Room).ThenInclude(rm => rm.Block)
+                .Include(h => h.Residency).ThenInclude(r => r!.Student).ThenInclude(s => s.User)
+                .Include(h => h.Residency).ThenInclude(r => r!.Bed)
+                .Include(h => h.Residency).ThenInclude(r => r!.Term)
+                .Include(h => h.HandoverItems).ThenInclude(hi => hi.Equipment).ThenInclude(e => e.Catalog)
+                .Include(h => h.HandoverItems).ThenInclude(hi => hi.Equipment).ThenInclude(e => e.Bed)
+                .Where(h => h.HandoverType == "Checkin" && h.Residency != null && h.Residency.StudentId == studentUserId)
+                .OrderByDescending(h => h.CreatedTime)
+                .ToListAsync();
+
+            return list.Select(MapToResponseDto).ToList();
+        }
+
         public async Task<CheckinHandoverResponseDto?> GetCheckinByIdAsync(int id)
         {
             var handover = await _context.Handovers
