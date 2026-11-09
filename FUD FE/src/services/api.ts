@@ -1182,4 +1182,13 @@ export const checkinApi = {
     }
     return json?.data;
   },
+
+  getMyCheckins: async (): Promise<CheckinHandoverDetail[]> => {
+    const res = await authFetch(`${BASE_URL}/checkin/my-checkins`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok || (json && json.success === false)) {
+      throw new Error(json?.message || 'Không thể tải danh sách biên bản Check-in của bạn');
+    }
+    return json?.data || [];
+  },
 };

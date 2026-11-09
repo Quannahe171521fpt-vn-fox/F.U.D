@@ -10,6 +10,7 @@ namespace FUD.Services.Interfaces.Checkin
         Task<List<RoomEquipmentCheckinDto>> GetRoomEquipmentsAsync(int roomId, int? bedId = null);
         Task<CheckinHandoverResponseDto> CompleteCheckinAsync(int guardUserId, CreateCheckinHandoverDto dto);
         Task<List<CheckinHandoverResponseDto>> GetCheckinHistoryAsync(int? blockId = null, int? roomId = null, string? search = null);
+        Task<List<CheckinHandoverResponseDto>> GetStudentCheckinsAsync(int studentUserId);
         Task<CheckinHandoverResponseDto?> GetCheckinByIdAsync(int id);
     }
 }

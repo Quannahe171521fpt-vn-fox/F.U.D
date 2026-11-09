@@ -99,6 +99,22 @@ namespace FUD.Controllers.Checkin
         }
 
         /// <summary>
+        /// Sinh viên xem danh sách các biên bản bàn giao nhận phòng (Check-in) của chính mình
+        /// </summary>
+        [HttpGet("my-checkins")]
+        public async Task<IActionResult> GetMyCheckins()
+        {
+            var studentUserId = GetCurrentUserId();
+            if (!studentUserId.HasValue)
+            {
+                return Unauthorized(ApiResponse.Fail("Không xác định được danh tính sinh viên từ Token."));
+            }
+
+            var list = await _checkinService.GetStudentCheckinsAsync(studentUserId.Value);
+            return Ok(ApiResponse<List<CheckinHandoverResponseDto>>.Ok(list));
+        }
+
+        /// <summary>
         /// Xem chi tiết một biên bản bàn giao Check-in
         /// </summary>
         [HttpGet("{id:int}")]
