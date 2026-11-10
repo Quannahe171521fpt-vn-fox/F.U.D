@@ -28,9 +28,8 @@ jobs:
       - name: Build Backend Solution
         run: dotnet build "FUD BE/FUD BE.sln" --configuration Release --no-restore
 
-      # Nếu sau này có viết Unit Test, bật bước này lên:
-      # - name: Run Unit Tests
-      #   run: dotnet test "FUD BE/FUD BE.sln" --no-build --verbosity normal
+      - name: Run Unit Tests
+        run: dotnet test "FUD BE/FUD BE.sln" --configuration Release --no-build --logger "GitHubActions"
 
   # ==============================
   # JOB 2: BUILD FRONTEND (REACT)
