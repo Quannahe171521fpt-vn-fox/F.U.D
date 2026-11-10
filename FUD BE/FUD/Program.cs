@@ -329,6 +329,7 @@ builder.Services.AddHostedService<FUD.Services.Keeping.KeepingPeriodCloseHostedS
 builder.Services.AddScoped<FUD.Repositories.Interfaces.Requests.IRequestRepository, FUD.Repositories.Requests.RequestRepository>();
 builder.Services.AddScoped<FUD.Services.Interfaces.Requests.IRequestService, FUD.Services.Requests.RequestService>();
 builder.Services.AddScoped<FUD.Services.Interfaces.Checkin.ICheckinService, FUD.Services.Checkin.CheckinService>();
+builder.Services.AddScoped<IResidencyService, ResidencyService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(opts =>

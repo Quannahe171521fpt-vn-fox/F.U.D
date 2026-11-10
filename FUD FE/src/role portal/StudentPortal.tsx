@@ -6,6 +6,7 @@ import { SubmitRequestPage } from '../pages/Requests/SubmitRequestPage';
 import { StudentRequestListPage } from '../pages/Requests/StudentRequestListPage';
 import { AnnouncementsPage } from '../pages/Announcements/AnnouncementsPage';
 import { StudentCheckinRecordsPage } from '../pages/Checkin/StudentCheckinRecordsPage';
+import { StudentResidencyHistoryPage } from '../pages/Residency/StudentResidencyHistoryPage';
 import { newsApi } from '../services/api';
 import type { NewsItem } from '../types/management';
 import { useAuth } from '../contexts/AuthContext';
@@ -49,6 +50,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
     {
       label: 'NỘI TRÚ & PHÒNG Ở',
       items: [
+        { id: 'residency-history', name: 'Lịch sử lưu trú' },
         { id: 'checkin-records', name: 'Biên bản nhận phòng' },
       ],
     },
@@ -133,6 +135,13 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
 
         {activeTab === 'submit-request' && (
           <SubmitRequestPage onSubmitted={() => setActiveTab('request-list')} />
+        )}
+
+        {activeTab === 'residency-history' && (
+          <StudentResidencyHistoryPage
+            onOpenCheckinRecords={() => setActiveTab('checkin-records')}
+            onBackToProfile={() => setActiveTab('profile')}
+          />
         )}
 
         {activeTab === 'checkin-records' && (
@@ -266,12 +275,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
                 </button>
               </div>
 
-              <div style={{ marginTop: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: 12 }}>
                 <button
                   type="button"
-                  onClick={() => setActiveTab('checkin-records')}
+                  onClick={() => setActiveTab('residency-history')}
                   style={{
-                    width: '100%',
                     padding: '12px 16px',
                     backgroundColor: '#FFF7ED',
                     color: '#C2410C',
@@ -286,7 +294,28 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
                     gap: 8,
                   }}
                 >
-                  <span>📋</span> Xem Biên bản bàn giao nhận phòng (Check-in)
+                  <span>🏠</span> Xem Lịch sử lưu trú
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('checkin-records')}
+                  style={{
+                    padding: '12px 16px',
+                    backgroundColor: '#FFF7ED',
+                    color: '#C2410C',
+                    border: '1px solid #FDBA74',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span>📋</span> Xem Biên bản nhận phòng
                 </button>
               </div>
 

@@ -1192,3 +1192,127 @@ export const checkinApi = {
     return json?.data || [];
   },
 };
+
+
+// ── Residency History API (Student) ───────────────────────────
+export type ResidencyStatusType = 'Reserved' | 'Active' | 'Ended' | 'Cancelled';
+export type ResidencyRegistrationType = 'Booking' | 'Keeping' | 'Transfer';
+
+export interface ResidencyHistoryItem {
+  id: number;
+  residencyCode: string;
+  studentId: number;
+  status: ResidencyStatusType | string;
+  registrationType?: ResidencyRegistrationType | string;
+  termId: number;
+  termName: string;
+  academicYear: string;
+  termStartDate: string;
+  termEndDate: string;
+  campusName: string;
+  dormCode: string;
+  dormName: string;
+  blockId: number;
+  blockCode: string;
+  blockName: string;
+  roomId: number;
+  roomNumber: string;
+  floorLevel?: number;
+  roomTypeName: string;
+  bedCapacity: number;
+  bedId: number;
+  bedCode: string;
+  positionInRoom?: string;
+  checkInDate?: string;
+  plannedCheckOutDate?: string;
+  actualCheckOutDate?: string;
+  sourceRequestId?: number;
+  hasCheckinHandover: boolean;
+  checkinHandoverId?: number;
+  violationsCount: number;
+}
+
+export interface ResidencyTransferRecord {
+  requestId: number;
+  direction: 'Outgoing' | 'Incoming' | string;
+  status: string;
+  fromRoomNumber: string;
+  fromBlockCode: string;
+  fromBedCode: string;
+  toRoomNumber: string;
+  toBlockCode: string;
+  toBedCode: string;
+  transferReason: string;
+  transferDate?: string;
+  priceDifference?: number;
+  createdTime: string;
+}
+
+export interface ResidencyCheckoutRecord {
+  requestId: number;
+  status: string;
+  expectedCheckOutDate: string;
+  reason?: string;
+  isExceptionalCase: boolean;
+  exceptionNote?: string;
+  createdTime: string;
+  reviewedTime?: string;
+  checkoutHandoverId?: number;
+  checkoutHandoverStatus?: string;
+  totalCompensation?: number;
+}
+
+export interface ResidencyInvoiceSummary {
+  id: number;
+  invoiceNumber: string;
+  invoiceType: string;
+  amount: number;
+  status: string;
+  issuedTime: string;
+  dueDate: string;
+  paidTime?: string;
+}
+
+export interface ResidencyHistoryDetail extends ResidencyHistoryItem {
+  sourceRequestStatus?: string;
+  sourceRequestCreatedTime?: string;
+  checkinHandoverStatus?: string;
+  checkinCompletedTime?: string;
+  checkinGuardName?: string;
+  hasDamageOrMissingAtCheckin: boolean;
+  transfers: ResidencyTransferRecord[];
+  checkouts: ResidencyCheckoutRecord[];
+  invoices: ResidencyInvoiceSummary[];
+}
+
+export const residencyApi = {
+  getMyHistory: async (params?: {
+    status?: string;
+    term?: string;
+    registrationType?: string;
+    search?: string;
+  }): Promise<ResidencyHistoryItem[]> => {
+    const query = new URLSearchParams();
+    if (params?.status) query.append('status', params.status);
+    if (params?.term) query.append('term', params.term);
+    if (params?.registrationType) query.append('registrationType', params.registrationType);
+    if (params?.search) query.append('search', params.search);
+
+    const qs = query.toString();
+    const res = await authFetch(`${BASE_URL}/residencies/my-history${qs ? `?${qs}` : ''}`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok || (json && json.success === false)) {
+      throw new Error(json?.message || 'Không thể tải lịch sử lưu trú của bạn');
+    }
+    return json?.data || [];
+  },
+
+  getMyHistoryById: async (id: number): Promise<ResidencyHistoryDetail> => {
+    const res = await authFetch(`${BASE_URL}/residencies/my-history/${id}`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok || (json && json.success === false)) {
+      throw new Error(json?.message || 'Không tìm thấy chi tiết hồ sơ lưu trú');
+    }
+    return json?.data;
+  },
+};
