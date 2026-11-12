@@ -136,29 +136,6 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
     fetchStudents();
   }, [selectedRoomId]);
 
-  // Handle Search MSSV
-  const handleSearchStudent = async () => {
-    if (!searchMssv.trim()) return;
-    setErrorMsg('');
-    setSuccessMsg('');
-    try {
-      const student = await violationApi.searchStudent(searchMssv.trim());
-      // Dùng functional update để tránh stale closure gây lặp sinh viên
-      setRoomStudents(prev => {
-        if (prev.some(s => s.studentId === student.studentId)) return prev;
-        return [student, ...prev];
-      });
-      setSelectedStudentIds(prev => {
-        if (prev.includes(student.studentId)) return prev;
-        return [...prev, student.studentId];
-      });
-      setSuccessMsg(`Đã tìm thấy và thêm sinh viên ${student.fullName} (${student.studentCode}).`);
-      setSearchMssv('');
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Không tìm thấy sinh viên với MSSV này');
-    }
-  };
-
   const toggleStudent = (id: number) => {
     setSelectedStudentIds(prev =>
       prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]

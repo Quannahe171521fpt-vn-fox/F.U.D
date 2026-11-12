@@ -209,8 +209,6 @@ export const BlockManagement: React.FC = () => {
     }
   };
 
-  const totalPages = Math.ceil(totalCount / pageSize);
-
   return (
     <div className="facilities-container">
       {/* Header */}
