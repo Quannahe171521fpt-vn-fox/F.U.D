@@ -370,13 +370,13 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
       <div className="checkin-filter-card no-print">
         <div className="checkin-filter-row">
           <div>
-            <label className="violation-label">Tòa (Block)</label>
+            <label className="violation-label">Block</label>
             <select
               className="violation-select"
               value={selectedBlockId}
               onChange={e => setSelectedBlockId(e.target.value)}
             >
-              <option value="">-- Tất cả các Tòa --</option>
+              <option value="">-- Tất cả các Block --</option>
               {blocks.map(b => (
                 <option key={b.id} value={b.id}>
                   {b.name}
@@ -407,7 +407,7 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
             <input
               type="text"
               className="violation-input"
-              placeholder="VD: SE17002, Hoàng Nữ Sinh, 202..."
+              placeholder="VD: SE170002, Hoàng Nữ Sinh, 202..."
               value={searchKeyword}
               onChange={e => setSearchKeyword(e.target.value)}
               onKeyDown={e => {
@@ -436,7 +436,7 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
                   <tr>
                     <th>MSSV</th>
                     <th>Họ và tên</th>
-                    <th>Tòa / Phòng / Giường</th>
+                    <th>Block / Phòng / Giường</th>
                     <th>Học kỳ</th>
                     <th>Trạng thái đơn</th>
                     <th style={{ width: 130, textAlign: 'right' }}>Thao tác</th>
@@ -756,7 +756,7 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
                     <th>Mã BB</th>
                     <th>MSSV</th>
                     <th>Họ tên sinh viên</th>
-                    <th>Tòa / Phòng / Giường</th>
+                    <th>Block / Phòng / Giường</th>
                     <th>Bảo vệ bàn giao</th>
                     <th>Ngày Check-in</th>
                     <th>Tình trạng TS</th>

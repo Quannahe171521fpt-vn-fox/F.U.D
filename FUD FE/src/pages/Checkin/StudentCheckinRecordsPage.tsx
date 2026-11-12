@@ -450,7 +450,7 @@ export const StudentCheckinRecordsPage: React.FC<StudentCheckinRecordsPageProps>
                     <div style={{ fontWeight: 700, color: '#0F172A' }}>
                       Phòng {h.roomNumber} - Giường {h.bedCode}
                     </div>
-                    <div style={{ fontSize: '12px', color: '#475569' }}>Tòa {h.blockCode || h.blockName}</div>
+                    <div style={{ fontSize: '12px', color: '#475569' }}>Block {h.blockCode || h.blockName}</div>
                   </div>
 
                   <div>

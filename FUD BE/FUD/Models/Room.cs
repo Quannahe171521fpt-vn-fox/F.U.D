@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace FUD.Models;
@@ -24,8 +24,6 @@ public partial class Room
     public virtual ICollection<Equipment> Equipment { get; set; } = new List<Equipment>();
 
     public virtual ICollection<Handover> Handovers { get; set; } = new List<Handover>();
-
-    public virtual ICollection<IncidentTicket> IncidentTickets { get; set; } = new List<IncidentTicket>();
 
     public virtual ICollection<MeterReading> MeterReadings { get; set; } = new List<MeterReading>();
 

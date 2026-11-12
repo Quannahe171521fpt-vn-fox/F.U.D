@@ -199,7 +199,7 @@ export const DormManagement: React.FC = () => {
                 <th>Tên Ký Túc Xá</th>
                 <th>Thuộc Campus</th>
                 <th>Địa chỉ</th>
-                <th style={{ textAlign: 'center' }}>Số tòa</th>
+                <th style={{ textAlign: 'center' }}>Số block</th>
                 <th style={{ textAlign: 'center' }}>Trạng thái</th>
                 <th style={{ textAlign: 'center' }}>Hành động</th>
               </tr>
@@ -381,7 +381,7 @@ export const DormManagement: React.FC = () => {
                   <p className="delete-error-title">Không thể xóa KTX này</p>
                   <p className="delete-error-msg">{deleteError}</p>
                   <p className="delete-error-hint">
-                    Hãy xóa hoặc vô hiệu hóa tất cả các <strong>Tòa (Block)</strong> bên trong KTX trước khi xóa.
+                    Hãy xóa hoặc vô hiệu hóa tất cả các <strong>Block</strong> bên trong KTX trước khi xóa.
                   </p>
                 </div>
               ) : (
@@ -393,7 +393,7 @@ export const DormManagement: React.FC = () => {
                   </p>
                   {deleteTarget.totalBlocks > 0 && (
                     <div className="confirm-warning">
-                      ⚠️ KTX này đang có <strong>{deleteTarget.totalBlocks} tòa</strong>. Thao tác sẽ bị từ chối.
+                      ⚠️ KTX này đang có <strong>{deleteTarget.totalBlocks} block</strong>. Thao tác sẽ bị từ chối.
                     </div>
                   )}
                   <p className="confirm-note">Dữ liệu sẽ bị ẩn khỏi hệ thống (xóa mềm).</p>

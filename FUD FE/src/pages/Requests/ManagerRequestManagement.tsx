@@ -462,31 +462,31 @@ export const ManagerRequestManagement: React.FC = () => {
               )}
               {/* Chỉ hiển thị nút mở khóa nếu sinh viên bị đình chỉ VÀ lý do đình chỉ liên quan đến biên bản trong đơn này */}
               {selectedRequest.studentAccountStatus === 'Suspended' &&
-               selectedRequest.complaint?.violationCode &&
-               selectedRequest.suspensionReason?.includes(selectedRequest.complaint.violationCode) && (
-                <div style={{ marginTop: 8, padding: '8px 12px', backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: '6px', color: '#991B1B' }}>
-                  <div style={{ fontWeight: 700 }}>⚠️ Tài khoản sinh viên đang bị ĐÌNH CHỈ (Khóa Book & Giữ phòng):</div>
-                  <div style={{ fontSize: '12px', marginTop: 2 }}>{selectedRequest.suspensionReason || 'Đình chỉ nội trú do vi phạm quy chế.'}</div>
-                  <button
-                    type="button"
-                    disabled={unsuspending}
-                    onClick={() => handleUnsuspendStudentFromRequest(selectedRequest.studentId)}
-                    style={{
-                      marginTop: 6,
-                      padding: '5px 12px',
-                      backgroundColor: '#15803D',
-                      color: '#FFF',
-                      border: 'none',
-                      borderRadius: '5px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {unsuspending ? 'Đang mở khóa...' : '🔓 Mở khóa lại quyền Book & Giữ phòng cho sinh viên'}
-                  </button>
-                </div>
-              )}
+                selectedRequest.complaint?.violationCode &&
+                selectedRequest.suspensionReason?.includes(selectedRequest.complaint.violationCode) && (
+                  <div style={{ marginTop: 8, padding: '8px 12px', backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: '6px', color: '#991B1B' }}>
+                    <div style={{ fontWeight: 700 }}>⚠️ Tài khoản sinh viên đang bị ĐÌNH CHỈ (Khóa Book & Giữ phòng):</div>
+                    <div style={{ fontSize: '12px', marginTop: 2 }}>{selectedRequest.suspensionReason || 'Đình chỉ nội trú do vi phạm quy chế.'}</div>
+                    <button
+                      type="button"
+                      disabled={unsuspending}
+                      onClick={() => handleUnsuspendStudentFromRequest(selectedRequest.studentId)}
+                      style={{
+                        marginTop: 6,
+                        padding: '5px 12px',
+                        backgroundColor: '#15803D',
+                        color: '#FFF',
+                        border: 'none',
+                        borderRadius: '5px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {unsuspending ? 'Đang mở khóa...' : '🔓 Mở khóa lại quyền Book & Giữ phòng cho sinh viên'}
+                    </button>
+                  </div>
+                )}
             </div>
 
             {/* Nếu là khiếu nại vi phạm kỷ luật */}
@@ -537,7 +537,7 @@ export const ManagerRequestManagement: React.FC = () => {
                         checked={decision === 'Approved'}
                         onChange={() => setDecision('Approved')}
                       />
-                      Chấp thuận đơn (Approved)
+                      Chấp thuận đơn khiếu nại (Approved)
                     </label>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', fontWeight: 600, color: '#DC2626' }}>
                       <input
@@ -547,7 +547,7 @@ export const ManagerRequestManagement: React.FC = () => {
                         checked={decision === 'Rejected'}
                         onChange={() => setDecision('Rejected')}
                       />
-                      Từ chối đơn / Bác đơn (Rejected)
+                      Từ chối đơn khiếu nại (Rejected)
                     </label>
                   </div>
                 </div>
@@ -571,9 +571,9 @@ export const ManagerRequestManagement: React.FC = () => {
                       onChange={e => setAdjustedLevel(e.target.value)}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#FFF' }}
                     >
-                      <option value="Nhắc nhở">Giảm xuống: Nhắc nhở</option>
-                      <option value="Khiển trách">Giảm xuống: Khiển trách</option>
-                      <option value="Cảnh cáo">Giữ mức: Cảnh cáo</option>
+                      <option value="Nhắc nhở">Nhắc nhở</option>
+                      <option value="Khiển trách">Khiển trách</option>
+                      <option value="Cảnh cáo">Cảnh cáo</option>
                     </select>
                   </div>
                 )}

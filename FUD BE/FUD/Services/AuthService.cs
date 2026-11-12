@@ -203,6 +203,16 @@ public class AuthService : IAuthService
             throw new UnauthorizedAccessException("Người dùng không tồn tại hoặc đã bị khóa.");
 
         var roles = user.UserRoleUsers.Select(ur => ur.Role.RoleName).ToList();
+
+        int? dormId = null;
+        string? dormName = null;
+        if (roles.Contains("Guard"))
+        {
+            var guardDorm = await _userRepo.GetGuardDormInfoAsync(userId);
+            dormId = guardDorm?.DormId;
+            dormName = guardDorm?.DormName;
+        }
+
         return new UserInfoDto
         {
             Id = user.Id,
@@ -212,7 +222,9 @@ public class AuthService : IAuthService
             PrimaryRole = RoleHelper.ResolvePrimaryRole(roles),
             Roles = roles,
             AccountStatus = user.AccountStatus,
-            SuspensionReason = user.SuspensionReason
+            SuspensionReason = user.SuspensionReason,
+            DormId = dormId,
+            DormName = dormName
         };
     }
 
@@ -233,6 +245,15 @@ public class AuthService : IAuthService
         };
         await _refreshRepo.CreateAsync(refreshToken);
 
+        int? dormId = null;
+        string? dormName = null;
+        if (roles.Contains("Guard"))
+        {
+            var guardDorm = await _userRepo.GetGuardDormInfoAsync(user.Id);
+            dormId = guardDorm?.DormId;
+            dormName = guardDorm?.DormName;
+        }
+
         var response = new AuthResponseDto
         {
             AccessToken = accessToken,
@@ -247,7 +268,9 @@ public class AuthService : IAuthService
                 PrimaryRole = RoleHelper.ResolvePrimaryRole(roles),
                 Roles = roles,
                 AccountStatus = user.AccountStatus,
-                SuspensionReason = user.SuspensionReason
+                SuspensionReason = user.SuspensionReason,
+                DormId = dormId,
+                DormName = dormName
             }
         };
 

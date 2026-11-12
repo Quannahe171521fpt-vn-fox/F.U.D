@@ -1,3 +1,4 @@
+using FUD.DTOs.Violations;
 using FUD.Models;
 
 namespace FUD.Repositories.Interfaces.Violations
@@ -18,5 +19,6 @@ namespace FUD.Repositories.Interfaces.Violations
         Task<User?> GetUserByIdAsync(int userId);
         Task UpdateUserAsync(User user);
         Task<int> GetStudentPriorViolationsCountAsync(int studentId, int currentViolationId);
+        Task<List<BlockForViolationDto>> GetBlocksByGuardDormAsync(int guardUserId);
     }
 }

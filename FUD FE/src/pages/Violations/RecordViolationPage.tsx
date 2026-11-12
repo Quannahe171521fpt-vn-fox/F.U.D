@@ -4,9 +4,10 @@ import {
   facilityCommonApi,
   type ViolationType,
   type RoomStudent,
-  type BlockItem,
+  type GuardBlockItem,
   type RoomItem,
 } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
 import '../../styles/violation.css';
 
 interface RecordViolationPageProps {
@@ -15,8 +16,9 @@ interface RecordViolationPageProps {
 }
 
 export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack, onSuccessNavigate }) => {
+  const { currentUser } = useAuth();
   // Master data
-  const [blocks, setBlocks] = useState<BlockItem[]>([]);
+  const [blocks, setBlocks] = useState<GuardBlockItem[]>([]);
   const [rooms, setRooms] = useState<RoomItem[]>([]);
   const [violationTypes, setViolationTypes] = useState<ViolationType[]>([]);
 
@@ -51,7 +53,7 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
     const initData = async () => {
       try {
         const [blocksData, typesData] = await Promise.all([
-          facilityCommonApi.getBlocks(),
+          violationApi.getGuardBlocks(),
           violationApi.getTypes()
         ]);
 
@@ -69,7 +71,7 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
         }
       } catch (err: any) {
         console.error('Error loading initial data:', err);
-        setErrorMsg('Không thể tải danh sách Tòa hoặc Loại vi phạm từ hệ thống.');
+        setErrorMsg('Không thể tải danh sách Block hoặc Loại vi phạm từ hệ thống.');
       }
     };
 
@@ -115,7 +117,14 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
     const fetchStudents = async () => {
       try {
         const studentsData = await violationApi.getStudentsByRoom(parseInt(selectedRoomId, 10));
-        setRoomStudents(studentsData || []);
+        // Deduplicate theo studentId (đề phòng API trả về trùng)
+        const seen = new Set<number>();
+        const unique = (studentsData || []).filter(s => {
+          if (seen.has(s.studentId)) return false;
+          seen.add(s.studentId);
+          return true;
+        });
+        setRoomStudents(unique);
         setSelectedStudentIds([]);
       } catch (err: any) {
         console.error('Error loading room students:', err);
@@ -131,15 +140,20 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
   const handleSearchStudent = async () => {
     if (!searchMssv.trim()) return;
     setErrorMsg('');
+    setSuccessMsg('');
     try {
       const student = await violationApi.searchStudent(searchMssv.trim());
-      if (!roomStudents.some(s => s.studentId === student.studentId)) {
-        setRoomStudents(prev => [student, ...prev]);
-      }
-      if (!selectedStudentIds.includes(student.studentId)) {
-        setSelectedStudentIds(prev => [...prev, student.studentId]);
-      }
+      // Dùng functional update để tránh stale closure gây lặp sinh viên
+      setRoomStudents(prev => {
+        if (prev.some(s => s.studentId === student.studentId)) return prev;
+        return [student, ...prev];
+      });
+      setSelectedStudentIds(prev => {
+        if (prev.includes(student.studentId)) return prev;
+        return [...prev, student.studentId];
+      });
       setSuccessMsg(`Đã tìm thấy và thêm sinh viên ${student.fullName} (${student.studentCode}).`);
+      setSearchMssv('');
     } catch (err: any) {
       setErrorMsg(err.message || 'Không tìm thấy sinh viên với MSSV này');
     }
@@ -260,12 +274,17 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
         {/* CARD 1: Phòng và sinh viên liên quan */}
         <div className="violation-card-section">
           <div className="violation-card-title">Phòng và sinh viên liên quan</div>
-
           <div className="violation-grid-2">
             <div className="violation-form-group">
-              <label className="violation-label">
-                Tòa <span className="required">*</span>
-              </label>
+              {(blocks.length > 0 && blocks[0].dormName) ? (
+                <div style={{ marginBottom: 6, fontSize: 13, color: '#000000ff', fontWeight: 600 }}>
+                  KTX: {blocks[0].dormName}
+                </div>
+              ) : currentUser?.dormName ? (
+                <div style={{ marginBottom: 6, fontSize: 13, color: '#000000ff', fontWeight: 600 }}>
+                  KTX: {currentUser.dormName}
+                </div>
+              ) : null}
               <select
                 className="violation-select"
                 value={selectedBlockId}
@@ -297,38 +316,18 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
             </div>
           </div>
 
-          {/* Tìm theo MSSV */}
+          {/* Tìm theo MSSV / Tên */}
           <div className="violation-search-row">
             <div className="violation-form-group" style={{ flex: 1 }}>
-              <label className="violation-label">Tìm theo MSSV</label>
+              <label className="violation-label">Tìm theo MSSV hoặc họ tên</label>
               <input
                 type="text"
                 className="violation-input"
-                placeholder="VD: HE180123 hoặc SE17001"
+                placeholder="VD: SE180003 hoặc Lê Quang Huy"
                 value={searchMssv}
                 onChange={e => setSearchMssv(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleSearchStudent();
-                  }
-                }}
               />
             </div>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={handleSearchStudent}
-            >
-              Tìm sinh viên
-            </button>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={handleSearchStudent}
-            >
-              Thêm sinh viên
-            </button>
           </div>
 
           {/* Table: Sinh viên đang lưu trú */}
@@ -354,8 +353,21 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
                     Không có sinh viên nào trong phòng này
                   </td>
                 </tr>
-              ) : (
-                roomStudents.map(student => (
+              ) : (() => {
+                const term = searchMssv.trim().toLowerCase();
+                const displayed = term
+                  ? roomStudents.filter(s =>
+                      s.studentCode.toLowerCase().includes(term) ||
+                      s.fullName.toLowerCase().includes(term)
+                    )
+                  : roomStudents;
+                return displayed.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} style={{ textAlign: 'center', color: '#64748b' }}>
+                      Không tìm thấy sinh viên khớp — nhấn "Tìm sinh viên" để tìm ngoài phòng
+                    </td>
+                  </tr>
+                ) : displayed.map(student => (
                   <tr key={student.studentId}>
                     <td>
                       <input
@@ -368,8 +380,8 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
                     <td>{student.fullName}</td>
                     <td style={{ color: '#475569' }}>{student.statusDescription}</td>
                   </tr>
-                ))
-              )}
+                ));
+              })()}
             </tbody>
           </table>
 

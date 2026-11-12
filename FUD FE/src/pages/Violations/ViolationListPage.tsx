@@ -112,19 +112,19 @@ export const ViolationListPage: React.FC = () => {
         />
       </div>
 
-      <div className="violation-table-container">
-        <table className="violation-table">
+      <div className="fud-table-wrapper" style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 860 }}>
           <thead>
             <tr>
-              <th>Mã biên bản</th>
-              <th>Sinh viên</th>
-              <th>Phòng</th>
-              <th>Hành vi vi phạm</th>
-              <th>Thời điểm</th>
-              <th>Mức độ</th>
-              <th>Trạng thái</th>
-              <th>Minh chứng</th>
-              <th>Chi tiết</th>
+              <th style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', padding: '10px 10px', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', textAlign: 'left', whiteSpace: 'nowrap' }}>Mã biên bản</th>
+              <th style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', padding: '10px 10px', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', textAlign: 'left', whiteSpace: 'nowrap' }}>Sinh viên</th>
+              <th style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', padding: '10px 10px', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', textAlign: 'left', whiteSpace: 'nowrap' }}>Phòng</th>
+              <th style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', padding: '10px 10px', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', textAlign: 'left' }}>Hành vi vi phạm</th>
+              <th style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', padding: '10px 10px', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', textAlign: 'left', whiteSpace: 'nowrap' }}>Thời điểm</th>
+              <th style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', padding: '10px 10px', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', textAlign: 'left', whiteSpace: 'nowrap' }}>Mức độ</th>
+              <th style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', padding: '10px 10px', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', textAlign: 'left', whiteSpace: 'nowrap' }}>Trạng thái</th>
+              <th style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', padding: '10px 10px', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', textAlign: 'left', whiteSpace: 'nowrap' }}>Minh chứng</th>
+              <th style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', padding: '10px 10px', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', textAlign: 'left', whiteSpace: 'nowrap' }}>Chi tiết</th>
             </tr>
           </thead>
           <tbody>
@@ -142,77 +142,41 @@ export const ViolationListPage: React.FC = () => {
               </tr>
             ) : (
               paginatedViolations.map(v => (
-                <tr key={v.id}>
-                  <td style={{ fontWeight: 600, color: '#c2410c' }}>{v.code}</td>
-                  <td>
-                    <div><strong>{v.studentName}</strong></div>
+                <tr key={v.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <td style={{ padding: '10px', fontWeight: 700, color: '#c2410c', whiteSpace: 'nowrap' }}>{v.code}</td>
+                  <td style={{ padding: '10px', minWidth: 130 }}>
+                    <div style={{ fontWeight: 600 }}>{v.studentName}</div>
                     <div style={{ fontSize: 11, color: '#64748b' }}>{v.studentCode}</div>
                   </td>
-                  <td>P.{v.roomNumber} ({v.blockName})</td>
-                  <td>{v.violationTypeName}</td>
-                  <td>{formatDate(v.occurrenceTime)}</td>
-                  <td>
-                    <span style={{ fontWeight: 600, color: v.finalLevel ? '#dc2626' : '#ea580c' }}>
-                      {v.finalLevel || v.initialLevel || '—'}
-                    </span>
+                  <td style={{ padding: '10px', whiteSpace: 'nowrap' }}>P.{v.roomNumber} ({v.blockName})</td>
+                  <td style={{ padding: '10px', minWidth: 160 }}>
+                    <div style={{ fontWeight: 600 }}>{v.violationTypeName}</div>
                   </td>
-                  <td>
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        padding: '3px 8px',
-                        borderRadius: 9999,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        backgroundColor:
-                          v.status === 'Recorded' ? '#fef3c7' :
-                          v.status === 'Finalized' ? '#fee2e2' : '#ecfdf5',
-                        color:
-                          v.status === 'Recorded' ? '#92400e' :
-                          v.status === 'Finalized' ? '#b91c1c' : '#047857',
-                      }}
-                    >
+                  <td style={{ padding: '10px', whiteSpace: 'nowrap' }}>{formatDate(v.occurrenceTime)}</td>
+                  <td style={{ padding: '10px', whiteSpace: 'nowrap', fontWeight: 600, color: v.finalLevel ? '#dc2626' : v.initialLevel ? '#ea580c' : '#94a3b8' }}>
+                    {v.finalLevel || v.initialLevel || '—'}
+                  </td>
+                  <td style={{ padding: '10px' }}>
+                    <span style={{ display: 'inline-block', padding: '3px 8px', borderRadius: 9999, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
+                      backgroundColor: v.status === 'Recorded' ? '#fef3c7' : v.status === 'Finalized' ? '#fee2e2' : '#ecfdf5',
+                      color: v.status === 'Recorded' ? '#92400e' : v.status === 'Finalized' ? '#b91c1c' : '#047857' }}>
                       {VIOLATION_STATUS_VI[v.status] || v.status}
                     </span>
                   </td>
-                  <td>
+                  <td style={{ padding: '10px' }}>
                     {v.evidences && v.evidences.length > 0 ? (
                       <div style={{ display: 'flex', gap: 4 }}>
-                        {v.evidences.map((e, idx) => (
-                          <a
-                            key={e.id || idx}
-                            href={e.fileUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            title="Bấm để xem ảnh"
-                          >
-                            <img
-                              src={e.fileUrl}
-                              alt="Minh chứng"
-                              style={{ width: 32, height: 32, objectFit: 'cover', borderRadius: 4, border: '1px solid #cbd5e1' }}
-                            />
+                        {v.evidences.slice(0, 2).map((e, idx) => (
+                          <a key={e.id || idx} href={e.fileUrl} target="_blank" rel="noreferrer" title="Xem ảnh">
+                            <img src={e.fileUrl} alt="MC" style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 4, border: '1px solid #cbd5e1' }} />
                           </a>
                         ))}
                       </div>
-                    ) : (
-                      <span style={{ color: '#94a3b8', fontSize: 12 }}>Không có</span>
-                    )}
+                    ) : <span style={{ color: '#94a3b8', fontSize: 11 }}>—</span>}
                   </td>
-                  <td>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedViolation(v)}
-                      style={{
-                        padding: '4px 10px',
-                        background: '#f1f5f9',
-                        border: '1px solid #cbd5e1',
-                        borderRadius: 4,
-                        fontSize: 12,
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        color: '#334155',
-                      }}
-                    >
+                  <td style={{ padding: '10px' }}>
+                    <button type="button" onClick={() => setSelectedViolation(v)}
+                      style={{ padding: '4px 10px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: 'pointer', color: '#334155', whiteSpace: 'nowrap' }}>
                       Chi tiết
                     </button>
                   </td>

@@ -108,7 +108,7 @@ namespace FUD.Services
                         .ThenInclude(rm => rm.Block)
                             .ThenInclude(bl => bl.Dorm)
                                 .ThenInclude(d => d.Campus)
-                .Include(r => r.SourceRequest)
+                .Include(r => r.SourceBooking)
                 .Include(r => r.Handover)
                     .ThenInclude(h => h!.Guard)
                         .ThenInclude(g => g.User)
@@ -178,8 +178,8 @@ namespace FUD.Services
                 CheckinHandoverId = baseDto.CheckinHandoverId,
                 ViolationsCount = baseDto.ViolationsCount,
 
-                SourceRequestStatus = residency.SourceRequest?.Status,
-                SourceRequestCreatedTime = residency.SourceRequest?.CreatedTime,
+                SourceRequestStatus = residency.SourceBooking?.Status,
+                SourceRequestCreatedTime = residency.SourceBooking?.CreatedTime,
 
                 CheckinHandoverStatus = residency.Handover?.Status,
                 CheckinCompletedTime = residency.Handover?.CompletedTime ?? residency.Handover?.CreatedTime,
@@ -270,7 +270,7 @@ namespace FUD.Services
             var invoices = await _context.Invoices
                 .AsNoTracking()
                 .Where(i => i.StudentId == studentUserId &&
-                    ((residency.SourceRequestId.HasValue && i.BookingRequestId == residency.SourceRequestId.Value) ||
+                    ((residency.SourceBookingId.HasValue && i.BookingRequestId == residency.SourceBookingId.Value) ||
                      (i.TransferRequestId.HasValue && transferRequestIds.Contains(i.TransferRequestId.Value)) ||
                      (i.HandoverId.HasValue && handoverIds.Contains(i.HandoverId.Value))))
                 .OrderByDescending(i => i.IssuedTime)
@@ -334,7 +334,7 @@ namespace FUD.Services
                 CheckInDate = r.CheckInDate,
                 PlannedCheckOutDate = r.PlannedCheckOutDate,
                 ActualCheckOutDate = r.ActualCheckOutDate,
-                SourceRequestId = r.SourceRequestId,
+                SourceRequestId = r.SourceBookingId,
                 HasCheckinHandover = r.Handover != null,
                 CheckinHandoverId = r.Handover?.Id,
                 ViolationsCount = activeViolationsCount

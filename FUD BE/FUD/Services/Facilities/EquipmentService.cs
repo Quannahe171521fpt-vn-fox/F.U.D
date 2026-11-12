@@ -125,32 +125,11 @@ namespace FUD.Services.Facilities
             var equip = await _repo.GetByIdAsync(id);
             if (equip == null) throw new KeyNotFoundException($"Thiết bị id {id} không tồn tại");
 
-            var hasOpen = await _repo.HasOpenTicketAsync(id);
-            if (hasOpen)
-            {
-                throw new InvalidOperationException("Thiết bị đang có phiếu báo hỏng/sửa chữa chưa hoàn tất, không thể thanh lý (Equipment in use)");
-            }
-
             var oldCond = equip.Condition;
             equip.Condition = "Liquidated";
             await _repo.UpdateAsync(equip);
 
             await LogAuditAsync(userId, "LIQUIDATE", "Equipment", id.ToString(), oldCond, "Liquidated");
-        }
-
-        public async Task<IEnumerable<TicketDto>> GetRepairHistoryAsync(int id)
-        {
-            var tickets = await _repo.GetTicketsByEquipmentAsync(id);
-            return tickets.Select(t => new TicketDto
-            {
-                Id = t.Id,
-                TicketCode = t.TicketCode,
-                Description = t.Description,
-                Status = t.Status,
-                HandlingResult = t.HandlingResult,
-                CreatedTime = t.CreatedTime,
-                DoneTime = t.DoneTime
-            });
         }
 
         public async Task<IEnumerable<EquipmentCatalogDto>> GetCatalogsAsync()
@@ -245,7 +224,7 @@ namespace FUD.Services.Facilities
                 Condition = e.Condition,
                 PurchaseDate = e.PurchaseDate,
                 Note = e.Note,
-                HasOpenTicket = e.IncidentTickets != null && e.IncidentTickets.Any(t => t.Status != "Closed" && t.Status != "Done")
+                HasOpenTicket = false
             };
         }
     }

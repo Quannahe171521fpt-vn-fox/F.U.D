@@ -281,7 +281,7 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
             Thiết lập bảng giá phòng
           </h1>
           <p style={{ color: '#64748b', fontSize: '0.925rem', marginTop: '0.35rem' }}>
-            Cập nhật đơn giá theo loại phòng cho từng học kỳ. Giá áp dụng đồng nhất cho tất cả các tòa nhà.
+            Cập nhật đơn giá theo loại phòng cho từng học kỳ. Giá áp dụng đồng nhất cho tất cả các Block.
           </p>
         </div>
       </div>
@@ -398,21 +398,20 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
                 termStatus === 'Đang mở đăng ký'
                   ? '#fef3c7'
                   : termStatus === 'Đã kết thúc'
-                  ? '#fee2e2'
-                  : '#e0f2fe',
+                    ? '#fee2e2'
+                    : '#e0f2fe',
               color:
                 termStatus === 'Đang mở đăng ký'
                   ? '#b45309'
                   : termStatus === 'Đã kết thúc'
-                  ? '#b91c1c'
-                  : '#0369a1',
-              border: `1px solid ${
-                termStatus === 'Đang mở đăng ký'
-                  ? '#fde68a'
-                  : termStatus === 'Đã kết thúc'
+                    ? '#b91c1c'
+                    : '#0369a1',
+              border: `1px solid ${termStatus === 'Đang mở đăng ký'
+                ? '#fde68a'
+                : termStatus === 'Đã kết thúc'
                   ? '#fecaca'
                   : '#bae6fd'
-              }`,
+                }`,
             }}
           >
             {termStatus}
@@ -436,7 +435,7 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
             Bảng giá theo loại phòng
           </h3>
           <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
-            Giá áp dụng đồng nhất cho tất cả tòa nhà. Đơn vị: VNĐ / học kỳ.
+            Giá áp dụng đồng nhất cho tất cả Block. Đơn vị: VNĐ / học kỳ.
           </span>
         </div>
 
@@ -592,7 +591,7 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
           lineHeight: '1.5',
         }}
       >
-        <strong>Lưu ý:</strong> Giá được nhập sẽ áp dụng đồng nhất cho tất cả các tòa nhà (Dom A đến Dom K)
+        <strong>Lưu ý:</strong> Giá được nhập sẽ áp dụng đồng nhất cho tất cả các Block (Dom A đến Dom K)
         có cùng loại phòng. Giá mới sẽ đồng bộ ngay lên trang chủ sau khi lưu.
       </div>
 

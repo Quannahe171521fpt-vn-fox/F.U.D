@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { NewsItem } from '../../types/management';
+import { Pagination } from '../../components/Pagination';
 
 interface NewsManagementProps {
   newsList: NewsItem[];
@@ -307,59 +308,13 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
           </div>
 
           {/* Pagination Controls */}
-          {totalPages > 1 && (
-            <div className="pagination-bar">
-              <span className="pagination-info">
-                Hiển thị {(validCurrentPage - 1) * pageSize + 1} -{' '}
-                {Math.min(validCurrentPage * pageSize, filteredNews.length)} trên tổng số{' '}
-                {filteredNews.length} tin
-              </span>
-              <div className="pagination-buttons">
-                <button
-                  type="button"
-                  className="page-btn nav-btn"
-                  onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
-                  disabled={validCurrentPage === 1}
-                >
-                  Trước
-                </button>
-                {(() => {
-                  const pages: (number | '...')[] = [];
-                  for (let i = 1; i <= totalPages; i++) {
-                    if (i === 1 || i === totalPages || Math.abs(i - validCurrentPage) <= 1) {
-                      pages.push(i);
-                    } else if (pages[pages.length - 1] !== '...') {
-                      pages.push('...');
-                    }
-                  }
-                  return pages.map((page, idx) =>
-                    page === '...' ? (
-                      <span key={`dots-${idx}`} className="page-dots">
-                        …
-                      </span>
-                    ) : (
-                      <button
-                        key={`page-${page}`}
-                        type="button"
-                        className={`page-btn ${page === validCurrentPage ? 'active' : ''}`}
-                        onClick={() => setCurrentPage(page as number)}
-                      >
-                        {page}
-                      </button>
-                    )
-                  );
-                })()}
-                <button
-                  type="button"
-                  className="page-btn nav-btn"
-                  onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
-                  disabled={validCurrentPage === totalPages}
-                >
-                  Sau
-                </button>
-              </div>
-            </div>
-          )}
+          <Pagination
+            currentPage={validCurrentPage}
+            totalItems={filteredNews.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            itemName="tin"
+          />
         </div>
       </div>
 
