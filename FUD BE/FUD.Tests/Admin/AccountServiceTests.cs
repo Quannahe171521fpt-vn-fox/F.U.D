@@ -9,7 +9,7 @@ using FUD.Infrastructure.Auth;
 using FUD.Infrastructure.Email;
 using FUD.Models;
 using FUD.Repositories.Interfaces;
-using FUD.Services;
+using FUD.Services.Admin;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Moq;
