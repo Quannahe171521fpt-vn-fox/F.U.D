@@ -243,7 +243,7 @@ public class KeepingRepositoryTests
     }
 
     [Fact]
-    public async Task HasCompletedKeepingRequestAsync_And_GetCompletedKeepingRequestAsync_WorkCorrectly()
+    public async Task HasCompletedKeepingRequestAsync_GetCompletedKeepingRequestAsync_And_GetResidencyByStudentAndTermAsync_WorkCorrectly()
     {
         // Arrange
         using var context = CreateInMemoryContext();
@@ -264,7 +264,6 @@ public class KeepingRepositoryTests
             StudentId = student.UserId,
             BedId = bed.Id,
             TermId = nextTerm.Id,
-            SourceRequestId = request.Id,
             Status = "Upcoming"
         };
         await context.Requests.AddAsync(request);
@@ -278,15 +277,18 @@ public class KeepingRepositoryTests
         var notCompleted = await sut.HasCompletedKeepingRequestAsync(student.UserId, 999);
         var completedReq = await sut.GetCompletedKeepingRequestAsync(student.UserId, nextTerm.Id);
         var reqById = await sut.GetKeepingRequestByIdAsync(500);
+        var foundResidency = await sut.GetResidencyByStudentAndTermAsync(student.UserId, nextTerm.Id);
 
         // Assert
         hasCompleted.Should().BeTrue();
         notCompleted.Should().BeFalse();
         completedReq.Should().NotBeNull();
         completedReq!.Id.Should().Be(500);
-        completedReq.Residencies.Should().ContainSingle();
         reqById.Should().NotBeNull();
         reqById!.Student.UserId.Should().Be(student.UserId);
+        foundResidency.Should().NotBeNull();
+        foundResidency!.Id.Should().Be(600);
+        foundResidency.Bed.BedCode.Should().Be("A1-101-1");
     }
 
     [Fact]
@@ -294,26 +296,43 @@ public class KeepingRepositoryTests
     {
         // Arrange
         using var context = CreateInMemoryContext();
-        await context.BedPrices.AddRangeAsync(
-            new BedPrice { Id = 1, BedId = 100, TermId = 2, TargetMonth = 9, UnitPrice = 1_200_000m, EffectiveFrom = new DateOnly(2026, 9, 1), EffectiveTo = new DateOnly(2026, 9, 30) },
-            new BedPrice { Id = 2, BedId = 100, TermId = 2, TargetMonth = 10, UnitPrice = 1_200_000m, EffectiveFrom = new DateOnly(2026, 10, 1), EffectiveTo = new DateOnly(2026, 10, 31) },
-            new BedPrice { Id = 3, BedId = 100, TermId = 2, TargetMonth = 11, UnitPrice = 1_100_000m, EffectiveFrom = new DateOnly(2026, 11, 1), EffectiveTo = new DateOnly(2026, 11, 30) }
-        );
+        var (dorm, _, room, bed, _, nextTerm, _) = await SeedBasicStructureAsync(context, studentId: 10);
+
+        var priceList = new PriceList
+        {
+            Id = 1,
+            TermId = nextTerm.Id,
+            Status = "Published",
+            CreationDate = DateTime.UtcNow,
+            CreatedById = 1
+        };
+        var priceItem = new PriceItem
+        {
+            Id = 10,
+            PriceListId = priceList.Id,
+            DormId = dorm.Id,
+            RoomTypeId = room.RoomTypeId,
+            UnitPrice = 1_200_000m,
+            PriceList = priceList
+        };
+
+        await context.PriceLists.AddAsync(priceList);
+        await context.PriceItems.AddAsync(priceItem);
         await context.SaveChangesAsync();
 
         var sut = new KeepingRepository(context);
 
         // Act
-        var price = await sut.GetKeepingBedPriceAsync(100, 2);
-        var missingPrice = await sut.GetKeepingBedPriceAsync(999, 2);
-        var months = await sut.GetKeepingMonthsAsync(100, 2);
-        var defaultMonths = await sut.GetKeepingMonthsAsync(999, 2);
+        var price = await sut.GetKeepingBedPriceAsync(bed.Id, nextTerm.Id);
+        var missingBedPrice = await sut.GetKeepingBedPriceAsync(999, nextTerm.Id);
+        var missingTermPrice = await sut.GetKeepingBedPriceAsync(bed.Id, 999);
+        var months = await sut.GetKeepingMonthsAsync(bed.Id, nextTerm.Id);
 
         // Assert
-        price.Should().Be(1_100_000m);
-        missingPrice.Should().BeNull();
-        months.Should().Be(3);
-        defaultMonths.Should().Be(1);
+        price.Should().Be(1_200_000m);
+        missingBedPrice.Should().BeNull();
+        missingTermPrice.Should().BeNull();
+        months.Should().Be(1);
     }
 
     [Fact]
@@ -380,4 +399,3 @@ public class KeepingRepositoryTests
         await rollbackAct.Should().NotThrowAsync();
     }
 }
-

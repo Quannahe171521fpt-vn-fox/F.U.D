@@ -176,11 +176,16 @@ public class KeepingServiceTests
             TermId = nextTerm.Id,
             RequestType = KeepingConstants.RequestType,
             Status = KeepingConstants.StatusCompleted,
-            Term = nextTerm,
-            Residencies = new List<Residency>
-            {
-                new() { Id = 88, StudentId = studentId, BedId = bed.Id, TermId = nextTerm.Id, Status = KeepingConstants.ResidencyUpcoming, Bed = bed }
-            }
+            Term = nextTerm
+        };
+        var upcomingResidency = new Residency
+        {
+            Id = 88,
+            StudentId = studentId,
+            BedId = bed.Id,
+            TermId = nextTerm.Id,
+            Status = KeepingConstants.ResidencyUpcoming,
+            Bed = bed
         };
 
         _eligibilityServiceMock.Setup(s => s.CheckEligibilityAsync(studentId))
@@ -193,6 +198,8 @@ public class KeepingServiceTests
             });
         _keepingRepoMock.Setup(r => r.GetCompletedKeepingRequestAsync(studentId, nextTerm.Id))
             .ReturnsAsync(existingRequest);
+        _keepingRepoMock.Setup(r => r.GetResidencyByStudentAndTermAsync(studentId, nextTerm.Id))
+            .ReturnsAsync(upcomingResidency);
         _keepingRepoMock.Setup(r => r.GetKeepingBedPriceAsync(bed.Id, nextTerm.Id))
             .ReturnsAsync(1_200_000m);
 
@@ -224,17 +231,24 @@ public class KeepingServiceTests
             TermId = nextTerm.Id,
             RequestType = KeepingConstants.RequestType,
             Status = KeepingConstants.StatusCompleted,
-            Term = nextTerm,
-            Residencies = new List<Residency>
-            {
-                new() { Id = 90, StudentId = studentId, BedId = bed.Id, TermId = nextTerm.Id, Status = KeepingConstants.ResidencyUpcoming, Bed = bed }
-            }
+            Term = nextTerm
+        };
+        var upcomingResidency = new Residency
+        {
+            Id = 90,
+            StudentId = studentId,
+            BedId = bed.Id,
+            TermId = nextTerm.Id,
+            Status = KeepingConstants.ResidencyUpcoming,
+            Bed = bed
         };
 
         _eligibilityServiceMock.Setup(s => s.CheckEligibilityAsync(studentId))
             .ReturnsAsync(CreateEligibleResponse(nextTerm.Id, nextTerm.Name));
         _keepingRepoMock.Setup(r => r.GetCompletedKeepingRequestAsync(studentId, nextTerm.Id))
             .ReturnsAsync(existingRequest);
+        _keepingRepoMock.Setup(r => r.GetResidencyByStudentAndTermAsync(studentId, nextTerm.Id))
+            .ReturnsAsync(upcomingResidency);
         _keepingRepoMock.Setup(r => r.GetKeepingBedPriceAsync(bed.Id, nextTerm.Id))
             .ReturnsAsync(1_300_000m);
 
@@ -288,10 +302,14 @@ public class KeepingServiceTests
             {
                 var req = context.Requests.First(r => r.Id == reqId);
                 req.Term = nextTerm;
-                var res = context.Residencies.First(r => r.SourceRequestId == reqId);
-                res.Bed = bed;
-                req.Residencies = new List<Residency> { res };
                 return req;
+            });
+        _keepingRepoMock.Setup(r => r.GetResidencyByStudentAndTermAsync(studentId, nextTerm.Id))
+            .ReturnsAsync(() =>
+            {
+                var res = context.Residencies.First(r => r.StudentId == studentId && r.TermId == nextTerm.Id);
+                res.Bed = bed;
+                return res;
             });
 
         var sut = CreateSut(context);
@@ -504,30 +522,20 @@ public class KeepingServiceTests
         await context.Requests.AddAsync(request);
         await context.SaveChangesAsync();
 
-        var loadedWithResidency = new Request
+        var upcomingResidency = new Residency
         {
-            Id = 55,
+            Id = 66,
             StudentId = studentId,
+            BedId = bed.Id,
             TermId = nextTerm.Id,
-            RequestType = KeepingConstants.RequestType,
-            Status = KeepingConstants.StatusCompleted,
-            Term = nextTerm,
-            Residencies = new List<Residency>
-            {
-                new()
-                {
-                    Id = 66,
-                    StudentId = studentId,
-                    BedId = bed.Id,
-                    TermId = nextTerm.Id,
-                    Status = KeepingConstants.ResidencyUpcoming,
-                    Bed = bed
-                }
-            }
+            Status = KeepingConstants.ResidencyUpcoming,
+            Bed = bed
         };
 
         _keepingRepoMock.Setup(r => r.GetKeepingRequestByIdAsync(55))
-            .ReturnsAsync(loadedWithResidency);
+            .ReturnsAsync(request);
+        _keepingRepoMock.Setup(r => r.GetResidencyByStudentAndTermAsync(studentId, nextTerm.Id))
+            .ReturnsAsync(upcomingResidency);
         _keepingRepoMock.Setup(r => r.GetKeepingBedPriceAsync(bed.Id, nextTerm.Id))
             .ReturnsAsync(1_400_000m);
 
@@ -558,12 +566,18 @@ public class KeepingServiceTests
             TermId = nextTerm.Id,
             RequestType = KeepingConstants.RequestType,
             Status = KeepingConstants.StatusCompleted,
-            Term = nextTerm,
-            Residencies = new List<Residency>
-            {
-                new() { Id = 70, StudentId = studentId, BedId = bed.Id, TermId = nextTerm.Id, Status = KeepingConstants.ResidencyUpcoming, Bed = bed }
-            }
+            Term = nextTerm
         };
+        var upcomingResidency = new Residency
+        {
+            Id = 70,
+            StudentId = studentId,
+            BedId = bed.Id,
+            TermId = nextTerm.Id,
+            Status = KeepingConstants.ResidencyUpcoming,
+            Bed = bed
+        };
+
         await context.Terms.AddAsync(nextTerm);
         await context.Requests.AddAsync(new Request
         {
@@ -578,6 +592,7 @@ public class KeepingServiceTests
 
         _keepingRepoMock.Setup(r => r.GetKeepingRequestByIdAsync(60)).ReturnsAsync(request);
         _keepingRepoMock.Setup(r => r.GetKeepingRequestByIdAsync(999)).ReturnsAsync((Request?)null);
+        _keepingRepoMock.Setup(r => r.GetResidencyByStudentAndTermAsync(studentId, nextTerm.Id)).ReturnsAsync(upcomingResidency);
         _keepingRepoMock.Setup(r => r.GetKeepingBedPriceAsync(bed.Id, nextTerm.Id)).ReturnsAsync(1_100_000m);
 
         var sut = CreateSut(context);
@@ -597,4 +612,3 @@ public class KeepingServiceTests
         missingOwnerId.Should().BeNull();
     }
 }
-
