@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace FUD.Models;
@@ -9,11 +9,11 @@ public partial class Manager
 
     public virtual ICollection<BedTransferRequest> BedTransferRequests { get; set; } = new List<BedTransferRequest>();
 
+    public virtual ICollection<BookingRequest> BookingRequests { get; set; } = new List<BookingRequest>();
+
     public virtual ICollection<CheckoutRequest> CheckoutRequests { get; set; } = new List<CheckoutRequest>();
 
     public virtual ICollection<Handover> Handovers { get; set; } = new List<Handover>();
-
-    public virtual ICollection<IncidentTicket> IncidentTickets { get; set; } = new List<IncidentTicket>();
 
     public virtual ICollection<InspectionRequest> InspectionRequests { get; set; } = new List<InspectionRequest>();
 

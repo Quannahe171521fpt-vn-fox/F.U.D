@@ -18,5 +18,8 @@ namespace FUD.Services.Interfaces.Violations
         // UC23
         Task<ViolationItemDto> EvaluateViolationAsync(int violationId, int managerUserId, EvaluateViolationRequestDto request);
         Task UnsuspendStudentAsync(int studentId, int managerUserId, string? note = null);
+
+        // Guard dorm-scoped blocks
+        Task<List<BlockForViolationDto>> GetBlocksByGuardDormAsync(int guardUserId);
     }
 }

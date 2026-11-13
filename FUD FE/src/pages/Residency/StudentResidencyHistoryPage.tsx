@@ -250,7 +250,7 @@ export const StudentResidencyHistoryPage: React.FC<StudentResidencyHistoryPagePr
                 Phòng {activeResidency.roomNumber} · Giường {activeResidency.bedCode}
               </div>
               <div style={{ fontSize: '12px', color: '#166534', marginTop: 2 }}>
-                {activeResidency.blockName || `Tòa ${activeResidency.blockCode}`} — {activeResidency.termName} ({activeResidency.academicYear})
+                {activeResidency.blockName || `Block ${activeResidency.blockCode}`} — {activeResidency.termName} ({activeResidency.academicYear})
               </div>
             </div>
           ) : (
@@ -404,11 +404,11 @@ export const StudentResidencyHistoryPage: React.FC<StudentResidencyHistoryPagePr
 
         <div style={{ minWidth: '210px', flex: '1.2 1 200px' }}>
           <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
-            Tìm theo Phòng / Tòa / Giường
+            Tìm theo Phòng / Block / Giường
           </label>
           <input
             type="text"
-            placeholder="Nhập số phòng, mã giường, tòa..."
+            placeholder="Nhập số phòng, mã giường, Block..."
             value={searchKeyword}
             onChange={e => setSearchKeyword(e.target.value)}
             style={{
@@ -480,7 +480,7 @@ export const StudentResidencyHistoryPage: React.FC<StudentResidencyHistoryPagePr
             <tr>
               <th>Mã hồ sơ</th>
               <th>Học kỳ</th>
-              <th>Khu / Tòa / Phòng / Giường</th>
+              <th>Khu / Block / Phòng / Giường</th>
               <th>Hình thức</th>
               <th>Thời gian lưu trú</th>
               <th>Trạng thái</th>
@@ -545,7 +545,7 @@ export const StudentResidencyHistoryPage: React.FC<StudentResidencyHistoryPagePr
                         Phòng {item.roomNumber} · Giường {item.bedCode}
                       </div>
                       <div style={{ fontSize: '11.5px', color: '#64748B' }}>
-                        {item.blockName || `Tòa ${item.blockCode}`} ({item.dormName || item.dormCode}) · {item.roomTypeName || `${item.bedCapacity} giường`}
+                        {item.blockName || `BLock ${item.blockCode}`} ({item.dormName || item.dormCode}) · {item.roomTypeName || `${item.bedCapacity} giường`}
                       </div>
                     </td>
 
@@ -700,7 +700,7 @@ export const StudentResidencyHistoryPage: React.FC<StudentResidencyHistoryPagePr
                   </span>
                 </div>
                 <h3 style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: '#0F172A' }}>
-                  Phòng {selectedDetail.roomNumber} — Giường {selectedDetail.bedCode} ({selectedDetail.blockName || `Tòa ${selectedDetail.blockCode}`})
+                  Phòng {selectedDetail.roomNumber} — Giường {selectedDetail.bedCode} ({selectedDetail.blockName || `Block ${selectedDetail.blockCode}`})
                 </h3>
               </div>
 
@@ -745,7 +745,7 @@ export const StudentResidencyHistoryPage: React.FC<StudentResidencyHistoryPagePr
                   📍 Thông tin Vị trí & Phòng ở
                 </div>
                 <div><strong>Cơ sở / Khu KTX:</strong> {selectedDetail.campusName} — {selectedDetail.dormName} ({selectedDetail.dormCode})</div>
-                <div><strong>Tòa nhà (Block):</strong> {selectedDetail.blockName} ({selectedDetail.blockCode})</div>
+                <div><strong>Block:</strong> {selectedDetail.blockName} ({selectedDetail.blockCode})</div>
                 <div><strong>Phòng & Tầng:</strong> Phòng {selectedDetail.roomNumber}{selectedDetail.floorLevel ? ` (Tầng ${selectedDetail.floorLevel})` : ''}</div>
                 <div><strong>Loại phòng:</strong> {selectedDetail.roomTypeName} ({selectedDetail.bedCapacity} giường)</div>
                 <div>
@@ -960,8 +960,8 @@ export const StudentResidencyHistoryPage: React.FC<StudentResidencyHistoryPagePr
                             Đơn chuyển giường #{tr.requestId}
                           </span>{' '}
                           <span style={{ color: '#475569' }}>
-                            ({tr.fromBlockCode ? `Tòa ${tr.fromBlockCode} - ` : ''}Phòng {tr.fromRoomNumber} / Giường {tr.fromBedCode} →{' '}
-                            {tr.toBlockCode ? `Tòa ${tr.toBlockCode} - ` : ''}Phòng {tr.toRoomNumber} / Giường {tr.toBedCode})
+                            ({tr.fromBlockCode ? `Block ${tr.fromBlockCode} - ` : ''}Phòng {tr.fromRoomNumber} / Giường {tr.fromBedCode} →{' '}
+                            {tr.toBlockCode ? `Block ${tr.toBlockCode} - ` : ''}Phòng {tr.toRoomNumber} / Giường {tr.toBedCode})
                           </span>
                         </div>
                         <span

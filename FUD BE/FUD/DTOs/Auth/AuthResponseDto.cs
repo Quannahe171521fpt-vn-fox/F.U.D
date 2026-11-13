@@ -20,4 +20,6 @@ public class UserInfoDto
     public List<string> Roles { get; set; } = new();
     public string AccountStatus { get; set; } = "Active";
     public string? SuspensionReason { get; set; }
+    public int? DormId { get; set; }
+    public string? DormName { get; set; }
 }

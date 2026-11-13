@@ -218,5 +218,20 @@ namespace FUD.Controllers.Violations
                 return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Lỗi hệ thống: " + ex.Message));
             }
         }
+
+        /// <summary>
+        /// Lấy danh sách (Block) thuộc dorm của bảo vệ đang đăng nhập
+        /// </summary>
+        [HttpGet("guard-blocks")]
+        [Authorize]
+        public async Task<IActionResult> GetBlocksByGuardDorm()
+        {
+            var guardUserId = GetCurrentUserId();
+            if (!guardUserId.HasValue)
+                return Unauthorized(ApiResponse.Fail("Không xác định được danh tính cán bộ."));
+
+            var blocks = await _violationService.GetBlocksByGuardDormAsync(guardUserId.Value);
+            return Ok(ApiResponse<List<BlockForViolationDto>>.Ok(blocks));
+        }
     }
 }

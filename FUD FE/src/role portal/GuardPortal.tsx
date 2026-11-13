@@ -43,7 +43,9 @@ export const GuardPortal: React.FC<GuardPortalProps> = ({ onLogout }) => {
         roleBadge="BẢO VỆ"
         roleBadgeColor={{ bg: '#ECFDF5', text: '#047857' }}
         title="An ninh Ký túc xá"
-        subText={currentUser?.fullName ? `${currentUser.fullName} (${currentUser.code})` : 'Cổng Đội Bảo vệ'}
+        subText={currentUser?.fullName 
+          ? `${currentUser.fullName} (${currentUser.code})${currentUser.dormName ? ` · KTX: ${currentUser.dormName}` : ''}`
+          : 'Cổng Đội Bảo vệ'}
         sections={guardSections}
         activeId={activeTab}
         onSelect={(id) => setActiveTab(id as any)}
@@ -112,6 +114,9 @@ export const GuardPortal: React.FC<GuardPortalProps> = ({ onLogout }) => {
               >
                 <div><strong>Mã cán bộ:</strong> {currentUser?.code || 'GRD01'}</div>
                 <div><strong>Email công vụ:</strong> {currentUser?.email || 'guard@fpt.edu.vn'}</div>
+                {currentUser?.dormName && (
+                  <div><strong>KTX phụ trách:</strong> {currentUser.dormName}</div>
+                )}
                 <div><strong>Ca trực:</strong> Toàn thời gian ký túc xá</div>
                 <div><strong>Nhiệm vụ chính:</strong> Bàn giao nhận phòng (Check-in), tuần tra & lập biên bản vi phạm</div>
               </div>

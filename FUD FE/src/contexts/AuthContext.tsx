@@ -11,6 +11,8 @@ export interface UserInfo {
   roles: string[];
   accountStatus?: string;
   suspensionReason?: string;
+  dormId?: number;
+  dormName?: string;
 }
 
 interface AuthContextType {
