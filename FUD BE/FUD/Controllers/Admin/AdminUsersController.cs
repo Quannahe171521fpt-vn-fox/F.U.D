@@ -10,7 +10,7 @@ using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace FUD.Controllers;
+namespace FUD.Controllers.Admin;
 
 /// <summary>
 /// API quản lý tài khoản cho Admin: Create Account, Assign Roles, Suspend Account, Restore Account.
