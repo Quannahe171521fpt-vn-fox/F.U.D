@@ -54,7 +54,7 @@ namespace FUD.Tests.Services.Facilities
                     Id = i,
                     DormId = id,
                     Code = $"BLK-{i}",
-                    Name = $"Tòa {i}",
+                    Name = $"Block {i}",
                     GenderType = "Male",
                     Status = "Active"
                 });
@@ -435,7 +435,7 @@ namespace FUD.Tests.Services.Facilities
 
             // Assert
             await act.Should().ThrowAsync<InvalidOperationException>()
-                .WithMessage("*Không thể xóa KTX*còn 3 tòa đang hoạt động*");
+                .WithMessage("*Không thể xóa KTX*còn 3 Block đang hoạt động*");
 
             _dormRepoMock.Verify(repo => repo.SoftDeleteAsync(It.IsAny<int>()), Times.Never);
         }

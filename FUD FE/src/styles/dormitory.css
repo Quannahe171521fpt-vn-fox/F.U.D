@@ -11,7 +11,7 @@
   --text-muted: #4b5563;
   --text-light: #6b7280;
   --border-color: #e5e7eb;
-  --bg-page: #f9fafb;
+  --bg-page: #fff1f2;
   --bg-card: #ffffff;
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
@@ -64,8 +64,9 @@ button {
 }
 
 .navbar-inner {
-  max-width: var(--container-max);
-  margin: 0 auto;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
   padding: 12px 24px;
   display: flex;
   align-items: center;

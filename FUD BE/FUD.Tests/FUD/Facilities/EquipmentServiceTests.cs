@@ -359,29 +359,11 @@ namespace FUD.Tests.FUD.Facilities
         }
 
         [Fact]
-        public async Task LiquidateAsync_WhenHasOpenTicket_ThrowsInvalidOperationException()
+        public async Task LiquidateAsync_LiquidatesSuccessfully()
         {
             // [Arrange]
             var equip = new Equipment { Id = 10, Condition = "Good" };
             _repoMock.Setup(r => r.GetByIdAsync(10)).ReturnsAsync(equip);
-            _repoMock.Setup(r => r.HasOpenTicketAsync(10)).ReturnsAsync(true);
-
-            // [Act]
-            var act = async () => await _service.LiquidateAsync(10);
-
-            // [Assert]
-            await act.Should().ThrowAsync<InvalidOperationException>()
-                     .WithMessage("*không thể thanh lý*");
-            _repoMock.Verify(r => r.UpdateAsync(It.IsAny<Equipment>()), Times.Never);
-        }
-
-        [Fact]
-        public async Task LiquidateAsync_WhenNoOpenTicket_LiquidatesSuccessfully()
-        {
-            // [Arrange]
-            var equip = new Equipment { Id = 10, Condition = "Good" };
-            _repoMock.Setup(r => r.GetByIdAsync(10)).ReturnsAsync(equip);
-            _repoMock.Setup(r => r.HasOpenTicketAsync(10)).ReturnsAsync(false);
             _repoMock.Setup(r => r.UpdateAsync(equip)).Returns(Task.CompletedTask);
 
             // [Act]
@@ -399,31 +381,6 @@ namespace FUD.Tests.FUD.Facilities
         #endregion
 
         #region Catalog & History Tests
-
-        [Fact]
-        public async Task GetRepairHistoryAsync_WhenCalled_ReturnsTickets()
-        {
-            // [Arrange]
-            int equipId = 5;
-            var tickets = new List<IncidentTicket>
-            {
-                new IncidentTicket
-                {
-                    Id = 1,
-                    TicketCode = "TCK-001",
-                    Description = "Hỏng bóng đèn",
-                    Status = "Closed"
-                }
-            };
-            _repoMock.Setup(r => r.GetTicketsByEquipmentAsync(equipId)).ReturnsAsync(tickets);
-
-            // [Act]
-            var result = await _service.GetRepairHistoryAsync(equipId);
-
-            // [Assert]
-            result.Should().HaveCount(1);
-            result.First().TicketCode.Should().Be("TCK-001");
-        }
 
         [Fact]
         public async Task CreateCatalogAsync_WhenValid_ReturnsCreatedCatalogDto()

@@ -23,8 +23,6 @@ public partial class FudContext : DbContext
 
     public virtual DbSet<Bed> Beds { get; set; }
 
-    public virtual DbSet<BedPrice> BedPrices { get; set; }
-
     public virtual DbSet<BedTransferRequest> BedTransferRequests { get; set; }
 
     public virtual DbSet<BillingPeriod> BillingPeriods { get; set; }
@@ -57,8 +55,6 @@ public partial class FudContext : DbContext
 
     public virtual DbSet<ImportBatch> ImportBatches { get; set; }
 
-    public virtual DbSet<IncidentTicket> IncidentTickets { get; set; }
-
     public virtual DbSet<InspectionPhoto> InspectionPhotos { get; set; }
 
     public virtual DbSet<InspectionRequest> InspectionRequests { get; set; }
@@ -89,8 +85,6 @@ public partial class FudContext : DbContext
 
     public virtual DbSet<RegistrationPeriod> RegistrationPeriods { get; set; }
 
-    public virtual DbSet<RepairFeedback> RepairFeedbacks { get; set; }
-
     public virtual DbSet<Request> Requests { get; set; }
 
     public virtual DbSet<RequestLog> RequestLogs { get; set; }
@@ -110,10 +104,6 @@ public partial class FudContext : DbContext
     public virtual DbSet<Student> Students { get; set; }
 
     public virtual DbSet<Term> Terms { get; set; }
-
-    public virtual DbSet<TicketPhoto> TicketPhotos { get; set; }
-
-    public virtual DbSet<TicketStatusHistory> TicketStatusHistories { get; set; }
 
     public virtual DbSet<TransactionInvoice> TransactionInvoices { get; set; }
 
@@ -281,25 +271,6 @@ public partial class FudContext : DbContext
                 .HasConstraintName("FK__Beds__RoomId__73BA3083");
         });
 
-        modelBuilder.Entity<BedPrice>(entity =>
-        {
-            entity.HasKey(e => e.Id).HasName("PK__Bed_Pric__3214EC078BE3DEF6");
-
-            entity.ToTable("Bed_Prices", tb => tb.HasTrigger("trg_BedPrices_NoOverlap"));
-
-            entity.Property(e => e.UnitPrice).HasColumnType("decimal(18, 2)");
-
-            entity.HasOne(d => d.Bed).WithMany(p => p.BedPrices)
-                .HasForeignKey(d => d.BedId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK__Bed_Price__BedId__2180FB33");
-
-            entity.HasOne(d => d.Term).WithMany(p => p.BedPrices)
-                .HasForeignKey(d => d.TermId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK__Bed_Price__TermI__22751F6C");
-        });
-
         modelBuilder.Entity<BedTransferRequest>(entity =>
         {
             entity.HasKey(e => e.RequestId).HasName("PK__Bed_Tran__33A8517AFC55419F");
@@ -389,6 +360,7 @@ public partial class FudContext : DbContext
             entity.Property(e => e.Code)
                 .HasMaxLength(50)
                 .IsUnicode(false);
+            entity.Property(e => e.FloorLevel);
             entity.Property(e => e.GenderType)
                 .HasMaxLength(10)
                 .IsUnicode(false);
@@ -406,30 +378,44 @@ public partial class FudContext : DbContext
 
         modelBuilder.Entity<BookingRequest>(entity =>
         {
-            entity.HasKey(e => e.RequestId).HasName("PK__Booking___33A8517A6A60A479");
+            entity.HasKey(e => e.Id);
 
             entity.ToTable("Booking_Requests", tb => tb.HasTrigger("trg_Booking_GenderMatch"));
 
-            entity.Property(e => e.RequestId).ValueGeneratedNever();
             entity.Property(e => e.BookingKind)
                 .HasMaxLength(20)
                 .IsUnicode(false)
                 .HasDefaultValue("Booking");
+            entity.Property(e => e.CancelReason).HasMaxLength(500);
+            entity.Property(e => e.CreatedTime)
+                .HasDefaultValueSql("(getdate())")
+                .HasColumnType("datetime");
             entity.Property(e => e.PaymentDeadline).HasColumnType("datetime");
+            entity.Property(e => e.ProcessedTime).HasColumnType("datetime");
+            entity.Property(e => e.RejectReason).HasMaxLength(500);
+            entity.Property(e => e.Status)
+                .HasMaxLength(30)
+                .IsUnicode(false)
+                .HasDefaultValue("Pending");
 
             entity.HasOne(d => d.Bed).WithMany(p => p.BookingRequests)
                 .HasForeignKey(d => d.BedId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK__Booking_R__BedId__395884C4");
+                .OnDelete(DeleteBehavior.ClientSetNull);
 
             entity.HasOne(d => d.KeepFromResidency).WithMany(p => p.BookingRequests)
                 .HasForeignKey(d => d.KeepFromResidencyId)
                 .HasConstraintName("FK_Booking_KeepResidency");
 
-            entity.HasOne(d => d.Request).WithOne(p => p.BookingRequest)
-                .HasForeignKey<BookingRequest>(d => d.RequestId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK__Booking_R__Reque__3864608B");
+            entity.HasOne(d => d.ProcessedBy).WithMany(p => p.BookingRequests)
+                .HasForeignKey(d => d.ProcessedById);
+
+            entity.HasOne(d => d.Student).WithMany(p => p.BookingRequests)
+                .HasForeignKey(d => d.StudentId)
+                .OnDelete(DeleteBehavior.ClientSetNull);
+
+            entity.HasOne(d => d.Term).WithMany(p => p.BookingRequests)
+                .HasForeignKey(d => d.TermId)
+                .OnDelete(DeleteBehavior.ClientSetNull);
         });
 
         modelBuilder.Entity<Campus>(entity =>
@@ -530,6 +516,7 @@ public partial class FudContext : DbContext
             entity.HasIndex(e => e.Code, "UQ__Dorms__A25C5AA703D05168").IsUnique();
 
             entity.Property(e => e.Address).HasMaxLength(255);
+            entity.Property(e => e.NumberOfFloors);
             entity.Property(e => e.Code)
                 .HasMaxLength(50)
                 .IsUnicode(false);
@@ -594,6 +581,11 @@ public partial class FudContext : DbContext
             entity.HasKey(e => e.UserId).HasName("PK__Guards__1788CC4C91722B38");
 
             entity.Property(e => e.UserId).ValueGeneratedNever();
+
+            entity.HasOne(d => d.Dorm).WithMany(p => p.Guards)
+                .HasForeignKey(d => d.DormId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Guards_Dorm");
 
             entity.HasOne(d => d.User).WithOne(p => p.Guard)
                 .HasForeignKey<Guard>(d => d.UserId)
@@ -726,59 +718,6 @@ public partial class FudContext : DbContext
                 .HasForeignKey(d => d.GuardId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK__Import_Ba__Guard__6AEFE058");
-        });
-
-        modelBuilder.Entity<IncidentTicket>(entity =>
-        {
-            entity.HasKey(e => e.Id).HasName("PK__Incident__3214EC07FC656E97");
-
-            entity.ToTable("Incident_Tickets");
-
-            entity.HasIndex(e => e.RoomId, "IX_Tickets_Room");
-
-            entity.HasIndex(e => new { e.Status, e.DoneTime }, "IX_Tickets_Status_DoneTime");
-
-            entity.HasIndex(e => e.TicketCode, "UQ__Incident__598CF7A39E2F8F3D").IsUnique();
-
-            entity.Property(e => e.ClosedTime).HasColumnType("datetime");
-            entity.Property(e => e.CreatedTime)
-                .HasDefaultValueSql("(getdate())")
-                .HasColumnType("datetime");
-            entity.Property(e => e.Description).HasMaxLength(1000);
-            entity.Property(e => e.DoneTime).HasColumnType("datetime");
-            entity.Property(e => e.EscalationReason).HasMaxLength(500);
-            entity.Property(e => e.HandlingResult).HasMaxLength(1000);
-            entity.Property(e => e.ManagerNote).HasMaxLength(500);
-            entity.Property(e => e.ReopenReason).HasMaxLength(500);
-            entity.Property(e => e.Status)
-                .HasMaxLength(20)
-                .IsUnicode(false)
-                .HasDefaultValue("New");
-            entity.Property(e => e.TicketCode)
-                .HasMaxLength(50)
-                .IsUnicode(false);
-
-            entity.HasOne(d => d.AssignedBy).WithMany(p => p.IncidentTickets)
-                .HasForeignKey(d => d.AssignedById)
-                .HasConstraintName("FK__Incident___Assig__68D28DBC");
-
-            entity.HasOne(d => d.AssignedGuard).WithMany(p => p.IncidentTickets)
-                .HasForeignKey(d => d.AssignedGuardId)
-                .HasConstraintName("FK__Incident___Assig__69C6B1F5");
-
-            entity.HasOne(d => d.Equipment).WithMany(p => p.IncidentTickets)
-                .HasForeignKey(d => d.EquipmentId)
-                .HasConstraintName("FK__Incident___Equip__67DE6983");
-
-            entity.HasOne(d => d.Room).WithMany(p => p.IncidentTickets)
-                .HasForeignKey(d => d.RoomId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK__Incident___RoomI__66EA454A");
-
-            entity.HasOne(d => d.Student).WithMany(p => p.IncidentTickets)
-                .HasForeignKey(d => d.StudentId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK__Incident___Stude__65F62111");
         });
 
         modelBuilder.Entity<InspectionPhoto>(entity =>
@@ -1213,30 +1152,6 @@ public partial class FudContext : DbContext
                 .HasConstraintName("FK__Registrat__TermI__0D7A0286");
         });
 
-        modelBuilder.Entity<RepairFeedback>(entity =>
-        {
-            entity.HasKey(e => e.Id).HasName("PK__Repair_F__3214EC07E2B58C2C");
-
-            entity.ToTable("Repair_Feedbacks");
-
-            entity.HasIndex(e => e.TicketId, "UQ__Repair_F__712CC606C38D45B4").IsUnique();
-
-            entity.Property(e => e.Comment).HasMaxLength(500);
-            entity.Property(e => e.SubmittedTime)
-                .HasDefaultValueSql("(getdate())")
-                .HasColumnType("datetime");
-
-            entity.HasOne(d => d.Student).WithMany(p => p.RepairFeedbacks)
-                .HasForeignKey(d => d.StudentId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK__Repair_Fe__Stude__7DCDAAA2");
-
-            entity.HasOne(d => d.Ticket).WithOne(p => p.RepairFeedback)
-                .HasForeignKey<RepairFeedback>(d => d.TicketId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK__Repair_Fe__Ticke__7CD98669");
-        });
-
         modelBuilder.Entity<Request>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PK__Requests__3214EC07F0CFEE86");
@@ -1247,7 +1162,6 @@ public partial class FudContext : DbContext
 
             entity.HasIndex(e => new { e.StudentId, e.RequestType }, "IX_Requests_Student");
 
-            entity.Property(e => e.CancelReason).HasMaxLength(500);
             entity.Property(e => e.CreatedTime)
                 .HasDefaultValueSql("(getdate())")
                 .HasColumnType("datetime");
@@ -1331,9 +1245,9 @@ public partial class FudContext : DbContext
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK__Residenci__BedId__41EDCAC5");
 
-            entity.HasOne(d => d.SourceRequest).WithMany(p => p.Residencies)
-                .HasForeignKey(d => d.SourceRequestId)
-                .HasConstraintName("FK__Residenci__Sourc__43D61337");
+            entity.HasOne(d => d.SourceBooking).WithMany(p => p.Residencies)
+                .HasForeignKey(d => d.SourceBookingId)
+                .HasConstraintName("FK__Residenci__SourceBooking");
 
             entity.HasOne(d => d.Student).WithMany(p => p.Residencies)
                 .HasForeignKey(d => d.StudentId)
@@ -1441,61 +1355,6 @@ public partial class FudContext : DbContext
                 .HasMaxLength(50)
                 .IsUnicode(false);
             entity.Property(e => e.Name).HasMaxLength(100);
-        });
-
-        modelBuilder.Entity<TicketPhoto>(entity =>
-        {
-            entity.HasKey(e => e.Id).HasName("PK__Ticket_P__3214EC073369F21F");
-
-            entity.ToTable("Ticket_Photos");
-
-            entity.Property(e => e.FileUrl)
-                .HasMaxLength(500)
-                .IsUnicode(false)
-                .HasColumnName("FileURL");
-            entity.Property(e => e.PhotoType)
-                .HasMaxLength(10)
-                .IsUnicode(false);
-            entity.Property(e => e.UploadTime)
-                .HasDefaultValueSql("(getdate())")
-                .HasColumnType("datetime");
-
-            entity.HasOne(d => d.Ticket).WithMany(p => p.TicketPhotos)
-                .HasForeignKey(d => d.TicketId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK__Ticket_Ph__Ticke__7167D3BD");
-
-            entity.HasOne(d => d.Uploader).WithMany(p => p.TicketPhotos)
-                .HasForeignKey(d => d.UploaderId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK__Ticket_Ph__Uploa__73501C2F");
-        });
-
-        modelBuilder.Entity<TicketStatusHistory>(entity =>
-        {
-            entity.HasKey(e => e.Id).HasName("PK__Ticket_S__3214EC075558CA1D");
-
-            entity.ToTable("Ticket_Status_Histories");
-
-            entity.Property(e => e.ChangeTime)
-                .HasDefaultValueSql("(getdate())")
-                .HasColumnType("datetime");
-            entity.Property(e => e.FromStatus)
-                .HasMaxLength(20)
-                .IsUnicode(false);
-            entity.Property(e => e.Note).HasMaxLength(500);
-            entity.Property(e => e.ToStatus)
-                .HasMaxLength(20)
-                .IsUnicode(false);
-
-            entity.HasOne(d => d.ChangedBy).WithMany(p => p.TicketStatusHistories)
-                .HasForeignKey(d => d.ChangedById)
-                .HasConstraintName("FK__Ticket_St__Chang__7814D14C");
-
-            entity.HasOne(d => d.Ticket).WithMany(p => p.TicketStatusHistories)
-                .HasForeignKey(d => d.TicketId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK__Ticket_St__Ticke__7720AD13");
         });
 
         modelBuilder.Entity<TransactionInvoice>(entity =>

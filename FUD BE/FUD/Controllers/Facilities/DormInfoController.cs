@@ -249,7 +249,7 @@ namespace FUD.Controllers.Facilities
                     id = "faq-5",
                     category = "noi-quy",
                     question = "Giờ giới nghiêm ra vào KTX quy định như thế nào?",
-                    answer = "Cổng KTX mở cửa từ 05:30 sáng và đóng cổng vào lúc 23:00 hàng ngày. Trường hợp sinh viên có việc học tập nghiên cứu, làm thêm hoặc về quê cần báo trước với Quản lý tòa nhà qua ứng dụng hoặc viết phiếu xin phép."
+                    answer = "Cổng KTX mở cửa từ 05:30 sáng và đóng cổng vào lúc 23:00 hàng ngày. Trường hợp sinh viên có việc học tập nghiên cứu, làm thêm hoặc về quê cần báo trước với Quản lý qua ứng dụng hoặc viết phiếu xin phép."
                 },
                 new {
                     id = "faq-6",

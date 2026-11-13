@@ -1,6 +1,7 @@
 import React, { useState, useId } from 'react';
 import type { EquipmentRecord, EquipmentCatalogItem } from '../../types/management';
 import { AVAILABLE_LOCATIONS } from '../../data/managementData';
+import { Pagination } from '../../components/Pagination';
 
 interface EquipmentManagementProps {
   equipmentList: EquipmentRecord[];
@@ -535,59 +536,13 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
             </div>
 
             {/* Pagination Controls */}
-            {filteredEquipment.length > pageSize && (
-              <div className="pagination-bar">
-                <span className="pagination-info">
-                  Hiển thị {(validCurrentPage - 1) * pageSize + 1} -{' '}
-                  {Math.min(validCurrentPage * pageSize, filteredEquipment.length)} trên tổng số{' '}
-                  {filteredEquipment.length} thiết bị
-                </span>
-                <div className="pagination-buttons">
-                  <button
-                    type="button"
-                    className="page-btn nav-btn"
-                    onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
-                    disabled={validCurrentPage === 1}
-                  >
-                    Trước
-                  </button>
-                  {(() => {
-                    const pages: (number | '...')[] = [];
-                    for (let i = 1; i <= totalPages; i++) {
-                      if (i === 1 || i === totalPages || Math.abs(i - validCurrentPage) <= 1) {
-                        pages.push(i);
-                      } else if (pages[pages.length - 1] !== '...') {
-                        pages.push('...');
-                      }
-                    }
-                    return pages.map((p, idx) =>
-                      p === '...' ? (
-                        <span key={`dots-${idx}`} className="page-dots">
-                          …
-                        </span>
-                      ) : (
-                        <button
-                          key={`page-${p}`}
-                          type="button"
-                          className={`page-btn ${p === validCurrentPage ? 'active' : ''}`}
-                          onClick={() => setCurrentPage(p as number)}
-                        >
-                          {p}
-                        </button>
-                      )
-                    );
-                  })()}
-                  <button
-                    type="button"
-                    className="page-btn nav-btn"
-                    onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
-                    disabled={validCurrentPage === totalPages}
-                  >
-                    Sau
-                  </button>
-                </div>
-              </div>
-            )}
+            <Pagination
+              currentPage={validCurrentPage}
+              totalItems={filteredEquipment.length}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+              itemName="thiết bị"
+            />
           </div>
         </div>
       ) : (

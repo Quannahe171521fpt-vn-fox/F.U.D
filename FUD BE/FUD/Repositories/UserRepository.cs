@@ -82,4 +82,13 @@ public class UserRepository : IUserRepository
             .Where(u => u.Id == userId)
             .ExecuteUpdateAsync(s => s.SetProperty(u => u.PasswordHash, newPasswordHash));
     }
+
+    public async Task<(int DormId, string DormName)?> GetGuardDormInfoAsync(int userId)
+    {
+        var guard = await _context.Guards
+            .Include(g => g.Dorm)
+            .FirstOrDefaultAsync(g => g.UserId == userId);
+        if (guard == null) return null;
+        return (guard.DormId, guard.Dorm.Name);
+    }
 }

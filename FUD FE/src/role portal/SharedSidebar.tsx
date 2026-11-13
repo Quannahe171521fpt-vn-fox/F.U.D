@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 export interface SidebarItem {
   id: string;
@@ -36,26 +36,44 @@ export const SharedSidebar: React.FC<SharedSidebarProps> = ({
   activeId,
   onSelect,
 }) => {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   return (
     <aside className="manager-sidebar">
       {/* Brand Header */}
       <div className="sidebar-brand-block">
-        <div
-          className="sidebar-brand-badge"
-          style={
-            roleBadgeColor
-              ? { backgroundColor: roleBadgeColor.bg, color: roleBadgeColor.text }
-              : undefined
-          }
-        >
-          {roleBadge}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div
+              className="sidebar-brand-badge"
+              style={
+                roleBadgeColor
+                  ? { backgroundColor: roleBadgeColor.bg, color: roleBadgeColor.text }
+                  : undefined
+              }
+            >
+              {roleBadge}
+            </div>
+            <h2 className="sidebar-brand-title">{title}</h2>
+            <span className="sidebar-subtext">{subText}</span>
+          </div>
+
+          {/* Nút 3 gạch trên màn hình điện thoại / mobile */}
+          <button
+            type="button"
+            className="sidebar-mobile-toggle"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label="Toggle navigation menu"
+          >
+            <span className={`bar ${mobileMenuOpen ? 'open' : ''}`}></span>
+            <span className={`bar ${mobileMenuOpen ? 'open' : ''}`}></span>
+            <span className={`bar ${mobileMenuOpen ? 'open' : ''}`}></span>
+          </button>
         </div>
-        <h2 className="sidebar-brand-title">{title}</h2>
-        <span className="sidebar-subtext">{subText}</span>
       </div>
 
       {/* Nav List */}
-      <nav className="sidebar-nav-list">
+      <nav className={`sidebar-nav-list ${mobileMenuOpen ? 'mobile-visible' : ''}`}>
         {sections.map((sec, secIdx) => (
           <div key={secIdx} className="sidebar-section-group">
             {sec.label && <div className="sidebar-nav-section-label">{sec.label}</div>}
@@ -67,7 +85,10 @@ export const SharedSidebar: React.FC<SharedSidebarProps> = ({
                     key={item.id}
                     type="button"
                     className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
-                    onClick={() => onSelect(item.id)}
+                    onClick={() => {
+                      onSelect(item.id);
+                      setMobileMenuOpen(false);
+                    }}
                   >
                     <span className="nav-item-indicator"></span>
                     <div className="nav-item-content">

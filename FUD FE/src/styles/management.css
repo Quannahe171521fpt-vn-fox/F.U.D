@@ -9,7 +9,7 @@
 .manager-dashboard-layout {
   display: flex;
   min-height: calc(100vh - 65px);
-  background-color: #f8fafc;
+  background-color: #fff1f2;
 }
 
 .manager-sidebar {
@@ -211,22 +211,64 @@
   max-width: 1350px;
 }
 
+.sidebar-mobile-toggle {
+  display: none;
+  flex-direction: column;
+  justify-content: space-around;
+  width: 28px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.sidebar-mobile-toggle .bar {
+  width: 100%;
+  height: 3px;
+  background-color: #cbd5e1;
+  border-radius: 2px;
+  transition: 0.3s;
+}
+
+.sidebar-mobile-toggle .bar.open:nth-child(1) {
+  transform: translateY(8px) rotate(45deg);
+}
+
+.sidebar-mobile-toggle .bar.open:nth-child(2) {
+  opacity: 0;
+}
+
+.sidebar-mobile-toggle .bar.open:nth-child(3) {
+  transform: translateY(-8px) rotate(-45deg);
+}
+
 @media (max-width: 900px) {
-  .manager-dashboard-layout {
-    flex-direction: column;
+  .manager-dashboard-layout,
+  .manager-shell {
+    flex-direction: column !important;
   }
   .manager-sidebar {
-    width: 100%;
-    height: auto;
-    position: static;
+    width: 100% !important;
+    height: auto !important;
+    position: static !important;
   }
-  .manager-main-content {
-    padding: 16px 12px;
-    max-width: 100%;
+  .sidebar-mobile-toggle {
+    display: flex;
   }
   .sidebar-nav-list {
+    display: none;
     padding: 12px;
     gap: 8px;
+  }
+  .sidebar-nav-list.mobile-visible {
+    display: flex;
+    flex-direction: column;
+  }
+  .manager-main-content,
+  .manager-content {
+    padding: 16px 12px;
+    max-width: 100%;
   }
   .sidebar-nav-item {
     padding: 10px 12px;
@@ -260,6 +302,9 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 24px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .navbar-right-minimal {

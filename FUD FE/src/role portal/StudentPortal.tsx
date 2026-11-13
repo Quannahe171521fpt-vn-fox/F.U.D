@@ -91,7 +91,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
       />
 
       {/* Main Content Area */}
-      <main className="manager-content" style={{ flex: 1, backgroundColor: '#F8FAFC', overflowY: 'auto' }}>
+      <main className="manager-content" style={{ flex: 1, backgroundColor: '#FFF1F2', overflowY: 'auto' }}>
         {currentUser?.accountStatus === 'Suspended' && (
           <div
             style={{

@@ -156,9 +156,8 @@ namespace FUD.Services.Keeping
             if (request.Status == KeepingConstants.StatusCompleted)
             {
                 var existing = await _keepingRepository.GetKeepingRequestByIdAsync(requestId);
-                var hasNextResidency = existing?.Residencies
-                    .Any(r => r.TermId == request.TermId
-                           && r.Status == KeepingConstants.ResidencyUpcoming) == true;
+                var nextResidency = await _keepingRepository.GetResidencyByStudentAndTermAsync(request.StudentId, request.TermId);
+                var hasNextResidency = nextResidency != null && nextResidency.Status == KeepingConstants.ResidencyUpcoming;
 
                 if (existing != null && hasNextResidency)
                 {
@@ -253,7 +252,6 @@ namespace FUD.Services.Keeping
                     StudentId = request.StudentId,
                     BedId = currentResidency.BedId,
                     TermId = request.TermId,
-                    SourceRequestId = request.Id,
                     RegistrationType = KeepingConstants.RegistrationType,
                     Status = KeepingConstants.ResidencyUpcoming
                 };
@@ -403,7 +401,7 @@ namespace FUD.Services.Keeping
         private async Task<KeepingRequestResponseDto> MapToResponseAsync(Request request, int studentId)
         {
             var term = request.Term;
-            var residency = request.Residencies.FirstOrDefault();
+            var residency = await _keepingRepository.GetResidencyByStudentAndTermAsync(studentId, request.TermId);
 
             var bed = residency?.Bed;
             var room = bed?.Room;

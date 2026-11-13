@@ -33,15 +33,17 @@ namespace FUD.Services.Violations
         public async Task<List<RoomStudentDto>> GetStudentsByRoomAsync(int roomId)
         {
             var residencies = await _violationRepo.GetActiveResidenciesByRoomIdAsync(roomId);
-            return residencies.Select(r => new RoomStudentDto
-            {
-                StudentId = r.StudentId,
-                StudentCode = r.Student?.User?.Code ?? string.Empty,
-                FullName = r.Student?.User?.FullName ?? string.Empty,
-                BedCode = r.Bed?.BedCode ?? string.Empty,
-                StatusDescription = $"Đang ở · Giường {r.Bed?.BedCode ?? "N/A"}",
-                ResidencyId = r.Id
-            }).ToList();
+            return residencies
+                .Where(r => r.Student != null && r.Student.User != null)
+                .Select(r => new RoomStudentDto
+                {
+                    StudentId = r.StudentId,
+                    StudentCode = r.Student?.User?.Code ?? string.Empty,
+                    FullName = r.Student?.User?.FullName ?? string.Empty,
+                    BedCode = r.Bed?.BedCode ?? string.Empty,
+                    StatusDescription = $"Đang ở · Giường {r.Bed?.BedCode ?? "N/A"}",
+                    ResidencyId = r.Id
+                }).ToList();
         }
 
         public async Task<RoomStudentDto?> SearchStudentByCodeAsync(string studentCode, int? currentRoomId = null)
@@ -354,6 +356,11 @@ namespace FUD.Services.Violations
                        <br/><p>Trân trọng,<br/>Ban Quản lý Ký túc xá FUD</p>"
                 );
             }
+        }
+
+        public async Task<List<BlockForViolationDto>> GetBlocksByGuardDormAsync(int guardUserId)
+        {
+            return await _violationRepo.GetBlocksByGuardDormAsync(guardUserId);
         }
 
         private static ViolationItemDto MapToDto(Violation v)

@@ -162,12 +162,6 @@ export const equipmentApi = {
     return json;
   },
 
-  getRepairHistory: async (id: number) => {
-    const res = await authFetch(`${BASE_URL}/facilities/equipment/${id}/repair-history`);
-    const json = await parseJsonSafe(res);
-    return json.data || [];
-  },
-
   getCatalogs: async () => {
     const res = await authFetch(`${BASE_URL}/facilities/equipment/catalogs`);
     const json = await parseJsonSafe(res);
@@ -433,6 +427,14 @@ export interface ViolationItem {
 }
 
 // ── Violation API (UC19, UC20, UC21, UC22, UC23) ───────────────
+export interface GuardBlockItem {
+  id: number;
+  name: string;
+  code: string;
+  dormId: number;
+  dormName: string;
+}
+
 export const violationApi = {
   getTypes: async (): Promise<ViolationType[]> => {
     const res = await authFetch(`${BASE_URL}/violations/types`);
@@ -540,6 +542,14 @@ export const violationApi = {
       throw new Error(json?.message || `Không thể mở khóa tài khoản (HTTP ${res.status})`);
     }
   },
+
+  // Guard dorm-scoped blocks
+  getGuardBlocks: async (): Promise<GuardBlockItem[]> => {
+    const res = await authFetch(`${BASE_URL}/violations/guard-blocks`);
+    if (!res.ok) throw new Error('Không thể tải danh sách Block');
+    const json = await parseJsonSafe(res);
+    return json.data || [];
+  },
 };
 
 // ── Term Management & Registration Schedule API ───────────
@@ -641,7 +651,7 @@ export interface RoomItem {
 export const facilityCommonApi = {
   getBlocks: async (): Promise<BlockItem[]> => {
     const res = await authFetch(`${BASE_URL}/blocks?pageSize=100`);
-    if (!res.ok) throw new Error('Không thể tải danh sách tòa');
+    if (!res.ok) throw new Error('Không thể tải danh sách Block');
     const json = await parseJsonSafe(res);
     return json.data?.items || json.data || [];
   },
@@ -781,22 +791,22 @@ export const blockApi = {
     if (params?.pageSize) query.append('pageSize', params.pageSize.toString());
 
     const res = await authFetch(`${BASE_URL}/blocks?${query.toString()}`);
-    const json = await safeParseResponse<PagedResult<BlockDto>>(res, 'Không thể tải danh sách tòa nhà');
-    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải danh sách tòa nhà');
+    const json = await safeParseResponse<PagedResult<BlockDto>>(res, 'Không thể tải danh sách Block');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải danh sách Block');
     return json.data;
   },
 
   getById: async (id: number): Promise<BlockDto> => {
     const res = await authFetch(`${BASE_URL}/blocks/${id}`);
-    const json = await safeParseResponse<BlockDto>(res, 'Không thể tải thông tin tòa nhà');
-    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải thông tin tòa nhà');
+    const json = await safeParseResponse<BlockDto>(res, 'Không thể tải thông tin Block ');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải thông tin Block ');
     return json.data;
   },
 
   getRooms: async (id: number): Promise<RoomDto[]> => {
     const res = await authFetch(`${BASE_URL}/blocks/${id}/rooms`);
-    const json = await safeParseResponse<RoomDto[]>(res, 'Không thể tải danh sách phòng của tòa');
-    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải danh sách phòng của tòa');
+    const json = await safeParseResponse<RoomDto[]>(res, 'Không thể tải danh sách phòng của Block');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải danh sách phòng của Block');
     return json.data;
   },
 
@@ -806,8 +816,8 @@ export const blockApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const json = await safeParseResponse<BlockDto>(res, 'Lỗi khi tạo tòa nhà');
-    if (!res.ok || !json.success) throw new Error(json.message || (json.errors?.join(', ')) || 'Lỗi khi tạo tòa nhà');
+    const json = await safeParseResponse<BlockDto>(res, 'Lỗi khi tạo Block');
+    if (!res.ok || !json.success) throw new Error(json.message || (json.errors?.join(', ')) || 'Lỗi khi tạo Block');
     return json.data;
   },
 
@@ -817,8 +827,8 @@ export const blockApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const json = await safeParseResponse<BlockDto>(res, 'Lỗi khi cập nhật tòa nhà');
-    if (!res.ok || !json.success) throw new Error(json.message || (json.errors?.join(', ')) || 'Lỗi khi cập nhật tòa nhà');
+    const json = await safeParseResponse<BlockDto>(res, 'Lỗi khi cập nhật Block');
+    if (!res.ok || !json.success) throw new Error(json.message || (json.errors?.join(', ')) || 'Lỗi khi cập nhật Block');
     return json.data;
   },
 
@@ -828,8 +838,8 @@ export const blockApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
     });
-    const json = await safeParseResponse<BlockDto>(res, 'Lỗi khi đổi trạng thái tòa nhà');
-    if (!res.ok || !json.success) throw new Error(json.message || 'Lỗi khi đổi trạng thái tòa nhà');
+    const json = await safeParseResponse<BlockDto>(res, 'Lỗi khi đổi trạng thái Block');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Lỗi khi đổi trạng thái Block');
     return json.data;
   },
 
@@ -839,8 +849,8 @@ export const blockApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ genderType }),
     });
-    const json = await safeParseResponse<BlockDto>(res, 'Lỗi khi đổi giới tính tòa nhà');
-    if (!res.ok || !json.success) throw new Error(json.message || 'Lỗi khi đổi giới tính tòa nhà');
+    const json = await safeParseResponse<BlockDto>(res, 'Lỗi khi đổi giới tính Block');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Lỗi khi đổi giới tính Block');
     return json.data;
   },
 };

@@ -61,10 +61,6 @@ public partial class User
 
     public virtual User? SuspendedBy { get; set; }
 
-    public virtual ICollection<TicketPhoto> TicketPhotos { get; set; } = new List<TicketPhoto>();
-
-    public virtual ICollection<TicketStatusHistory> TicketStatusHistories { get; set; } = new List<TicketStatusHistory>();
-
     public virtual ICollection<UserRole> UserRoleAssignedBies { get; set; } = new List<UserRole>();
 
     public virtual ICollection<UserRole> UserRoleUsers { get; set; } = new List<UserRole>();

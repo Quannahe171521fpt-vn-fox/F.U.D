@@ -12,7 +12,6 @@ namespace FUD.Services.Interfaces.Facilities
         Task<EquipmentDto> MoveAsync(int id, MoveEquipmentDto dto, int? userId = null);
         Task<EquipmentDto> ChangeConditionAsync(int id, ChangeConditionDto dto, int? userId = null);
         Task LiquidateAsync(int id, int? userId = null);
-        Task<IEnumerable<TicketDto>> GetRepairHistoryAsync(int id);
         
         // Catalog
         Task<IEnumerable<EquipmentCatalogDto>> GetCatalogsAsync();

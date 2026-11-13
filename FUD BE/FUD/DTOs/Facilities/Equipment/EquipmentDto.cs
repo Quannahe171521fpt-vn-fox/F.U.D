@@ -75,17 +75,6 @@ namespace FUD.DTOs.Facilities.Equipment
         public string Name { get; set; } = string.Empty;
     }
 
-    public class TicketDto
-    {
-        public int Id { get; set; }
-        public string TicketCode { get; set; } = string.Empty;
-        public string Description { get; set; } = string.Empty;
-        public string Status { get; set; } = string.Empty;
-        public string? HandlingResult { get; set; }
-        public DateTime CreatedTime { get; set; }
-        public DateTime? DoneTime { get; set; }
-    }
-
     public class LocationOptionDto
     {
         public int RoomId { get; set; }

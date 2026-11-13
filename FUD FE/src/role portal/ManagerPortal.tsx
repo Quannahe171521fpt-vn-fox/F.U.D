@@ -268,7 +268,7 @@ export const ManagerPortal: React.FC = () => {
         },
         {
           id: 'blocks',
-          name: 'Quản lý Tòa nhà',
+          name: 'Quản lý Block',
           counter: 'Danh sách Block',
         },
         {

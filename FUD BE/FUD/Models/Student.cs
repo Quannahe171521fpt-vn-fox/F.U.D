@@ -13,13 +13,11 @@ public partial class Student
 
     public virtual ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
 
-    public virtual ICollection<IncidentTicket> IncidentTickets { get; set; } = new List<IncidentTicket>();
+    public virtual ICollection<BookingRequest> BookingRequests { get; set; } = new List<BookingRequest>();
 
     public virtual ICollection<Invoice> Invoices { get; set; } = new List<Invoice>();
 
     public virtual ICollection<PaymentTransaction> PaymentTransactions { get; set; } = new List<PaymentTransaction>();
-
-    public virtual ICollection<RepairFeedback> RepairFeedbacks { get; set; } = new List<RepairFeedback>();
 
     public virtual ICollection<Request> Requests { get; set; } = new List<Request>();
 
