@@ -8,6 +8,7 @@ import { BlockManagement } from '../pages/FacilityManagement/BlockManagement';
 import { RoomManagement } from '../pages/FacilityManagement/RoomManagement';
 import { ManagerViolationManagement } from '../pages/Violations/ManagerViolationManagement';
 import { ManagerRequestManagement } from '../pages/Requests/ManagerRequestManagement';
+import { EwManagement } from '../pages/FacilityManagement/EwManagement';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
 import type { NewsItem, EquipmentRecord, EquipmentCatalogItem } from '../types/management';
 import { equipmentApi, newsApi } from '../services/api';
@@ -17,8 +18,8 @@ export const ManagerPortal: React.FC = () => {
   const { currentUser, logout } = useAuth();
 
   // Sidebar navigation tabs
-  const [activeTab, setActiveTab] = useState<'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'blocks' | 'rooms' | 'requests'>(() => {
-    return (localStorage.getItem('fud_managerTab') as 'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'blocks' | 'rooms' | 'requests') || 'terms';
+  const [activeTab, setActiveTab] = useState<'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'blocks' | 'rooms' | 'requests' | 'ew'>(() => {
+    return (localStorage.getItem('fud_managerTab') as 'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'blocks' | 'rooms' | 'requests' | 'ew') || 'terms';
   });
   const [pricingTargetTermId, setPricingTargetTermId] = useState<number | null>(null);
   const handleGoToPricing = (termId: number) => {
@@ -282,6 +283,11 @@ export const ManagerPortal: React.FC = () => {
           counter: `${equipmentList.length} tài sản`,
           pill: brokenCount > 0 ? { count: brokenCount, label: 'lỗi', color: '#EF4444' } : undefined,
         },
+        {
+          id: 'ew',
+          name: 'Điện & Nước',
+          counter: 'Nhập chỉ số theo kỳ',
+        },
       ],
     },
     {
@@ -350,6 +356,8 @@ export const ManagerPortal: React.FC = () => {
           <RoomManagement />
         ) : activeTab === 'requests' ? (
           <ManagerRequestManagement />
+        ) : activeTab === 'ew' ? (
+          <EwManagement />
         ) : (
           <ManagerViolationManagement />
         )}

@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { RecordViolationPage } from '../pages/Violations/RecordViolationPage';
 import { ViolationListPage } from '../pages/Violations/ViolationListPage';
 import { GuardCheckinPage } from '../pages/Checkin/GuardCheckinPage';
+import { EwManagement } from '../pages/FacilityManagement/EwManagement';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
 
 interface GuardPortalProps {
@@ -11,7 +12,7 @@ interface GuardPortalProps {
 
 export const GuardPortal: React.FC<GuardPortalProps> = ({ onLogout }) => {
   const { currentUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<'checkin' | 'checkin-list' | 'create' | 'list' | 'overview'>('checkin');
+  const [activeTab, setActiveTab] = useState<'checkin' | 'checkin-list' | 'create' | 'list' | 'ew' | 'overview'>('checkin');
 
   const guardSections: SidebarSection[] = [
     {
@@ -26,6 +27,12 @@ export const GuardPortal: React.FC<GuardPortalProps> = ({ onLogout }) => {
       items: [
         { id: 'create', name: 'Ghi nhận vi phạm', counter: 'Lập biên bản mới' },
         { id: 'list', name: 'Danh sách hồ sơ', counter: 'Xem & đối soát' },
+      ],
+    },
+    {
+      label: 'ĐIỆN & NƯỚC',
+      items: [
+        { id: 'ew', name: 'Nhập chỉ số điện – nước', counter: 'Import theo kỳ' },
       ],
     },
     {
@@ -62,6 +69,8 @@ export const GuardPortal: React.FC<GuardPortalProps> = ({ onLogout }) => {
           <RecordViolationPage onSuccessNavigate={() => setActiveTab('list')} />
         ) : activeTab === 'list' ? (
           <ViolationListPage />
+        ) : activeTab === 'ew' ? (
+          <EwManagement />
         ) : (
           <div style={{ padding: '24px 32px' }}>
             <div

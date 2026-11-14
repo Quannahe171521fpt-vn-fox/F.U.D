@@ -1295,6 +1295,189 @@ export interface ResidencyHistoryDetail extends ResidencyHistoryItem {
   invoices: ResidencyInvoiceSummary[];
 }
 
+// ── EW (Electricity & Water) API ─────────────────────────
+export interface BillingPeriodLookupDto {
+  id: number;
+  termId?: number;
+  targetMonth: number;
+  targetYear: number;
+  displayName: string;
+  status: string; // "Open" | "Calculated" | "Closed"
+  termName: string;
+}
+
+export interface EwReadingDetailItem {
+  readingId: number;
+  roomId: number;
+  roomNumber: string;
+  floorLevel?: number;
+  meterType: string;
+  previousValue: number;
+  currentValue: number;
+  consumption: number;
+  source: string;
+  status: string;
+  note?: string;
+  recordedTime: string;
+  recordedByName?: string;
+}
+
+export interface EwUsageRow {
+  id: number;
+  block: string;
+  tenBlock?: string;
+  blockCode?: string;
+  blockName?: string;
+  roomNumber?: string;
+  termId?: number;
+  billingPeriodId?: number;
+  periodStatus?: string;
+  targetMonth?: number;
+  targetYear?: number;
+  loaiSuDung: string;    // "Electricity" | "Water"
+  ngayTao: string | null;
+  hocKy: string;
+  meterNumberDisplay: string;
+  totalConsumption: number;
+  donvi?: string;
+  readings?: EwReadingDetailItem[];
+}
+
+export interface ExcelPreviewRowDto {
+  rowIndex: number;
+  dorm: string;
+  blockCode: string;
+  meterType: string;
+  dateStr: string;
+  leftValue?: number;
+  rightValue?: number;
+  leftRoomId?: number;
+  rightRoomId?: number;
+  leftRoomNumber: string;
+  rightRoomNumber: string;
+  leftOldReading: number;
+  rightOldReading: number;
+  leftConsumption: number;
+  rightConsumption: number;
+  status: string; // "Valid" | "Warning" | "Error"
+  errorMessage?: string;
+  flagReason?: string;
+}
+
+export interface ExcelPreviewResponseDto {
+  totalRows: number;
+  validRows: number;
+  warningRows: number;
+  errorRows: number;
+  alreadyHasDataInPeriod: boolean;
+  rows: ExcelPreviewRowDto[];
+}
+
+export interface ImportBatchItemDto {
+  id: number;
+  billingPeriodId: number;
+  billingPeriodDisplay: string;
+  blockCode: string;
+  guardName: string;
+  method: string;
+  fileName?: string;
+  totalRows: number;
+  errorRows: number;
+  importTime: string;
+}
+
+export const ewApi = {
+  getBillingPeriods: async (): Promise<BillingPeriodLookupDto[]> => {
+    const res = await authFetch(`${BASE_URL}/ew/billing-periods`);
+    const json = await safeParseResponse<BillingPeriodLookupDto[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải danh sách kỳ thanh toán');
+    return json.data || [];
+  },
+
+  getUsages: async (params?: {
+    blockCode?: string;
+    meterType?: string;
+    month?: number;
+    year?: number;
+    termId?: number;
+    billingPeriodId?: number;
+  }): Promise<EwUsageRow[]> => {
+    const query = new URLSearchParams();
+    if (params?.blockCode) query.append('blockCode', params.blockCode);
+    if (params?.meterType) query.append('meterType', params.meterType);
+    if (params?.month) query.append('month', params.month.toString());
+    if (params?.year) query.append('year', params.year.toString());
+    if (params?.termId) query.append('termId', params.termId.toString());
+    if (params?.billingPeriodId) query.append('billingPeriodId', params.billingPeriodId.toString());
+    const qs = query.toString();
+    const res = await authFetch(`${BASE_URL}/ew/usages${qs ? `?${qs}` : ''}`);
+    const json = await safeParseResponse<EwUsageRow[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải dữ liệu sử dụng');
+    return json.data || [];
+  },
+
+  previewImport: async (file: File, billingPeriodId: number): Promise<ExcelPreviewResponseDto> => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('billingPeriodId', billingPeriodId.toString());
+    const res = await authFetch(`${BASE_URL}/ew/import/preview`, { method: 'POST', body: form });
+    const json = await safeParseResponse<ExcelPreviewResponseDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể xem trước dữ liệu');
+    return json.data;
+  },
+
+  uploadImport: async (file: File, billingPeriodId: number): Promise<{ savedReadings: number; message: string }> => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('billingPeriodId', billingPeriodId.toString());
+    const res = await authFetch(`${BASE_URL}/ew/import/upload`, { method: 'POST', body: form });
+    const json = await safeParseResponse<any>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Import thất bại');
+    return json.data;
+  },
+
+  confirmImport: async (payload: {
+    billingPeriodId: number;
+    fileName: string;
+    importOnlyValid: boolean;
+    overwriteExisting: boolean;
+    rows: ExcelPreviewRowDto[];
+  }): Promise<{ savedReadings: number; message: string }> => {
+    const res = await authFetch(`${BASE_URL}/ew/import/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<any>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Xác nhận import thất bại');
+    return json.data;
+  },
+
+  getImportBatches: async (billingPeriodId?: number): Promise<ImportBatchItemDto[]> => {
+    const qs = billingPeriodId ? `?billingPeriodId=${billingPeriodId}` : '';
+    const res = await authFetch(`${BASE_URL}/ew/import/batches${qs}`);
+    const json = await safeParseResponse<ImportBatchItemDto[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải lịch sử import');
+    return json.data || [];
+  },
+
+  downloadTemplate: (billingPeriodId?: number): void => {
+    const qs = billingPeriodId ? `?billingPeriodId=${billingPeriodId}` : '';
+    window.open(`${BASE_URL}/ew/import/template${qs}`, '_blank');
+  },
+
+  updateReading: async (id: number, currentValue: number, note?: string): Promise<{ success: boolean; message: string }> => {
+    const res = await authFetch(`${BASE_URL}/ew/readings/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentValue, note }),
+    });
+    const json = await safeParseResponse<{ success: boolean; message: string }>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể cập nhật chỉ số');
+    return json;
+  },
+};
+
 export const residencyApi = {
   getMyHistory: async (params?: {
     status?: string;
