@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { requestApi, violationApi, type RequestItemDto } from '../../services/api';
 import { Pagination } from '../../components/Pagination';
 import { formatDateTime } from '../../utils/dateUtils';
+import { removeVietnameseTones } from '../../utils/textUtils';
 import {
   type DBRequestType,
   type DBRequestStatus,
@@ -22,6 +23,8 @@ export const ManagerRequestManagement: React.FC = () => {
   // Lọc
   const [filterType, setFilterType] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<string>('');
+  const [filterSuspended, setFilterSuspended] = useState<'all' | 'suspended' | 'normal'>('all');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -70,7 +73,12 @@ export const ManagerRequestManagement: React.FC = () => {
     setSelectedRequest(req);
     setDecision('Approved');
     setResolutionNote('');
-    setAdjustedLevel('Nhắc nhở');
+    // Tìm mức độ nhẹ hơn mức ban đầu nếu là complaint
+    const initial = req.complaint?.initialLevel;
+    const allLevels = ['Nhắc nhở', 'Khiển trách', 'Cảnh cáo', 'Đình chỉ nội trú'];
+    const initialIndex = initial ? allLevels.findIndex(l => l.toLowerCase() === initial.toLowerCase() || initial.toLowerCase().includes(l.toLowerCase())) : -1;
+    const lighterLevels = initialIndex > 0 ? allLevels.slice(0, initialIndex) : allLevels.filter(l => !initial || !l.toLowerCase().includes(initial.toLowerCase()));
+    setAdjustedLevel(lighterLevels.length > 0 ? lighterLevels[0] : 'Nhắc nhở');
     setErrorMsg('');
     setSuccessMsg('');
   };
@@ -122,18 +130,38 @@ export const ManagerRequestManagement: React.FC = () => {
     }
   };
 
-  // Lọc tìm kiếm client-side
-  const filteredRequests = requests.filter(r => {
-    if (!searchTerm.trim()) return true;
-    const term = searchTerm.toLowerCase();
-    return (
-      r.requestCode.toLowerCase().includes(term) ||
-      r.studentName.toLowerCase().includes(term) ||
-      r.studentCode.toLowerCase().includes(term) ||
-      r.roomInfo.toLowerCase().includes(term) ||
-      (r.reason && r.reason.toLowerCase().includes(term))
-    );
-  });
+  // Lọc tìm kiếm client-side (hỗ trợ có dấu và không dấu, lọc đình chỉ, sort thời gian)
+  const filteredRequests = requests
+    .filter(r => {
+      if (filterSuspended === 'suspended') {
+        const isSuspended = r.studentAccountStatus === 'Suspended' || (r.suspensionReason && r.suspensionReason.trim() !== '');
+        if (!isSuspended) return false;
+      } else if (filterSuspended === 'normal') {
+        const isSuspended = r.studentAccountStatus === 'Suspended' || (r.suspensionReason && r.suspensionReason.trim() !== '');
+        if (isSuspended) return false;
+      }
+
+      if (!searchTerm.trim()) return true;
+      const term = removeVietnameseTones(searchTerm);
+      const codeNorm = removeVietnameseTones(r.requestCode || '');
+      const nameNorm = removeVietnameseTones(r.studentName || '');
+      const studentCodeNorm = removeVietnameseTones(r.studentCode || '');
+      const roomNorm = removeVietnameseTones(r.roomInfo || '');
+      const reasonNorm = removeVietnameseTones(r.reason || '');
+
+      return (
+        codeNorm.includes(term) ||
+        nameNorm.includes(term) ||
+        studentCodeNorm.includes(term) ||
+        roomNorm.includes(term) ||
+        reasonNorm.includes(term)
+      );
+    })
+    .sort((a, b) => {
+      const timeA = new Date(a.createdTime).getTime();
+      const timeB = new Date(b.createdTime).getTime();
+      return sortOrder === 'desc' ? timeB - timeA : timeA - timeB;
+    });
 
   const paginatedRequests = filteredRequests.slice(
     (currentPage - 1) * PAGE_SIZE,
@@ -147,8 +175,8 @@ export const ManagerRequestManagement: React.FC = () => {
         <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 6px', color: '#0F172A' }}>
           Quản lý & Xét duyệt Đơn yêu cầu
         </h1>
-        <p style={{ color: '#64748B', fontSize: '13px', margin: 0 }}>
-          Theo dõi và thẩm định các đơn khiếu nại vi phạm (Complaint), đổi phòng, trả phòng, đăng ký giữ chỗ và kiến nghị
+        <p style={{ color: '#000000ff', fontSize: '13px', margin: 0 }}>
+          Theo dõi và thẩm định các đơn từ.
         </p>
       </div>
 
@@ -221,6 +249,57 @@ export const ManagerRequestManagement: React.FC = () => {
             {(Object.keys(REQUEST_STATUS_LABELS) as DBRequestStatus[]).map(st => (
               <option key={st} value={st}>{REQUEST_STATUS_LABELS[st]}</option>
             ))}
+          </select>
+        </div>
+
+        {/* Lọc tình trạng đình chỉ */}
+        <div style={{ minWidth: '180px' }}>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+            Tài khoản sinh viên
+          </label>
+          <select
+            value={filterSuspended}
+            onChange={e => {
+              setFilterSuspended(e.target.value as any);
+              setCurrentPage(1);
+            }}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              border: '1px solid #CBD5E1',
+              fontSize: '13px',
+              backgroundColor: '#FFF',
+              fontWeight: filterSuspended === 'suspended' ? 700 : 400,
+              color: filterSuspended === 'suspended' ? '#DC2626' : 'inherit',
+            }}
+          >
+            <option value="all">Tất cả sinh viên</option>
+            <option value="suspended">Đang bị đình chỉ</option>
+            <option value="normal">Bình thường</option>
+          </select>
+        </div>
+
+        {/* Sắp xếp thời gian */}
+        <div style={{ minWidth: '150px' }}>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+            Sắp xếp thời gian
+          </label>
+          <select
+            value={sortOrder}
+            onChange={e => setSortOrder(e.target.value as 'desc' | 'asc')}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              border: '1px solid #CBD5E1',
+              fontSize: '13px',
+              backgroundColor: '#FFF',
+              fontWeight: 600,
+            }}
+          >
+            <option value="desc">Mới nhất trước ↓</option>
+            <option value="asc">Cũ nhất trước ↑</option>
           </select>
         </div>
 
@@ -315,10 +394,29 @@ export const ManagerRequestManagement: React.FC = () => {
                       </span>
                     </td>
 
-                    {/* Sinh viên (1 dòng, hover xem full) */}
+                    {/* Sinh viên (1 dòng, hover xem full) kèm cảnh báo nếu đang bị đình chỉ */}
                     <td>
                       <div className="cell-text-1line" title={`${item.studentName} (${item.studentCode})`}>
-                        <span style={{ fontWeight: 600 }}>{item.studentName}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontWeight: 600 }}>{item.studentName}</span>
+                          {(item.studentAccountStatus === 'Suspended' || item.suspensionReason) && (
+                            <span
+                              title={`Tài khoản bị đình chỉ: ${item.suspensionReason || 'Vi phạm quy chế KTX'}`}
+                              style={{
+                                display: 'inline-block',
+                                padding: '1px 5px',
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                backgroundColor: '#FEE2E2',
+                                color: '#DC2626',
+                                borderRadius: '4px',
+                                border: '1px solid #FCA5A5',
+                              }}
+                            >
+                              Đình chỉ
+                            </span>
+                          )}
+                        </div>
                         <div style={{ fontSize: '11px', color: '#64748B' }}>{item.studentCode}</div>
                       </div>
                     </td>
@@ -445,7 +543,7 @@ export const ManagerRequestManagement: React.FC = () => {
               <button
                 type="button"
                 onClick={handleCloseModal}
-                style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#94A3B8' }}
+                style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#000000ff' }}
               >
                 Đóng
               </button>
@@ -465,7 +563,7 @@ export const ManagerRequestManagement: React.FC = () => {
                 selectedRequest.complaint?.violationCode &&
                 selectedRequest.suspensionReason?.includes(selectedRequest.complaint.violationCode) && (
                   <div style={{ marginTop: 8, padding: '8px 12px', backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: '6px', color: '#991B1B' }}>
-                    <div style={{ fontWeight: 700 }}>⚠️ Tài khoản sinh viên đang bị ĐÌNH CHỈ (Khóa Book & Giữ phòng):</div>
+                    <div style={{ fontWeight: 700 }}>Tài khoản sinh viên đang bị ĐÌNH CHỈ (Khóa Đặt & Giữ phòng và một vài chức năng liên quan đến KTX):</div>
                     <div style={{ fontSize: '12px', marginTop: 2 }}>{selectedRequest.suspensionReason || 'Đình chỉ nội trú do vi phạm quy chế.'}</div>
                     <button
                       type="button"
@@ -483,7 +581,7 @@ export const ManagerRequestManagement: React.FC = () => {
                         cursor: 'pointer',
                       }}
                     >
-                      {unsuspending ? 'Đang mở khóa...' : '🔓 Mở khóa lại quyền Book & Giữ phòng cho sinh viên'}
+                      {unsuspending ? 'Đang mở khóa...' : 'Mở khóa lại quyền Đặt & Giữ phòng cho sinh viên'}
                     </button>
                   </div>
                 )}
@@ -496,6 +594,22 @@ export const ManagerRequestManagement: React.FC = () => {
                   Chi tiết biên bản bị khiếu nại: {selectedRequest.complaint.violationCode}
                 </div>
                 <div><strong>Lỗi vi phạm:</strong> {selectedRequest.complaint.violationTypeName}</div>
+                {selectedRequest.complaint.initialLevel && (
+                  <div>
+                    <strong>Mức độ ban đầu:</strong>{' '}
+                    <span style={{ color: '#EA580C', fontWeight: 700, padding: '2px 8px', backgroundColor: '#FFEDD5', borderRadius: '4px' }}>
+                      {selectedRequest.complaint.initialLevel}
+                    </span>
+                  </div>
+                )}
+                {selectedRequest.complaint.finalLevel && (
+                  <div style={{ marginTop: 4 }}>
+                    <strong>Mức độ sau khi xử lý (Chính thức):</strong>{' '}
+                    <span style={{ color: selectedRequest.status === 'Approved' ? '#047857' : '#DC2626', fontWeight: 700, padding: '2px 8px', backgroundColor: selectedRequest.status === 'Approved' ? '#D1FAE5' : '#FEE2E2', borderRadius: '4px' }}>
+                      {selectedRequest.complaint.finalLevel}
+                    </span>
+                  </div>
+                )}
                 {selectedRequest.complaint.evidences.length > 0 && (
                   <div style={{ marginTop: 8 }}>
                     <div style={{ fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: 4 }}>Minh chứng sinh viên đính kèm:</div>
@@ -555,28 +669,41 @@ export const ManagerRequestManagement: React.FC = () => {
                 {/* Cảnh báo rõ ràng cho Manager khi Reject đơn khiếu nại mà mức phạt là Đình chỉ */}
                 {selectedRequest.requestType === 'Complaint' && decision === 'Rejected' && (
                   <div style={{ marginBottom: 14, padding: '10px 14px', backgroundColor: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', color: '#991B1B', fontSize: '13px' }}>
-                    ⚠️ <strong>Lưu ý:</strong> Khi từ chối đơn khiếu nại (Reject), mức kết luận chính thức sẽ giữ nguyên mức ban đầu.
+                     <strong>Lưu ý:</strong> Khi từ chối đơn khiếu nại (Reject), mức kết luận chính thức sẽ giữ nguyên mức ban đầu.
                     Nếu mức ban đầu là <strong>Đình chỉ nội trú</strong>, hệ thống sẽ <strong>ngay lập tức Khóa quyền Book phòng & Giữ phòng</strong> của sinh viên (hoặc tự động khóa sau 24h nếu không có khiếu nại khác).
                   </div>
                 )}
 
-                {/* Nếu chấp thuận khiếu nại vi phạm: Chọn mức phạt mới điều chỉnh */}
-                {selectedRequest.requestType === 'Complaint' && decision === 'Approved' && (
-                  <div style={{ marginBottom: 14 }}>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>
-                      Mức độ xử lý sau khi chấp thuận khiếu nại:
-                    </label>
-                    <select
-                      value={adjustedLevel}
-                      onChange={e => setAdjustedLevel(e.target.value)}
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#FFF' }}
-                    >
-                      <option value="Nhắc nhở">Nhắc nhở</option>
-                      <option value="Khiển trách">Khiển trách</option>
-                      <option value="Cảnh cáo">Cảnh cáo</option>
-                    </select>
-                  </div>
-                )}
+                {/* Nếu chấp thuận khiếu nại vi phạm: Chọn mức phạt mới điều chỉnh (loại bỏ mức ban đầu và chỉ cho chọn mức nhẹ hơn) */}
+                {selectedRequest.requestType === 'Complaint' && decision === 'Approved' && (() => {
+                  const initial = selectedRequest.complaint?.initialLevel;
+                  const allLevels = ['Nhắc nhở', 'Khiển trách', 'Cảnh cáo', 'Đình chỉ nội trú'];
+                  const initialIndex = initial ? allLevels.findIndex(l => l.toLowerCase() === initial.toLowerCase() || initial.toLowerCase().includes(l.toLowerCase())) : -1;
+                  // Lấy các mức nhẹ hơn mức ban đầu
+                  const availableLevels = initialIndex > 0 ? allLevels.slice(0, initialIndex) : allLevels.filter(l => !initial || !l.toLowerCase().includes(initial.toLowerCase()));
+
+                  return (
+                    <div style={{ marginBottom: 14 }}>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>
+                        Mức độ xử lý sau khi chấp thuận khiếu nại (Chọn mức nhẹ hơn mức ban đầu):
+                      </label>
+                      <select
+                        value={adjustedLevel}
+                        onChange={e => setAdjustedLevel(e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#FFF' }}
+                      >
+                        {availableLevels.map(lvl => (
+                          <option key={lvl} value={lvl}>{lvl}</option>
+                        ))}
+                      </select>
+                      {initial && (
+                        <div style={{ fontSize: '11px', color: '#64748B', marginTop: 4 }}>
+                          * Mức ban đầu là <strong>{initial}</strong> đã bị ẩn theo quy định giảm nhẹ hình thức xử lý.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 <div style={{ marginBottom: 16 }}>
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>
@@ -623,14 +750,51 @@ export const ManagerRequestManagement: React.FC = () => {
               </form>
             ) : (
               <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: 14 }}>
-                {selectedRequest.rejectReason && (
-                  <div style={{ backgroundColor: '#FEE2E2', border: '1px solid #FCA5A5', borderRadius: '8px', padding: '12px', marginBottom: 14 }}>
-                    <strong style={{ color: '#991B1B', fontSize: '12px' }}>Ghi chú / Lý do xử lý của BQL:</strong>
-                    <div style={{ fontSize: '13px', color: '#7F1D1D', marginTop: 4, whiteSpace: 'pre-line' }}>
-                      {selectedRequest.rejectReason}
-                    </div>
+                {/* Hiển thị chi tiết kết quả sau khi xử lý đơn */}
+                <div style={{ backgroundColor: selectedRequest.status === 'Approved' ? '#ECFDF5' : '#FEF2F2', border: `1px solid ${selectedRequest.status === 'Approved' ? '#A7F3D0' : '#FECACA'}`, borderRadius: '8px', padding: '14px', marginBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 8 }}>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: selectedRequest.status === 'Approved' ? '#047857' : '#991B1B' }}>
+                      {selectedRequest.status === 'Approved' ? 'Kết quả: Đơn khiếu nại ĐÃ ĐƯỢC CHẤP THUẬN' : 'Kết quả: Đơn khiếu nại ĐÃ BỊ TỪ CHỐI'}
+                    </span>
                   </div>
-                )}
+
+                  {selectedRequest.complaint?.finalLevel && (
+                    <div style={{ fontSize: '13px', marginBottom: 6, color: '#0F172A' }}>
+                      <strong>Mức độ kỷ luật áp dụng chính thức:</strong>{' '}
+                      <span style={{ fontWeight: 700, color: selectedRequest.status === 'Approved' ? '#047857' : '#DC2626' }}>
+                        {selectedRequest.complaint.finalLevel}
+                      </span>
+                      {selectedRequest.complaint.initialLevel && selectedRequest.status === 'Approved' && (
+                        <span style={{ fontSize: '12px', color: '#64748B', marginLeft: 6 }}>
+                          (Đã giảm nhẹ từ mức ban đầu: <s>{selectedRequest.complaint.initialLevel}</s>)
+                        </span>
+                      )}
+                      {selectedRequest.complaint.initialLevel && selectedRequest.status === 'Rejected' && (
+                        <span style={{ fontSize: '12px', color: '#64748B', marginLeft: 6 }}>
+                          (Giữ nguyên mức độ kỷ luật ban đầu)
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {(selectedRequest.rejectReason || selectedRequest.complaint?.resolutionNote) && (
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px dashed ${selectedRequest.status === 'Approved' ? '#A7F3D0' : '#FECACA'}` }}>
+                      <strong style={{ fontSize: '12px', color: selectedRequest.status === 'Approved' ? '#065F46' : '#991B1B' }}>
+                        Ghi chú / Phản hồi của Ban Quản lý:
+                      </strong>
+                      <div style={{ fontSize: '13px', color: selectedRequest.status === 'Approved' ? '#064E3B' : '#7F1D1D', marginTop: 4, whiteSpace: 'pre-line' }}>
+                        {selectedRequest.rejectReason || selectedRequest.complaint?.resolutionNote}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedRequest.processedByName && (
+                    <div style={{ fontSize: '11px', color: '#64748B', marginTop: 8 }}>
+                      Xử lý bởi: <strong>{selectedRequest.processedByName}</strong> {selectedRequest.processedTime && `vào lúc ${formatDateTime(selectedRequest.processedTime)}`}
+                    </div>
+                  )}
+                </div>
+
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                   <button
                     type="button"

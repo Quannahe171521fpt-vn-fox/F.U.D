@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { violationApi, type ViolationItem } from '../../services/api';
 import { Pagination } from '../../components/Pagination';
 import { formatDateTime, formatDate } from '../../utils/dateUtils';
+import { removeVietnameseTones } from '../../utils/textUtils';
 import '../../styles/violation.css';
 
 const PAGE_SIZE = 10;
@@ -17,6 +18,11 @@ export const ViolationListPage: React.FC = () => {
   const [violations, setViolations] = useState<ViolationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterCode, setFilterCode] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterLevel, setFilterLevel] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [selectedViolation, setSelectedViolation] = useState<ViolationItem | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -47,17 +53,64 @@ export const ViolationListPage: React.FC = () => {
     }
   };
 
-  const filteredViolations = violations.filter(v => {
-    if (!filterCode.trim()) return true;
-    const term = filterCode.toLowerCase();
-    return (
-      v.code.toLowerCase().includes(term) ||
-      v.studentName.toLowerCase().includes(term) ||
-      v.studentCode.toLowerCase().includes(term) ||
-      v.roomNumber.toLowerCase().includes(term) ||
-      v.violationTypeName.toLowerCase().includes(term)
-    );
-  });
+  const filteredViolations = violations
+    .filter(v => {
+      if (filterStatus && v.status !== filterStatus) return false;
+
+      const currentLevel = v.finalLevel || v.initialLevel || '';
+      if (filterLevel && !currentLevel.toLowerCase().includes(filterLevel.toLowerCase())) {
+        return false;
+      }
+
+      if (dateFrom) {
+        const from = new Date(dateFrom);
+        from.setHours(0, 0, 0, 0);
+        if (new Date(v.occurrenceTime) < from) return false;
+      }
+
+      if (dateTo) {
+        const to = new Date(dateTo);
+        to.setHours(23, 59, 59, 999);
+        if (new Date(v.occurrenceTime) > to) return false;
+      }
+
+      if (filterCode.trim()) {
+        const term = removeVietnameseTones(filterCode);
+        const codeNorm = removeVietnameseTones(v.code || '');
+        const nameNorm = removeVietnameseTones(v.studentName || '');
+        const studentCodeNorm = removeVietnameseTones(v.studentCode || '');
+        const roomNorm = removeVietnameseTones(v.roomNumber || '');
+        const blockNorm = removeVietnameseTones(v.blockName || '');
+        const typeNorm = removeVietnameseTones(v.violationTypeName || '');
+
+        const matches =
+          codeNorm.includes(term) ||
+          nameNorm.includes(term) ||
+          studentCodeNorm.includes(term) ||
+          roomNorm.includes(term) ||
+          blockNorm.includes(term) ||
+          typeNorm.includes(term);
+
+        if (!matches) return false;
+      }
+
+      return true;
+    })
+    .sort((a, b) => {
+      const timeA = new Date(a.occurrenceTime).getTime();
+      const timeB = new Date(b.occurrenceTime).getTime();
+      return sortOrder === 'desc' ? timeB - timeA : timeA - timeB;
+    });
+
+  const resetFilters = () => {
+    setFilterCode('');
+    setFilterStatus('');
+    setFilterLevel('');
+    setDateFrom('');
+    setDateTo('');
+    setSortOrder('desc');
+    setCurrentPage(1);
+  };
 
   const paginatedViolations = filteredViolations.slice(
     (currentPage - 1) * PAGE_SIZE,
@@ -92,24 +145,179 @@ export const ViolationListPage: React.FC = () => {
         </button>
       </div>
 
-      <div style={{ marginBottom: 16 }}>
-        <input
-          type="text"
-          placeholder="Tìm theo mã biên bản, MSSV, tên, phòng, loại vi phạm..."
-          value={filterCode}
-          onChange={e => {
-            setFilterCode(e.target.value);
-            setCurrentPage(1);
-          }}
-          style={{
-            width: '100%',
-            maxWidth: 400,
-            padding: '8px 12px',
-            borderRadius: 6,
-            border: '1px solid #cbd5e1',
-            fontSize: 13,
-          }}
-        />
+      {/* Advance Search & Sort */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '12px',
+          alignItems: 'center',
+          backgroundColor: '#FFFFFF',
+          padding: '16px 20px',
+          borderRadius: '12px',
+          border: '1px solid #E2E8F0',
+          marginBottom: 16,
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ flex: '1 1 240px', minWidth: '220px' }}>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+            Tìm kiếm đa nhiệm (có dấu & không dấu)
+          </label>
+          <input
+            type="text"
+            placeholder="Mã biên bản, MSSV, tên, phòng, loại vi phạm..."
+            value={filterCode}
+            onChange={e => {
+              setFilterCode(e.target.value);
+              setCurrentPage(1);
+            }}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: 6,
+              border: '1px solid #cbd5e1',
+              fontSize: 13,
+            }}
+          />
+        </div>
+
+        <div style={{ minWidth: '150px' }}>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+            Trạng thái biên bản
+          </label>
+          <select
+            value={filterStatus}
+            onChange={e => {
+              setFilterStatus(e.target.value);
+              setCurrentPage(1);
+            }}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: 6,
+              border: '1px solid #cbd5e1',
+              fontSize: 13,
+              backgroundColor: '#FFF',
+            }}
+          >
+            <option value="">Tất cả trạng thái</option>
+            {Object.keys(VIOLATION_STATUS_VI).map(st => (
+              <option key={st} value={st}>{VIOLATION_STATUS_VI[st]}</option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ minWidth: '150px' }}>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+            Mức độ xử lý
+          </label>
+          <select
+            value={filterLevel}
+            onChange={e => {
+              setFilterLevel(e.target.value);
+              setCurrentPage(1);
+            }}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: 6,
+              border: '1px solid #cbd5e1',
+              fontSize: 13,
+              backgroundColor: '#FFF',
+            }}
+          >
+            <option value="">Tất cả mức độ</option>
+            <option value="Nhắc nhở">Nhắc nhở</option>
+            <option value="Khiển trách">Khiển trách</option>
+            <option value="Cảnh cáo">Cảnh cáo</option>
+            <option value="Đình chỉ">Đình chỉ nội trú</option>
+          </select>
+        </div>
+
+        <div style={{ minWidth: '130px' }}>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+            Từ ngày
+          </label>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={e => {
+              setDateFrom(e.target.value);
+              setCurrentPage(1);
+            }}
+            style={{
+              width: '100%',
+              padding: '6px 10px',
+              borderRadius: 6,
+              border: '1px solid #cbd5e1',
+              fontSize: 12,
+            }}
+          />
+        </div>
+
+        <div style={{ minWidth: '130px' }}>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+            Đến ngày
+          </label>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={e => {
+              setDateTo(e.target.value);
+              setCurrentPage(1);
+            }}
+            style={{
+              width: '100%',
+              padding: '6px 10px',
+              borderRadius: 6,
+              border: '1px solid #cbd5e1',
+              fontSize: 12,
+            }}
+          />
+        </div>
+
+        <div style={{ minWidth: '150px' }}>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+            Sắp xếp thời gian
+          </label>
+          <select
+            value={sortOrder}
+            onChange={e => setSortOrder(e.target.value as 'desc' | 'asc')}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: 6,
+              border: '1px solid #cbd5e1',
+              fontSize: 13,
+              backgroundColor: '#FFF',
+              fontWeight: 600,
+            }}
+          >
+            <option value="desc">Mới nhất trước ↓</option>
+            <option value="asc">Cũ nhất trước ↑</option>
+          </select>
+        </div>
+
+        {(filterCode || filterStatus || filterLevel || dateFrom || dateTo || sortOrder !== 'desc') && (
+          <div style={{ alignSelf: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={resetFilters}
+              style={{
+                padding: '8px 14px',
+                borderRadius: 6,
+                border: '1px solid #cbd5e1',
+                backgroundColor: '#F8FAFC',
+                color: '#64748B',
+                fontSize: 12,
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              Đặt lại lọc
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="fud-table-wrapper" style={{ overflowX: 'auto' }}>
@@ -157,9 +365,11 @@ export const ViolationListPage: React.FC = () => {
                     {v.finalLevel || v.initialLevel || '—'}
                   </td>
                   <td style={{ padding: '10px' }}>
-                    <span style={{ display: 'inline-block', padding: '3px 8px', borderRadius: 9999, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
+                    <span style={{
+                      display: 'inline-block', padding: '3px 8px', borderRadius: 9999, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
                       backgroundColor: v.status === 'Recorded' ? '#fef3c7' : v.status === 'Finalized' ? '#fee2e2' : '#ecfdf5',
-                      color: v.status === 'Recorded' ? '#92400e' : v.status === 'Finalized' ? '#b91c1c' : '#047857' }}>
+                      color: v.status === 'Recorded' ? '#92400e' : v.status === 'Finalized' ? '#b91c1c' : '#047857'
+                    }}>
                       {VIOLATION_STATUS_VI[v.status] || v.status}
                     </span>
                   </td>
@@ -262,7 +472,7 @@ export const ViolationListPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setSelectedViolation(null)}
-                style={{ padding: '8px 18px', background: '#cbd5e1', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#1e293b' }}
+                style={{ padding: '8px 18px', background: '#000000ff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#1e293b' }}
               >
                 Đóng
               </button>

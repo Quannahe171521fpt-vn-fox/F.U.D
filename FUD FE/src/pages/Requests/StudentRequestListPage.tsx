@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { requestApi, type RequestItemDto } from '../../services/api';
 import { REQUEST_STATUS_LABELS, REQUEST_STATUS_COLORS, REQUEST_TYPE_LABELS, type DBRequestStatus } from './SubmitRequestPage';
 import { Pagination } from '../../components/Pagination';
+import { removeVietnameseTones } from '../../utils/textUtils';
 import '../../styles/violation.css';
 
 const PAGE_SIZE = 10;
@@ -16,6 +17,8 @@ export const StudentRequestListPage: React.FC<StudentRequestListPageProps> = ({ 
   const [errorMsg, setErrorMsg] = useState('');
   const [filterType, setFilterType] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedRequest, setSelectedRequest] = useState<RequestItemDto | null>(null);
 
@@ -56,7 +59,30 @@ export const StudentRequestListPage: React.FC<StudentRequestListPageProps> = ({ 
   const filteredRequests = requests.filter(r => {
     if (filterType && r.requestType !== filterType) return false;
     if (filterStatus && r.status !== filterStatus) return false;
+
+    if (searchTerm.trim()) {
+      const term = removeVietnameseTones(searchTerm);
+      const codeNorm = removeVietnameseTones(r.requestCode || '');
+      const typeLabelNorm = removeVietnameseTones(REQUEST_TYPE_LABELS[r.requestType as keyof typeof REQUEST_TYPE_LABELS] || r.requestType || '');
+      const reasonNorm = removeVietnameseTones(r.reason || '');
+      const roomNorm = removeVietnameseTones(r.roomInfo || '');
+      const statusLabelNorm = removeVietnameseTones(REQUEST_STATUS_LABELS[r.status as DBRequestStatus] || r.status || '');
+
+      const matches =
+        codeNorm.includes(term) ||
+        typeLabelNorm.includes(term) ||
+        reasonNorm.includes(term) ||
+        roomNorm.includes(term) ||
+        statusLabelNorm.includes(term);
+
+      if (!matches) return false;
+    }
+
     return true;
+  }).sort((a, b) => {
+    const timeA = new Date(a.createdTime).getTime();
+    const timeB = new Date(b.createdTime).getTime();
+    return sortOrder === 'desc' ? timeB - timeA : timeA - timeB;
   });
 
   const paginatedRequests = filteredRequests.slice(
@@ -172,6 +198,67 @@ export const StudentRequestListPage: React.FC<StudentRequestListPageProps> = ({ 
             ))}
           </select>
         </div>
+
+        <div style={{ flex: '1 1 200px', minWidth: '180px' }}>
+          <input
+            type="text"
+            placeholder="Tìm theo mã đơn, lý do, phòng, trạng thái..."
+            value={searchTerm}
+            onChange={e => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
+            style={{
+              width: '100%',
+              padding: '6px 10px',
+              borderRadius: '6px',
+              border: '1px solid #CBD5E1',
+              fontSize: '12px',
+            }}
+          />
+        </div>
+
+        <div style={{ minWidth: '145px' }}>
+          <select
+            value={sortOrder}
+            onChange={e => setSortOrder(e.target.value as 'desc' | 'asc')}
+            style={{
+              padding: '6px 10px',
+              borderRadius: '6px',
+              border: '1px solid #CBD5E1',
+              fontSize: '12px',
+              fontWeight: 600,
+              backgroundColor: '#FFF',
+            }}
+          >
+            <option value="desc">Mới nhất trước ↓</option>
+            <option value="asc">Cũ nhất trước ↑</option>
+          </select>
+        </div>
+
+        {(filterType || filterStatus || searchTerm || sortOrder !== 'desc') && (
+          <button
+            type="button"
+            onClick={() => {
+              setFilterType('');
+              setFilterStatus('');
+              setSearchTerm('');
+              setSortOrder('desc');
+              setCurrentPage(1);
+            }}
+            style={{
+              padding: '6px 12px',
+              background: '#F1F5F9',
+              border: '1px solid #CBD5E1',
+              borderRadius: '6px',
+              fontSize: '12px',
+              cursor: 'pointer',
+              color: '#64748B',
+            }}
+          >
+            Đặt lại lọc
+          </button>
+        )}
 
         <button
           type="button"

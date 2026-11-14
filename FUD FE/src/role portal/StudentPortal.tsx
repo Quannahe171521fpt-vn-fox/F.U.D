@@ -7,7 +7,7 @@ import { StudentRequestListPage } from '../pages/Requests/StudentRequestListPage
 import { AnnouncementsPage } from '../pages/Announcements/AnnouncementsPage';
 import { StudentCheckinRecordsPage } from '../pages/Checkin/StudentCheckinRecordsPage';
 import { StudentResidencyHistoryPage } from '../pages/Residency/StudentResidencyHistoryPage';
-import { newsApi } from '../services/api';
+import { newsApi, violationApi, requestApi } from '../services/api';
 import type { NewsItem } from '../types/management';
 import { useAuth } from '../contexts/AuthContext';
 import '../styles/management.css';
@@ -21,6 +21,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
   const { currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState<string>('profile');
   const [newsList, setNewsList] = useState<NewsItem[]>([]);
+  const [hasNewViolationNotice, setHasNewViolationNotice] = useState<boolean>(false);
+  const [hasNewAnnouncements, setHasNewAnnouncements] = useState<boolean>(false);
+  const [hasNewRequestUpdate, setHasNewRequestUpdate] = useState<boolean>(false);
 
   // Tải danh sách thông báo tin tức KTX
   useEffect(() => {
@@ -32,12 +35,73 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
           status: 'Published' as const,
         }));
         setNewsList(mapped);
+
+        // Kiểm tra xem có tin tức mới (trong 3 ngày gần nhất hoặc chưa xem)
+        const lastSeenNewsTime = localStorage.getItem(`lastSeenNews_${currentUser?.id || 'guest'}`);
+        if (data.length > 0) {
+          const latestNewsDate = new Date(data[0].createdTime || data[0].publishDate || 0).getTime();
+          if (!lastSeenNewsTime || latestNewsDate > Number(lastSeenNewsTime)) {
+            setHasNewAnnouncements(true);
+          }
+        }
       } catch (err) {
         console.error('Không thể tải tin tức:', err);
       }
     };
     loadNews();
-  }, []);
+  }, [currentUser?.id]);
+
+  // Kiểm tra thông báo vi phạm mới và cập nhật đơn từ
+  useEffect(() => {
+    const checkBadges = async () => {
+      try {
+        const [notices, requests] = await Promise.all([
+          violationApi.getStudentNotices().catch(() => []),
+          requestApi.getMyRequests().catch(() => []),
+        ]);
+
+        // Thông báo vi phạm: Có biên bản vi phạm mới (Recorded) và chưa đọc
+        const lastSeenNoticeTime = localStorage.getItem(`lastSeenNotice_${currentUser?.id || 'guest'}`);
+        const unhandledNotices = notices.filter((n: any) => {
+          if (n.status !== 'Recorded') return false;
+          const time = new Date(n.occurrenceTime || 0).getTime();
+          return !lastSeenNoticeTime || time > Number(lastSeenNoticeTime);
+        });
+        setHasNewViolationNotice(unhandledNotices.length > 0);
+
+        // Đơn từ: Có đơn được duyệt / từ chối gần đây hoặc đang có phản hồi
+        const lastSeenReqTime = localStorage.getItem(`lastSeenReq_${currentUser?.id || 'guest'}`);
+        const recentlyProcessed = requests.find((r: any) => {
+          if (r.status === 'Approved' || r.status === 'Rejected') {
+            const time = new Date(r.processedTime || r.createdTime).getTime();
+            return !lastSeenReqTime || time > Number(lastSeenReqTime);
+          }
+          return false;
+        });
+        setHasNewRequestUpdate(!!recentlyProcessed);
+      } catch (err) {
+        console.error('Lỗi khi kiểm tra thông báo sidebar:', err);
+      }
+    };
+
+    checkBadges();
+    const interval = setInterval(checkBadges, 10000);
+    return () => clearInterval(interval);
+  }, [currentUser?.id]);
+
+  const handleTabSelect = (tabId: string) => {
+    setActiveTab(tabId);
+    if (tabId === 'announcements') {
+      setHasNewAnnouncements(false);
+      localStorage.setItem(`lastSeenNews_${currentUser?.id || 'guest'}`, Date.now().toString());
+    } else if (tabId === 'request-list') {
+      setHasNewRequestUpdate(false);
+      localStorage.setItem(`lastSeenReq_${currentUser?.id || 'guest'}`, Date.now().toString());
+    } else if (tabId === 'notices') {
+      setHasNewViolationNotice(false);
+      localStorage.setItem(`lastSeenNotice_${currentUser?.id || 'guest'}`, Date.now().toString());
+    }
+  };
 
   // Menu bên trái dành cho Sinh viên
   const sidebarSections: SidebarSection[] = [
@@ -57,20 +121,20 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
     {
       label: 'THÔNG BÁO & TIN TỨC',
       items: [
-        { id: 'announcements', name: 'Bảng tin KTX' },
+        { id: 'announcements', name: 'Bảng tin KTX', showBadgeDot: hasNewAnnouncements },
       ],
     },
     {
       label: 'ĐƠN TỪ & YÊU CẦU',
       items: [
-        { id: 'request-list', name: 'Danh sách đơn từ' },
+        { id: 'request-list', name: 'Danh sách đơn từ', showBadgeDot: hasNewRequestUpdate },
         { id: 'submit-request', name: 'Gửi đơn yêu cầu' },
       ],
     },
     {
       label: 'KỶ LUẬT & NỘI QUY',
       items: [
-        { id: 'notices', name: 'Thông báo vi phạm' },
+        { id: 'notices', name: 'Thông báo vi phạm', showBadgeDot: hasNewViolationNotice },
         { id: 'history', name: 'Lịch sử vi phạm' },
       ],
     },
@@ -86,7 +150,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
         subText={currentUser?.fullName || 'Sinh viên KTX'}
         sections={sidebarSections}
         activeId={activeTab}
-        onSelect={(tabId) => setActiveTab(tabId)}
+        onSelect={handleTabSelect}
         onLogout={onLogout}
       />
 
@@ -106,7 +170,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
               gap: '14px',
             }}
           >
-            <span style={{ fontSize: '24px' }}>⚠️</span>
+            <span style={{ fontSize: '24px' }}></span>
             <div>
               <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '2px' }}>
                 Tài khoản đang trong diện ĐÌNH CHỈ NỘI TRÚ
@@ -237,7 +301,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <button
                   type="button"
-                  onClick={() => setActiveTab('notices')}
+                  onClick={() => handleTabSelect('notices')}
                   style={{
                     padding: '12px 16px',
                     backgroundColor: '#EA580C',

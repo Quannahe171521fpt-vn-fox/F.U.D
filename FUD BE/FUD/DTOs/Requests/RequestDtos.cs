@@ -54,6 +54,9 @@ namespace FUD.DTOs.Requests
         public int? ViolationId { get; set; }
         public string? ViolationCode { get; set; }
         public string? ViolationTypeName { get; set; }
+        public string? InitialLevel { get; set; }
+        public string? FinalLevel { get; set; }
+        public string? ViolationStatus { get; set; }
         public string Content { get; set; } = string.Empty;
         public string? ResolutionNote { get; set; }
         public List<string> Evidences { get; set; } = new List<string>();

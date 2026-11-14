@@ -11,7 +11,7 @@ import { ManagerRequestManagement } from '../pages/Requests/ManagerRequestManage
 import { EwManagement } from '../pages/FacilityManagement/EwManagement';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
 import type { NewsItem, EquipmentRecord, EquipmentCatalogItem } from '../types/management';
-import { equipmentApi, newsApi } from '../services/api';
+import { equipmentApi, newsApi, violationApi, requestApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
 export const ManagerPortal: React.FC = () => {
@@ -37,6 +37,55 @@ export const ManagerPortal: React.FC = () => {
   const [locationList, setLocationList] = useState<string[]>([]);
   const [newsList, setNewsList] = useState<NewsItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasPendingViolations, setHasPendingViolations] = useState(false);
+  const [hasPendingRequests, setHasPendingRequests] = useState(false);
+
+  // Polling thời gian thực kiểm tra biên bản vi phạm và đơn từ cần xử lý
+  useEffect(() => {
+    const checkPendingManagement = async () => {
+      try {
+        const [viols, reqs] = await Promise.all([
+          violationApi.getViolations().catch(() => []),
+          requestApi.getAll({ status: 'Pending' }).catch(() => []),
+        ]);
+        const lastSeenViolationsTime = Number(localStorage.getItem(`lastSeenManagerViols_${currentUser?.id || 'mgr'}`) || 0);
+        const lastSeenRequestsTime = Number(localStorage.getItem(`lastSeenManagerReqs_${currentUser?.id || 'mgr'}`) || 0);
+
+        // Có biên bản vi phạm mới ghi nhận cần định mức/xét duyệt VÀ mới hơn lần xem cuối
+        const unhandledViols = viols.filter((v: any) => {
+          if (v.status !== 'Recorded') return false;
+          const time = new Date(v.occurrenceTime || 0).getTime();
+          return !lastSeenViolationsTime || time > lastSeenViolationsTime;
+        });
+        setHasPendingViolations(unhandledViols.length > 0);
+
+        // Có đơn yêu cầu đang chờ duyệt VÀ mới hơn lần xem cuối
+        const pendingReqs = Array.isArray(reqs) ? reqs.filter((r: any) => {
+          if (r.status !== 'Pending') return false;
+          const time = new Date(r.createdTime || 0).getTime();
+          return !lastSeenRequestsTime || time > lastSeenRequestsTime;
+        }) : [];
+        setHasPendingRequests(pendingReqs.length > 0);
+      } catch (err) {
+        console.error('Lỗi khi kiểm tra thông báo vi phạm/đơn từ:', err);
+      }
+    };
+
+    checkPendingManagement();
+    const interval = setInterval(checkPendingManagement, 5000);
+    return () => clearInterval(interval);
+  }, [currentUser?.id]);
+
+  const handleSelectTab = (id: string) => {
+    setActiveTab(id as any);
+    if (id === 'violations') {
+      setHasPendingViolations(false);
+      localStorage.setItem(`lastSeenManagerViols_${currentUser?.id || 'mgr'}`, Date.now().toString());
+    } else if (id === 'requests') {
+      setHasPendingRequests(false);
+      localStorage.setItem(`lastSeenManagerReqs_${currentUser?.id || 'mgr'}`, Date.now().toString());
+    }
+  };
 
   // Fetch data from database via backend
   const loadData = useCallback(async () => {
@@ -292,16 +341,19 @@ export const ManagerPortal: React.FC = () => {
     },
     {
       label: 'QUẢN TRỊ VI PHẠM & ĐƠN TỪ',
+      showBadgeDot: hasPendingViolations || hasPendingRequests,
       items: [
         {
           id: 'violations',
           name: 'Quản lý vi phạm',
           counter: 'Thẩm định & Xử lý biên bản',
+          showBadgeDot: hasPendingViolations,
         },
         {
           id: 'requests',
           name: 'Xử lý đơn yêu cầu',
           counter: 'Kháng cáo, đổi phòng, trả phòng',
+          showBadgeDot: hasPendingRequests,
         },
       ],
     },
@@ -317,7 +369,7 @@ export const ManagerPortal: React.FC = () => {
         subText={currentUser?.fullName ? `${currentUser.fullName} (${currentUser.code})` : 'Cổng Ban Quản lý'}
         sections={managerSections}
         activeId={activeTab}
-        onSelect={(id) => setActiveTab(id as any)}
+        onSelect={handleSelectTab}
         onLogout={logout}
       />
 
