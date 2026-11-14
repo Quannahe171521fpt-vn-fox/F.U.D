@@ -8,6 +8,7 @@ import {
   type RoomItem,
 } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { removeVietnameseTones } from '../../utils/textUtils';
 import '../../styles/violation.css';
 
 interface RecordViolationPageProps {
@@ -331,12 +332,19 @@ export const RecordViolationPage: React.FC<RecordViolationPageProps> = ({ onBack
                   </td>
                 </tr>
               ) : (() => {
-                const term = searchMssv.trim().toLowerCase();
+                const term = searchMssv.trim();
+                const termNorm = removeVietnameseTones(term);
                 const displayed = term
-                  ? roomStudents.filter(s =>
-                      s.studentCode.toLowerCase().includes(term) ||
-                      s.fullName.toLowerCase().includes(term)
-                    )
+                  ? roomStudents.filter(s => {
+                      const codeNorm = removeVietnameseTones(s.studentCode || '');
+                      const nameNorm = removeVietnameseTones(s.fullName || '');
+                      return (
+                        s.studentCode.toLowerCase().includes(term.toLowerCase()) ||
+                        s.fullName.toLowerCase().includes(term.toLowerCase()) ||
+                        codeNorm.includes(termNorm) ||
+                        nameNorm.includes(termNorm)
+                      );
+                    })
                   : roomStudents;
                 return displayed.length === 0 ? (
                   <tr>

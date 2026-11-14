@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { NewsItem } from '../../types/management';
 import { Pagination } from '../../components/Pagination';
+import { removeVietnameseTones } from '../../utils/textUtils';
 
 interface NewsManagementProps {
   newsList: NewsItem[];
@@ -17,6 +18,10 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
 }) => {
   // Filters: All ("Tất cả"), Published ("Đã đăng"), Draft ("Đã ẩn / Bản nháp")
   const [filter, setFilter] = useState<'All' | 'Published' | 'Draft'>('All');
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [hasAttachmentFilter, setHasAttachmentFilter] = useState<'all' | 'yes' | 'no'>('all');
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -34,10 +39,50 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
   // File drag state
   const [isDragging, setIsDragging] = useState(false);
 
-  // Filtered news
+  // Helper parse dd/MM/yyyy to Date
+  const parseVNDate = (str?: string | null): Date | null => {
+    if (!str) return null;
+    const parts = str.split('/');
+    if (parts.length === 3) {
+      return new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+    }
+    const d = new Date(str);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  // Filtered news with advanced search (accent and unaccent)
   const filteredNews = newsList.filter((item) => {
-    if (filter === 'All') return true;
-    return item.status === filter;
+    if (filter !== 'All' && item.status !== filter) return false;
+
+    if (searchKeyword.trim()) {
+      const term = removeVietnameseTones(searchKeyword);
+      const titleNorm = removeVietnameseTones(item.title || '');
+      const contentNorm = removeVietnameseTones(item.content || '');
+      if (!titleNorm.includes(term) && !contentNorm.includes(term)) {
+        return false;
+      }
+    }
+
+    if (hasAttachmentFilter === 'yes' && (!item.attachments || item.attachments.length === 0)) {
+      return false;
+    }
+    if (hasAttachmentFilter === 'no' && item.attachments && item.attachments.length > 0) {
+      return false;
+    }
+
+    const itemDate = parseVNDate(item.publishedDate || item.createdDate);
+    if (dateFrom && itemDate) {
+      const from = new Date(dateFrom);
+      from.setHours(0, 0, 0, 0);
+      if (itemDate < from) return false;
+    }
+    if (dateTo && itemDate) {
+      const to = new Date(dateTo);
+      to.setHours(23, 59, 59, 999);
+      if (itemDate > to) return false;
+    }
+
+    return true;
   });
 
   // Calculate pagination
@@ -50,6 +95,15 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
 
   const handleFilterChange = (newFilter: 'All' | 'Published' | 'Draft') => {
     setFilter(newFilter);
+    setCurrentPage(1);
+  };
+
+  const handleResetFilters = () => {
+    setSearchKeyword('');
+    setDateFrom('');
+    setDateTo('');
+    setHasAttachmentFilter('all');
+    setFilter('All');
     setCurrentPage(1);
   };
 
@@ -220,6 +274,116 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
                 Đã ẩn / Bản nháp ({newsList.filter((n) => n.status === 'Draft').length})
               </button>
             </div>
+          </div>
+
+          {/* Advance Search Bar */}
+          <div
+            style={{
+              padding: '12px 18px',
+              backgroundColor: '#F8FAFC',
+              borderBottom: '1px solid #E2E8F0',
+              display: 'flex',
+              gap: '12px',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+            }}
+          >
+            <div style={{ flex: '1 1 240px', minWidth: '200px' }}>
+              <input
+                type="text"
+                placeholder="Tìm tiêu đề, nội dung (có dấu hoặc không dấu)..."
+                value={searchKeyword}
+                onChange={(e) => {
+                  setSearchKeyword(e.target.value);
+                  setCurrentPage(1);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '7px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid #CBD5E1',
+                  fontSize: '13px',
+                  outline: 'none',
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '12px', color: '#64748B', fontWeight: 600 }}>Tệp đính kèm:</span>
+              <select
+                value={hasAttachmentFilter}
+                onChange={(e) => {
+                  setHasAttachmentFilter(e.target.value as any);
+                  setCurrentPage(1);
+                }}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid #CBD5E1',
+                  fontSize: '12px',
+                  backgroundColor: '#FFF',
+                }}
+              >
+                <option value="all">Tất cả</option>
+                <option value="yes">Có đính kèm</option>
+                <option value="no">Không có đính kèm</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '12px', color: '#64748B', fontWeight: 600 }}>Từ ngày:</span>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => {
+                  setDateFrom(e.target.value);
+                  setCurrentPage(1);
+                }}
+                style={{
+                  padding: '5px 8px',
+                  borderRadius: '6px',
+                  border: '1px solid #CBD5E1',
+                  fontSize: '12px',
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '12px', color: '#64748B', fontWeight: 600 }}>Đến ngày:</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => {
+                  setDateTo(e.target.value);
+                  setCurrentPage(1);
+                }}
+                style={{
+                  padding: '5px 8px',
+                  borderRadius: '6px',
+                  border: '1px solid #CBD5E1',
+                  fontSize: '12px',
+                }}
+              />
+            </div>
+
+            {(searchKeyword || dateFrom || dateTo || hasAttachmentFilter !== 'all' || filter !== 'All') && (
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid #CBD5E1',
+                  backgroundColor: '#FFF',
+                  color: '#64748B',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Đặt lại
+              </button>
+            )}
           </div>
 
           <div className="table-responsive">

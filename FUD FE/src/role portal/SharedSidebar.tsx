@@ -4,6 +4,7 @@ export interface SidebarItem {
   id: string;
   name: string;
   counter?: string;
+  showBadgeDot?: boolean;
   pill?: {
     count: number | string;
     label: string;
@@ -14,6 +15,7 @@ export interface SidebarItem {
 export interface SidebarSection {
   label: string;
   items: SidebarItem[];
+  showBadgeDot?: boolean;
 }
 
 interface SharedSidebarProps {
@@ -76,7 +78,24 @@ export const SharedSidebar: React.FC<SharedSidebarProps> = ({
       <nav className={`sidebar-nav-list ${mobileMenuOpen ? 'mobile-visible' : ''}`}>
         {sections.map((sec, secIdx) => (
           <div key={secIdx} className="sidebar-section-group">
-            {sec.label && <div className="sidebar-nav-section-label">{sec.label}</div>}
+            {sec.label && (
+              <div className="sidebar-nav-section-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>{sec.label}</span>
+                {sec.showBadgeDot && (
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      width: '8px',
+                      height: '8px',
+                      borderRadius: '50%',
+                      backgroundColor: '#EF4444',
+                      boxShadow: '0 0 6px rgba(239, 68, 68, 0.8)',
+                    }}
+                    title="Có yêu cầu/vi phạm mới cần xử lý"
+                  />
+                )}
+              </div>
+            )}
             <div className="sidebar-section-items">
               {sec.items.map((item) => {
                 const isActive = activeId === item.id;
@@ -92,7 +111,22 @@ export const SharedSidebar: React.FC<SharedSidebarProps> = ({
                   >
                     <span className="nav-item-indicator"></span>
                     <div className="nav-item-content">
-                      <span className="nav-item-name">{item.name}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span className="nav-item-name">{item.name}</span>
+                        {item.showBadgeDot && (
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              width: '8px',
+                              height: '8px',
+                              borderRadius: '50%',
+                              backgroundColor: '#EF4444',
+                              boxShadow: '0 0 6px rgba(239, 68, 68, 0.8)',
+                            }}
+                            title="Có thông báo mới"
+                          />
+                        )}
+                      </div>
                       {item.counter && (
                         <span className="nav-item-counter">{item.counter}</span>
                       )}

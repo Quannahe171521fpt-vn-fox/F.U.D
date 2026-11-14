@@ -988,6 +988,9 @@ export interface RequestItemDto {
     violationId?: number;
     violationCode?: string;
     violationTypeName?: string;
+    initialLevel?: string;
+    finalLevel?: string;
+    violationStatus?: string;
     content: string;
     resolutionNote?: string;
     evidences: string[];

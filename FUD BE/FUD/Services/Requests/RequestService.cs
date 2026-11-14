@@ -121,6 +121,11 @@ namespace FUD.Services.Requests
                 req.RejectReason = dto.Note;
             }
 
+            if (req.ComplaintRequest != null)
+            {
+                req.ComplaintRequest.ResolutionNote = dto.Note;
+            }
+
             if (req.RequestType == "Complaint" && req.ComplaintRequest?.ViolationId != null)
             {
                 var violation = await _violationRepo.GetViolationByIdAsync(req.ComplaintRequest.ViolationId.Value);
@@ -247,6 +252,9 @@ namespace FUD.Services.Requests
                     ViolationId = req.ComplaintRequest.ViolationId,
                     ViolationCode = req.ComplaintRequest.Violation?.Code,
                     ViolationTypeName = req.ComplaintRequest.Violation?.ViolationType?.Name,
+                    InitialLevel = req.ComplaintRequest.Violation?.InitialLevel,
+                    FinalLevel = req.ComplaintRequest.Violation?.FinalLevel,
+                    ViolationStatus = req.ComplaintRequest.Violation?.Status,
                     Content = req.ComplaintRequest.Content,
                     ResolutionNote = req.ComplaintRequest.ResolutionNote,
                     Evidences = req.ComplaintRequest.ComplaintEvidences.Select(e => e.FileUrl).ToList()
