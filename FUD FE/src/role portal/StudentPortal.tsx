@@ -8,7 +8,6 @@ import { AnnouncementsPage } from '../pages/Announcements/AnnouncementsPage';
 import { StudentCheckinRecordsPage } from '../pages/Checkin/StudentCheckinRecordsPage';
 import { StudentResidencyHistoryPage } from '../pages/Residency/StudentResidencyHistoryPage';
 import { StudentEwUsagePage } from '../pages/Student/StudentEwUsagePage';
-import { newsApi } from '../services/api';
 import { newsApi, violationApi, requestApi } from '../services/api';
 import type { NewsItem } from '../types/management';
 import { useAuth } from '../contexts/AuthContext';
