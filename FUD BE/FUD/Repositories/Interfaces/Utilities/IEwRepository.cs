@@ -49,6 +49,10 @@ namespace FUD.Repositories.Interfaces.Utilities
         Task<InspectionRequest?> GetInspectionRequestByIdAsync(int id);
         Task UpdateInspectionRequestAsync(InspectionRequest request);
 
+        // ── Student EW Usage ────────────────────────────────────
+        Task<List<StudentTermOptionDto>> GetStudentTermsAsync(int studentUserId);
+        Task<StudentEwReportDto?> GetStudentEwReportAsync(int studentUserId, int? termId);
+
         Task SaveChangesAsync();
     }
 }

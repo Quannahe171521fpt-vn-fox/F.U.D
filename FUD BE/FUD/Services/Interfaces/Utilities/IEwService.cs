@@ -24,5 +24,9 @@ namespace FUD.Services.Interfaces.Utilities
         Task<List<ImportBatchItemDto>> GetImportBatchesAsync(int? billingPeriodId);
         Task<byte[]> GenerateExcelTemplateAsync(int? billingPeriodId, string? dormCode, string? meterType);
         byte[] GenerateExcelTemplate();
+
+        // ── Student EW Usage ────────────────────────────────────
+        Task<List<StudentTermOptionDto>> GetStudentTermsAsync(int studentUserId);
+        Task<StudentEwReportDto?> GetStudentEwReportAsync(int studentUserId, int? termId);
     }
 }
