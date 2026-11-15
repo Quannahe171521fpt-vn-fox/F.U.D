@@ -789,7 +789,7 @@ export const ManagerRequestManagement: React.FC = () => {
                             {bt.meterReadings.map((mr) => (
                               <div key={mr.id} style={{ background: '#FFFFFF', border: '1px solid #A7F3D0', borderRadius: 6, padding: 8 }}>
                                 <div style={{ fontWeight: 700, color: '#0F172A' }}>
-                                  {mr.meterType === 'Electricity' ? '⚡ Điện (kWh)' : '💧 Nước (m³)'}
+                                  {mr.meterType === 'Electricity' ? ' Điện (kWh)' : 'Nước (m³)'}
                                 </div>
                                 <div>Chỉ số: {mr.previousValue} → <strong>{mr.currentValue}</strong> (Dùng: {mr.consumption})</div>
                                 <div>Phí chia {mr.residentCount} SV: <strong style={{ color: '#0369A1' }}>{mr.studentShareCost.toLocaleString('vi-VN')} đ</strong></div>
@@ -954,7 +954,7 @@ export const ManagerRequestManagement: React.FC = () => {
                 {/* Cảnh báo rõ ràng cho Manager khi Reject đơn khiếu nại mà mức phạt là Đình chỉ */}
                 {selectedRequest.requestType === 'Complaint' && decision === 'Rejected' && (
                   <div style={{ marginBottom: 14, padding: '10px 14px', backgroundColor: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', color: '#991B1B', fontSize: '13px' }}>
-                     <strong>Lưu ý:</strong> Khi từ chối đơn khiếu nại (Reject), mức kết luận chính thức sẽ giữ nguyên mức ban đầu.
+                    <strong>Lưu ý:</strong> Khi từ chối đơn khiếu nại (Reject), mức kết luận chính thức sẽ giữ nguyên mức ban đầu.
                     Nếu mức ban đầu là <strong>Đình chỉ nội trú</strong>, hệ thống sẽ <strong>ngay lập tức Khóa quyền Book phòng & Giữ phòng</strong> của sinh viên (hoặc tự động khóa sau 24h nếu không có khiếu nại khác).
                   </div>
                 )}

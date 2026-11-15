@@ -29,9 +29,7 @@ export const RoomTypesSection: React.FC = () => {
 
       <div className="rooms-grid">
         {roomTypes.map((room: RoomType) => (
-          <div key={room.id} className={`room-card ${room.popular ? 'highlighted' : ''}`}>
-            {room.popular && <div className="popular-badge">Được lựa chọn nhiều nhất</div>}
-
+          <div key={room.id} className={`room-card ${room ? 'highlighted' : ''}`}>
             <div className="room-card-header">
               <h3 className="room-card-title">{room.name}</h3>
               <p className="room-card-desc">{room.description}</p>

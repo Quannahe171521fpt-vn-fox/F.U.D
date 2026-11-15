@@ -37,10 +37,40 @@ namespace FUD.DTOs.Pricing
         public string TermName { get; set; } = null!;
         public string AcademicYear { get; set; } = null!;
         public string Status { get; set; } = "Draft"; // Draft | Published
+        /// <summary>Trạng thái thực của học kỳ (theo ngày bắt đầu/kết thúc): Upcoming | Ongoing | Ended</summary>
+        public string TermStatus { get; set; } = "Upcoming";
         public bool IsRegistrationStarted { get; set; }
         public string RegistrationStatus { get; set; } = "Chưa bắt đầu"; // "Chưa bắt đầu" | "Đang mở đăng ký" | "Đã kết thúc"
         public DateTime? PublishedTime { get; set; }
         public List<PricingItemDto> Items { get; set; } = new();
+        public List<UtilityPriceDto> UtilityPrices { get; set; } = new();
+    }
+
+    public class UtilityPriceDto
+    {
+        public int? Id { get; set; }
+        public string MeterType { get; set; } = null!; // "Electricity" | "Water"
+        public decimal UnitPrice { get; set; }
+    }
+
+    public class SaveUtilityPricesRequestDto
+    {
+        [Required]
+        public int TermId { get; set; }
+
+        [Required]
+        [MinLength(1)]
+        public List<UtilityPriceItemInputDto> Items { get; set; } = new();
+    }
+
+    public class UtilityPriceItemInputDto
+    {
+        [Required]
+        public string MeterType { get; set; } = null!;
+
+        [Required]
+        [Range(1, double.MaxValue, ErrorMessage = "Giá phải là số lớn hơn 0")]
+        public decimal UnitPrice { get; set; }
     }
 
     public class UpdatePricingItemInputDto

@@ -8,7 +8,7 @@ namespace FUD.Services.Interfaces.Violations
         Task<List<RoomStudentDto>> GetStudentsByRoomAsync(int roomId);
         Task<RoomStudentDto?> SearchStudentByCodeAsync(string studentCode, int? currentRoomId = null);
         Task<List<ViolationItemDto>> RecordViolationsAsync(CreateViolationRequestDto request, int guardUserId);
-        Task<List<ViolationItemDto>> GetViolationsAsync(int? roomId = null, int? studentId = null, string? status = null);
+        Task<List<ViolationItemDto>> GetViolationsAsync(int? roomId = null, int? studentId = null, string? status = null, int? guardUserId = null);
         Task<ViolationItemDto?> GetViolationByIdAsync(int id);
         
         // UC19 & UC21

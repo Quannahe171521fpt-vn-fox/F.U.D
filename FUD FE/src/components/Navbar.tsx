@@ -75,20 +75,22 @@ export const Navbar: React.FC<NavbarProps> = ({
     <header className="navbar-container">
       <div className="navbar-inner">
         {/* Brand Logo - FUD Dormitory with Golden Frog Mascot */}
-        <a
-          href="#hero"
-          onClick={(e) => {
-            e.preventDefault();
-            onChangeView('home');
-            onNavigate('hero');
-          }}
-          className="navbar-logo-link"
-        >
-          <Logo />
-        </a>
+        <div className="navbar-left">
+          <a
+            href="#hero"
+            onClick={(e) => {
+              e.preventDefault();
+              onChangeView('home');
+              onNavigate('hero');
+            }}
+            className="navbar-logo-link"
+          >
+            <Logo />
+          </a>
+        </div>
 
         {/* Desktop Navigation Links */}
-        <nav className="navbar-nav">
+        <nav className="navbar-nav navbar-nav-center">
           <button
             type="button"
             onClick={() => {
@@ -147,7 +149,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             Giới thiệu
           </button>
+        </nav>
 
+        {/* Right Action: Login Button */}
+        <div className="navbar-right">
           <button
             type="button"
             onClick={onOpenLogin}
@@ -156,7 +161,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             Đăng nhập
           </button>
-        </nav>
+        </div>
 
         {/* Mobile Hamburger Button */}
         <button

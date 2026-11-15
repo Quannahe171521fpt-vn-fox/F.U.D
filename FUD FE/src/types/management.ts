@@ -60,10 +60,12 @@ export interface TermPricingData {
   termName: string;
   academicYear: string;
   status: string;
+  termStatus: string;        // "Upcoming" | "Ongoing" | "Ended"
   isRegistrationStarted: boolean;
   registrationStatus: string;
   publishedTime: string | null;
   items: PricingItem[];
+  utilityPrices: { id?: number; meterType: string; unitPrice: number }[];
 }
 
 export interface SavePricingPayload {

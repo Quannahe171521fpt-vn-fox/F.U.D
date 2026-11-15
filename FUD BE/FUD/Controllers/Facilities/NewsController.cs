@@ -1,4 +1,4 @@
-﻿using FUD.Common;
+using FUD.Common;
 using FUD.DTOs.Facilities.News;
 using FUD.Services.Interfaces.Facilities;
 using Microsoft.AspNetCore.Mvc;

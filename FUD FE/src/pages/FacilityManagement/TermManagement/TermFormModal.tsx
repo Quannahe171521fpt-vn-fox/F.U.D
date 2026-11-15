@@ -303,8 +303,8 @@ export const TermFormModal: React.FC<TermFormModalProps> = ({
                         {preset === 'Spring'
                           ? 'Spring (Xuân)'
                           : preset === 'Summer'
-                          ? 'Summer (Hè)'
-                          : 'Fall (Thu)'}
+                            ? 'Summer (Hè)'
+                            : 'Fall (Thu)'}
                       </button>
                     ))}
                   </div>
@@ -547,8 +547,8 @@ export const TermFormModal: React.FC<TermFormModalProps> = ({
               {saving
                 ? 'Đang lưu...'
                 : term
-                ? 'Lưu học kỳ & Lịch trình'
-                : 'Tạo học kỳ mới'}
+                  ? 'Lưu học kỳ & Lịch trình'
+                  : 'Tạo học kỳ mới'}
             </button>
           </div>
         </form>

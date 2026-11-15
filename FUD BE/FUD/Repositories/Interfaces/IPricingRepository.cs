@@ -12,6 +12,8 @@ namespace FUD.Repositories.Interfaces
         Task<List<RoomType>> GetAllRoomTypesAsync();
         Task<PriceList> CreatePriceListAsync(PriceList priceList);
         Task UpdatePriceItemsAsync(int priceListId, List<PriceItem> items);
+        Task<List<UtilityPriceDto>> GetUtilityPricesByTermIdAsync(int termId);
+        Task SaveUtilityPricesAsync(int termId, List<UtilityPrice> items);
         Task SaveChangesAsync();
     }
 }

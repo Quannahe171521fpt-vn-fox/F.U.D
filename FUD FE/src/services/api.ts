@@ -38,15 +38,26 @@ async function safeParseResponse<T = any>(res: Response, defaultError = 'Lỗi y
   if (res.status === 401) {
     throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
   }
-  if (res.status === 403) {
-    throw new Error('Bạn không có quyền truy cập chức năng này (Yêu cầu tài khoản Ban Quản lý hoặc Admin).');
-  }
 
   let text = '';
   try {
     text = await res.text();
   } catch {
     throw new Error(`${defaultError} (Mã lỗi: ${res.status})`);
+  }
+
+  let parsed: any = null;
+  if (text && text.trim()) {
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      // ignore
+    }
+  }
+
+  if (res.status === 403) {
+    const serverMsg = parsed?.message || (parsed?.errors && parsed.errors.join(', '));
+    throw new Error(serverMsg || 'Bạn không có quyền truy cập chức năng này (Yêu cầu tài khoản Ban Quản lý hoặc Admin).');
   }
 
   if (!text || !text.trim()) {
@@ -56,11 +67,10 @@ async function safeParseResponse<T = any>(res: Response, defaultError = 'Lỗi y
     return { success: true, message: '', data: null as any };
   }
 
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(`${defaultError} (Mã phản hồi: ${res.status})`);
+  if (parsed !== null) {
+    return parsed;
   }
+  throw new Error(`${defaultError} (Mã phản hồi: ${res.status})`);
 }
 
 // ── Equipment API (UC28) ──────────────────────────────────
@@ -370,6 +380,18 @@ export const pricingApi = {
     if (!res.ok || !json.success) {
       throw new Error(json.message || (json.errors && json.errors.join(', ')) || 'Lỗi khi lưu bảng giá');
     }
+    return json.data;
+  },
+
+  saveUtilityPrices: async (payload: { termId: number; items: { meterType: string; unitPrice: number }[] }) => {
+    const res = await authFetch(`${BASE_URL}/pricing/save-utility`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<any>(res, 'Lỗi khi lưu giá điện/nước');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Lỗi khi lưu giá điện/nước');
     return json.data;
   },
 };

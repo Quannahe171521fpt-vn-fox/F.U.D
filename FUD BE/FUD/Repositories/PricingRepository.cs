@@ -1,3 +1,4 @@
+using FUD.DTOs.Pricing;
 using FUD.Models;
 using FUD.Repositories.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -118,6 +119,29 @@ namespace FUD.Repositories
 
         public async Task SaveChangesAsync()
         {
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task<List<UtilityPriceDto>> GetUtilityPricesByTermIdAsync(int termId)
+        {
+            return await _context.UtilityPrices
+                .AsNoTracking()
+                .Where(u => u.TermId == termId)
+                .Select(u => new UtilityPriceDto { Id = u.Id, MeterType = u.MeterType, UnitPrice = u.UnitPrice })
+                .ToListAsync();
+        }
+
+        public async Task SaveUtilityPricesAsync(int termId, List<UtilityPrice> items)
+        {
+            var existing = await _context.UtilityPrices
+                .Where(u => u.TermId == termId).ToListAsync();
+
+            foreach (var item in items)
+            {
+                var found = existing.FirstOrDefault(e => e.MeterType == item.MeterType);
+                if (found != null) found.UnitPrice = item.UnitPrice;
+                else _context.UtilityPrices.Add(item);
+            }
             await _context.SaveChangesAsync();
         }
     }
