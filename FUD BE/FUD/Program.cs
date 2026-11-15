@@ -289,6 +289,7 @@ builder.Services.AddAuthorization(options =>
 
 
 // 8. Dependency Injection
+builder.Services.Configure<FUD.Settings.pattern.JwtSettings>(builder.Configuration.GetSection("Jwt"));
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { bookingApi, type BookingRequestManagerDto } from '../../services/api';
 import { Pagination } from '../../components/Pagination';
+import { useIdleAwarePolling } from '../../utils/useIdleAwarePolling';
 import '../../styles/booking.css';
 import '../../styles/violation.css';
 
@@ -23,16 +24,6 @@ export const ManagerBookingManagement: React.FC = () => {
   const [rejectReason, setRejectReason] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  useEffect(() => {
-    loadRequests(true);
-
-    const intervalId = setInterval(() => {
-      loadRequests(false);
-    }, 5000);
-
-    return () => clearInterval(intervalId);
-  }, [filterStatus]);
-
   const loadRequests = async (showLoadingIndicator = true) => {
     if (showLoadingIndicator) {
       setLoading(true);
@@ -51,6 +42,14 @@ export const ManagerBookingManagement: React.FC = () => {
       }
     }
   };
+
+  useEffect(() => {
+    loadRequests(true);
+  }, [filterStatus]);
+
+  useIdleAwarePolling(() => {
+    void loadRequests(false);
+  }, 5000);
 
   const handleApprove = async (id: number) => {
     if (!window.confirm('Bạn có chắc chắn muốn PHÊ DUYỆT đơn đặt phòng này? Hệ thống sẽ tạo hồ sơ lưu trú cho sinh viên.')) {

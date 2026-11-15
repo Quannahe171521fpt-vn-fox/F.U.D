@@ -31,7 +31,7 @@ public class AuthController : ControllerBase
         {
             var clientIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
             var result = await _authService.LoginWithCredentialsAsync(dto, clientIp);
-            SetRefreshTokenCookie(result.RawRefreshToken);
+            SetRefreshTokenCookie(result.RawRefreshToken, result.CookieExpiresAt);
             return Ok(ApiResponse<AuthResponseDto>.Ok(result.Response, "Đăng nhập thành công"));
         }
         catch (UnauthorizedAccessException ex)
@@ -53,7 +53,7 @@ public class AuthController : ControllerBase
         {
             var clientIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
             var result = await _authService.LoginWithGoogleAsync(dto, clientIp);
-            SetRefreshTokenCookie(result.RawRefreshToken);
+            SetRefreshTokenCookie(result.RawRefreshToken, result.CookieExpiresAt);
             return Ok(ApiResponse<AuthResponseDto>.Ok(result.Response, "Đăng nhập Google thành công"));
         }
         catch (UnauthorizedAccessException ex)
@@ -74,8 +74,11 @@ public class AuthController : ControllerBase
         {
             var clientIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
             var result = await _authService.RotateRefreshTokenAsync(rawRefreshToken, clientIp);
-            SetRefreshTokenCookie(result.RawRefreshToken);
-            return Ok(ApiResponse<object>.Ok(new { accessToken = result.AccessToken }));
+            if (!string.IsNullOrEmpty(result.RawRefreshToken) && result.CookieExpiresAt.HasValue)
+            {
+                SetRefreshTokenCookie(result.RawRefreshToken, result.CookieExpiresAt.Value);
+            }
+            return Ok(ApiResponse<RefreshResponseDto>.Ok(result.Response));
         }
         catch (UnauthorizedAccessException ex)
         {
@@ -112,23 +115,17 @@ public class AuthController : ControllerBase
         return Ok(ApiResponse<UserInfoDto>.Ok(userInfo));
     }
 
-    private void SetRefreshTokenCookie(string rawRefreshToken)
+    private void SetRefreshTokenCookie(string rawRefreshToken, DateTime expiresAt)
     {
-        Response.Cookies.Append("fud_refresh_token", rawRefreshToken, new CookieOptions
-        {
-            HttpOnly = true,
-            Secure = !HttpContext.Request.Host.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase),
-            SameSite = SameSiteMode.Lax,
-            Expires = DateTimeOffset.UtcNow.AddDays(7),
-            Path = "/api/auth"
-        });
+        Response.Cookies.Append("fud_refresh_token", rawRefreshToken, GetCookieOptions(expiresAt));
     }
 
-    private CookieOptions GetCookieOptions() => new()
+    private CookieOptions GetCookieOptions(DateTime? expires = null) => new()
     {
         HttpOnly = true,
-        Secure = !HttpContext.Request.Host.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase),
+        Secure = HttpContext.Request.IsHttps,
         SameSite = SameSiteMode.Lax,
-        Path = "/api/auth"
+        Path = "/api/auth",
+        Expires = expires.HasValue ? new DateTimeOffset(DateTime.SpecifyKind(expires.Value, DateTimeKind.Utc)) : null
     };
 }

@@ -7,9 +7,11 @@ using FUD.Infrastructure.Auth;
 using FUD.Models;
 using FUD.Repositories.Interfaces;
 using FUD.Services;
+using FUD.Settings.pattern;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
 
@@ -36,6 +38,16 @@ public class AuthServiceLoginTests
         _cacheMock = new Mock<IMemoryCache>();
         _loggerMock = new Mock<ILogger<AuthService>>();
 
+        var jwtOptions = Options.Create(new JwtSettings
+        {
+            Key = "test_secret_key_that_is_at_least_32_bytes_long",
+            Issuer = "FUD-API",
+            Audience = "FUD-Client",
+            AccessTokenExpirationMinutes = 15,
+            IdleTimeoutMinutes = 30,
+            AbsoluteSessionHours = 24
+        });
+
         _authService = new AuthService(
             _userRepoMock.Object,
             _refreshRepoMock.Object,
@@ -43,7 +55,8 @@ public class AuthServiceLoginTests
             _jwtGenMock.Object,
             _configMock.Object,
             _cacheMock.Object,
-            _loggerMock.Object);
+            _loggerMock.Object,
+            jwtOptions);
     }
 
     [Fact]
@@ -84,13 +97,18 @@ public class AuthServiceLoginTests
                         .Returns(Task.CompletedTask);
 
         // Act
+        var before = DateTime.UtcNow;
         var result = await _authService.LoginWithCredentialsAsync(dto, clientIp);
 
         // Assert
         result.Should().NotBeNull();
         result.RawRefreshToken.Should().Be("raw_refresh_token");
+        result.CookieExpiresAt.Should().BeCloseTo(before.AddMinutes(30), TimeSpan.FromSeconds(5));
         result.Response.AccessToken.Should().Be("fake_jwt_access_token");
         result.Response.TokenType.Should().Be("Bearer");
+        result.Response.ExpiresIn.Should().Be(900);
+        result.Response.IdleTimeoutMinutes.Should().Be(30);
+        result.Response.AbsoluteExpiresAt.Should().BeCloseTo(before.AddHours(24), TimeSpan.FromSeconds(5));
         result.Response.User.Id.Should().Be(user.Id);
         result.Response.User.Code.Should().Be("MGR001");
         result.Response.User.PrimaryRole.Should().Be("Manager");
@@ -99,7 +117,11 @@ public class AuthServiceLoginTests
         _refreshRepoMock.Verify(r => r.CreateAsync(It.Is<RefreshToken>(t =>
             t.UserId == user.Id &&
             t.TokenHash == "hash_refresh_token" &&
-            t.CreatedByIp == clientIp)), Times.Once);
+            t.CreatedByIp == clientIp &&
+            t.ExpiresAt >= before.AddMinutes(29) &&
+            t.ExpiresAt <= before.AddMinutes(31) &&
+            t.AbsoluteExpiresAt >= before.AddHours(23).AddMinutes(59) &&
+            t.AbsoluteExpiresAt <= before.AddHours(24).AddMinutes(1))), Times.Once);
     }
 
     [Fact]

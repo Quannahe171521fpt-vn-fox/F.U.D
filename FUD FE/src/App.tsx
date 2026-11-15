@@ -7,6 +7,7 @@ import { GuardPortal } from './role portal/GuardPortal';
 import { StudentPortal } from './role portal/StudentPortal';
 import { useAuth } from './contexts/AuthContext';
 import type { UserInfo } from './contexts/AuthContext';
+import { clearSessionStorage } from './services/sessionManager';
 // Pages split into dedicated folders
 import { HomePage } from './pages/Homepage/HomePage';
 import { ManagerPortal } from './role portal/ManagerPortal';
@@ -19,7 +20,7 @@ import './styles/dormitory.css';
 import './styles/management.css';
 
 export function App() {
-  const { currentUser, isLoading, logout: authLogout } = useAuth();
+  const { currentUser, isLoading, logout: authLogout, sessionMessage, clearSessionMessage } = useAuth();
 
   const [isLoginOpen, setIsLoginOpen] = useState(false);
 
@@ -95,43 +96,27 @@ export function App() {
       const role = currentUser.primaryRole;
       if (role === 'Admin') {
         setUserRole('manager');
-        if (currentView !== 'admin') {
-          setCurrentView('admin');
-        }
+        setCurrentView(prev => (prev !== 'admin' ? 'admin' : prev));
       } else if (role === 'Guard') {
         setUserRole('manager');
-        if (currentView !== 'guard') {
-          setCurrentView('guard');
-        }
+        setCurrentView(prev => (prev !== 'guard' ? 'guard' : prev));
       } else if (role === 'Manager') {
         setUserRole('manager');
-        if (currentView !== 'management') {
-          setCurrentView('management');
-        }
+        setCurrentView(prev => (prev !== 'management' ? 'management' : prev));
       } else {
         setUserRole('student');
-        if (currentView !== 'student') {
-          setCurrentView('student');
-        }
+        setCurrentView(prev => (prev !== 'student' ? 'student' : prev));
       }
     } else {
-      const token = localStorage.getItem('fud_accessToken');
-      if (!token) {
-        setUserRole('guest');
-        if (currentView !== 'home' && currentView !== 'announcements') {
-          setCurrentView('home');
-        }
-      }
+      setUserRole('guest');
+      setCurrentView(prev => (prev !== 'home' && prev !== 'announcements' ? 'home' : prev));
     }
   }, [currentUser, isLoading]);
 
   useEffect(() => {
     const onSessionExpired = () => {
-      const token = localStorage.getItem('fud_accessToken');
-      if (!token) {
-        setUserRole('guest');
-        setCurrentView('home');
-      }
+      setUserRole('guest');
+      setCurrentView('home');
     };
     window.addEventListener('fud:session-expired', onSessionExpired);
     return () => window.removeEventListener('fud:session-expired', onSessionExpired);
@@ -150,6 +135,7 @@ export function App() {
   };
 
   const handleLoginSuccess = (user: UserInfo) => {
+    clearSessionMessage();
     // Điều hướng trực tiếp theo role ngay khi login thành công
     const role = user.primaryRole;
     if (role === 'Admin') {
@@ -171,11 +157,10 @@ export function App() {
     await authLogout();
     setUserRole('guest');
     setCurrentView('home');
-    localStorage.removeItem('fud_userRole');
-    localStorage.removeItem('fud_currentView');
-    localStorage.removeItem('fud_accessToken');
-    localStorage.removeItem('fud_currentUser');
+    clearSessionStorage();
   };
+
+  const isRestoringSession = isLoading && Boolean(currentUser);
 
   return (
     <div className="dormitory-page-wrapper">
@@ -189,23 +174,89 @@ export function App() {
         onLogout={handleLogout}
       />
 
+      {sessionMessage && !currentUser && !isLoading && (
+        <div
+          role="alert"
+          style={{
+            background: '#FFF7ED',
+            borderBottom: '1px solid #FDBA74',
+            color: '#9A3412',
+            padding: '12px 24px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '16px',
+            flexWrap: 'wrap',
+            fontSize: '14px',
+          }}
+        >
+          <span>{sessionMessage}</span>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              type="button"
+              onClick={() => setIsLoginOpen(true)}
+              style={{
+                background: '#EA580C',
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '6px 12px',
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              Đăng nhập lại
+            </button>
+            <button
+              type="button"
+              onClick={clearSessionMessage}
+              style={{
+                background: 'transparent',
+                color: '#9A3412',
+                border: '1px solid #FDBA74',
+                borderRadius: '6px',
+                padding: '6px 12px',
+                cursor: 'pointer',
+              }}
+            >
+              Đóng
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isRestoringSession && (
+        <main
+          style={{
+            minHeight: '60vh',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#475569',
+            fontSize: '15px',
+          }}
+        >
+          Đang kiểm tra phiên đăng nhập...
+        </main>
+      )}
+
       {/* VIEW 0: Admin Portal (Trang quản trị hệ thống dành riêng cho Admin) */}
-      {currentView === 'admin' && (
+      {!isRestoringSession && currentView === 'admin' && (
         <AdminPortal onLogout={handleLogout} />
       )}
 
       {/* VIEW 0.5: Guard Portal (Trang nghiệp vụ dành riêng cho Bảo vệ) */}
-      {currentView === 'guard' && (
+      {!isRestoringSession && currentView === 'guard' && (
         <GuardPortal onLogout={handleLogout} />
       )}
 
       {/* VIEW 1: Dedicated Management Portal with Sidebar (Ban Quản lý) */}
-      {currentView === 'management' && (
+      {!isRestoringSession && currentView === 'management' && (
         <ManagerPortal />
       )}
 
       {/* VIEW 1.5: Student Portal (Cổng Sinh viên) */}
-      {currentView === 'student' && (
+      {!isRestoringSession && currentView === 'student' && (
         <StudentPortal
           onLogout={handleLogout}
           onOpenAnnouncements={() => setCurrentView('announcements')}

@@ -7,7 +7,17 @@ public class AuthResponseDto
     public string AccessToken { get; set; } = null!;
     public string TokenType { get; set; } = "Bearer";
     public int ExpiresIn { get; set; } = 900; // 15 phút (giây)
+    public int IdleTimeoutMinutes { get; set; } = 30;
+    public DateTime AbsoluteExpiresAt { get; set; }
     public UserInfoDto User { get; set; } = null!;
+}
+
+public class RefreshResponseDto
+{
+    public string AccessToken { get; set; } = null!;
+    public int ExpiresIn { get; set; } = 900;
+    public int IdleTimeoutMinutes { get; set; } = 30;
+    public DateTime AbsoluteExpiresAt { get; set; }
 }
 
 public class UserInfoDto

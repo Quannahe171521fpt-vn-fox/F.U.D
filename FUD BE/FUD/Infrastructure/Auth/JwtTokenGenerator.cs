@@ -5,20 +5,24 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using FUD.Models;
-using Microsoft.Extensions.Configuration;
+using FUD.Settings.pattern;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
 namespace FUD.Infrastructure.Auth;
 
 public class JwtTokenGenerator : IJwtTokenGenerator
 {
-    private readonly IConfiguration _config;
+    private readonly JwtSettings _jwtSettings;
     private readonly byte[] _keyBytes;
 
-    public JwtTokenGenerator(IConfiguration config)
+    public JwtTokenGenerator(IOptions<JwtSettings> jwtOptions)
     {
-        _config = config;
-        var keyStr = _config["Jwt:Key"] ?? throw new InvalidOperationException("Cấu hình 'Jwt:Key' không được để trống!");
+        _jwtSettings = jwtOptions.Value ?? throw new ArgumentNullException(nameof(jwtOptions));
+        if (string.IsNullOrWhiteSpace(_jwtSettings.Key))
+            throw new InvalidOperationException("Cấu hình 'Jwt:Key' không được để trống!");
+
+        var keyStr = _jwtSettings.Key;
         try
         {
             _keyBytes = Convert.FromBase64String(keyStr);
@@ -51,11 +55,17 @@ public class JwtTokenGenerator : IJwtTokenGenerator
         var key = new SymmetricSecurityKey(_keyBytes);
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
+        var accessMinutes = _jwtSettings.AccessTokenExpirationMinutes > 0
+            ? _jwtSettings.AccessTokenExpirationMinutes
+            : 15;
+        var issuer = string.IsNullOrWhiteSpace(_jwtSettings.Issuer) ? "FUD-API" : _jwtSettings.Issuer;
+        var audience = string.IsNullOrWhiteSpace(_jwtSettings.Audience) ? "FUD-Client" : _jwtSettings.Audience;
+
         var token = new JwtSecurityToken(
-            issuer: _config["Jwt:Issuer"] ?? "FUD-API",
-            audience: _config["Jwt:Audience"] ?? "FUD-Client",
+            issuer: issuer,
+            audience: audience,
             claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(15),
+            expires: DateTime.UtcNow.AddMinutes(accessMinutes),
             signingCredentials: creds
         );
 

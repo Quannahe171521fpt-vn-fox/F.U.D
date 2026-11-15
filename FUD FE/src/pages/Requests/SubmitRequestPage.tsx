@@ -7,6 +7,7 @@ import {
 } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatDateTime, formatDate } from '../../utils/dateUtils';
+import { useIdleAwarePolling } from '../../utils/useIdleAwarePolling';
 import '../../styles/violation.css';
 
 // ── Mapping chuẩn CHECK CONSTRAINT DB CSDL FUD ──────────────────
@@ -154,15 +155,6 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
     return () => clearInterval(tick);
   }, []);
 
-  // Polling mỗi 5 giây để đồng bộ danh sách biên bản có thể khiếu nại
-  useEffect(() => {
-    if (requestType !== 'Complaint') return;
-    const interval = setInterval(() => {
-      loadViolationsForAppeal();
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [requestType]);
-
   const loadViolationsForAppeal = async () => {
     try {
       const data = await violationApi.getStudentNotices();
@@ -184,6 +176,11 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
       // Ignore
     }
   };
+
+  // Polling mỗi 5 giây để đồng bộ danh sách biên bản có thể khiếu nại (tạm dừng khi ẩn tab hoặc idle)
+  useIdleAwarePolling(() => {
+    void loadViolationsForAppeal();
+  }, 5000, { enabled: requestType === 'Complaint', immediate: false });
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {

@@ -21,7 +21,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
   const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
   const [loginSuccess, setLoginSuccess] = useState(false);
   const [loggedInUser, setLoggedInUser] = useState<UserInfo | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -46,7 +45,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
               const data = await loginWithGoogle(response.credential);
               setLoggedInUser(data.user);
               setLoginSuccess(true);
-              authLoginSuccess(data.accessToken, data.user);
+              authLoginSuccess(data.accessToken, data.user, {
+                idleTimeoutMinutes: data.idleTimeoutMinutes,
+                absoluteExpiresAt: data.absoluteExpiresAt,
+              });
               setTimeout(() => {
                 setLoginSuccess(false);
                 setLoggedInUser(null);
@@ -101,7 +103,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
       const data = await loginWithCredentials(cleanAccount, password);
       setLoggedInUser(data.user);
       setLoginSuccess(true);
-      authLoginSuccess(data.accessToken, data.user);
+      authLoginSuccess(data.accessToken, data.user, {
+        idleTimeoutMinutes: data.idleTimeoutMinutes,
+        absoluteExpiresAt: data.absoluteExpiresAt,
+      });
       setTimeout(() => {
         setLoginSuccess(false);
         setLoggedInUser(null);
@@ -232,18 +237,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
               />
             </div>
 
-            <div className="login-options-row">
-              <label className="checkbox-container">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                />
-                <span>Ghi nhớ đăng nhập</span>
-              </label>
+            <div className="login-options-row" style={{ justifyContent: 'flex-end' }}>
               <a href="#forgot" onClick={(e) => { e.preventDefault(); alert('Vui lòng liên hệ Quản trị viên IT để cấp lại mật khẩu.'); }} className="forgot-link">
                 Quên mật khẩu?
               </a>
+            </div>
+
+            <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '12px', lineHeight: 1.5 }}>
+              Phiên đăng nhập tự động kết thúc sau 30 phút không thao tác hoặc tối đa 24 giờ.
             </div>
 
             <button type="submit" className="login-submit-btn" disabled={isSubmitting}>
