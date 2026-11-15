@@ -965,6 +965,92 @@ export const roomApi = {
   },
 };
 
+// ── Bed Management API ─────────────────────────────────────
+export interface BedDto {
+  id: number;
+  roomId: number;
+  roomNumber: string;
+  blockName: string;
+  bedCode: string;
+  positionInRoom?: string;
+  status: string; // 'Free' | 'Holding' | 'Pending Transfer' | 'Occupied' | 'Maintenance'
+}
+
+export interface BedQuery {
+  roomId?: number;
+  bedCode?: string;
+  status?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface CreateBedPayload {
+  roomId: number;
+  bedCode: string;
+  positionInRoom?: string;
+}
+
+export interface UpdateBedPayload {
+  bedCode: string;
+  positionInRoom?: string;
+}
+
+export const bedApi = {
+  getAll: async (params?: BedQuery): Promise<PagedResult<BedDto>> => {
+    const query = new URLSearchParams();
+    if (params?.roomId) query.append('roomId', params.roomId.toString());
+    if (params?.bedCode) query.append('bedCode', params.bedCode);
+    if (params?.status && params.status !== 'All') query.append('status', params.status);
+    if (params?.page) query.append('page', params.page.toString());
+    if (params?.pageSize) query.append('pageSize', params.pageSize.toString());
+
+    const res = await authFetch(`${BASE_URL}/beds?${query.toString()}`);
+    const json = await safeParseResponse<PagedResult<BedDto>>(res, 'Không thể tải danh sách giường');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải danh sách giường');
+    return json.data;
+  },
+
+  getById: async (id: number): Promise<BedDto> => {
+    const res = await authFetch(`${BASE_URL}/beds/${id}`);
+    const json = await safeParseResponse<BedDto>(res, 'Không thể tải thông tin giường');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải thông tin giường');
+    return json.data;
+  },
+
+  create: async (payload: CreateBedPayload): Promise<BedDto> => {
+    const res = await authFetch(`${BASE_URL}/beds`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<BedDto>(res, 'Lỗi khi tạo giường');
+    if (!res.ok || !json.success) throw new Error(json.message || (json.errors?.join(', ')) || 'Lỗi khi tạo giường');
+    return json.data;
+  },
+
+  update: async (id: number, payload: UpdateBedPayload): Promise<BedDto> => {
+    const res = await authFetch(`${BASE_URL}/beds/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<BedDto>(res, 'Lỗi khi cập nhật giường');
+    if (!res.ok || !json.success) throw new Error(json.message || (json.errors?.join(', ')) || 'Lỗi khi cập nhật giường');
+    return json.data;
+  },
+
+  updateStatus: async (id: number, status: 'Free' | 'Maintenance'): Promise<BedDto> => {
+    const res = await authFetch(`${BASE_URL}/beds/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    const json = await safeParseResponse<BedDto>(res, 'Lỗi khi đổi trạng thái giường');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Lỗi khi đổi trạng thái giường');
+    return json.data;
+  },
+};
+
 
 // ── Requests API (Booking, BedTransfer, Checkout, Complaint, Others) ───────────
 export interface RequestItemDto {

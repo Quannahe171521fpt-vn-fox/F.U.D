@@ -6,6 +6,7 @@ import { TermManagement } from '../pages/FacilityManagement/TermManagement/TermM
 import { DormManagement } from '../pages/FacilityManagement/DormManagement';
 import { BlockManagement } from '../pages/FacilityManagement/BlockManagement';
 import { RoomManagement } from '../pages/FacilityManagement/RoomManagement';
+import { BedManagement } from '../pages/FacilityManagement/BedManagement';
 import { ManagerViolationManagement } from '../pages/Violations/ManagerViolationManagement';
 import { ManagerRequestManagement } from '../pages/Requests/ManagerRequestManagement';
 import { EwManagement } from '../pages/FacilityManagement/EwManagement';
@@ -18,8 +19,8 @@ export const ManagerPortal: React.FC = () => {
   const { currentUser, logout } = useAuth();
 
   // Sidebar navigation tabs
-  const [activeTab, setActiveTab] = useState<'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'blocks' | 'rooms' | 'requests' | 'ew'>(() => {
-    return (localStorage.getItem('fud_managerTab') as 'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'blocks' | 'rooms' | 'requests' | 'ew') || 'terms';
+  const [activeTab, setActiveTab] = useState<'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'blocks' | 'rooms' | 'beds' | 'requests' | 'ew'>(() => {
+    return (localStorage.getItem('fud_managerTab') as 'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'blocks' | 'rooms' | 'beds' | 'requests' | 'ew') || 'terms';
   });
   const [pricingTargetTermId, setPricingTargetTermId] = useState<number | null>(null);
   const handleGoToPricing = (termId: number) => {
@@ -324,7 +325,12 @@ export const ManagerPortal: React.FC = () => {
         {
           id: 'rooms',
           name: 'Quản lý Phòng',
-          counter: 'Phòng & Giường',
+          counter: 'Phòng',
+        },
+        {
+          id: 'beds',
+          name: 'Quản lý Giường',
+          counter: 'Danh sách giường',
         },
         {
           id: 'equipment',
@@ -406,6 +412,8 @@ export const ManagerPortal: React.FC = () => {
           <BlockManagement />
         ) : activeTab === 'rooms' ? (
           <RoomManagement />
+        ) : activeTab === 'beds' ? (
+          <BedManagement />
         ) : activeTab === 'requests' ? (
           <ManagerRequestManagement />
         ) : activeTab === 'ew' ? (
