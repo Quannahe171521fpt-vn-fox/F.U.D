@@ -1,5 +1,14 @@
 import { authFetch, setAccessToken } from './apiClient';
 
+async function parseAuthResponse(res: Response, defaultMsg: string) {
+  const text = await res.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`${defaultMsg} (HTTP ${res.status})`);
+  }
+}
+
 export async function loginWithCredentials(account: string, password: string) {
   const res = await fetch('/api/auth/login', {
     method: 'POST',
@@ -8,7 +17,7 @@ export async function loginWithCredentials(account: string, password: string) {
     body: JSON.stringify({ account, password }),
   });
 
-  const json = await res.json();
+  const json = await parseAuthResponse(res, 'Lỗi máy chủ khi đăng nhập');
   if (!res.ok) throw new Error(json.message || 'Đăng nhập thất bại');
   setAccessToken(json.data.accessToken);
   return json.data;
@@ -22,7 +31,7 @@ export async function loginWithGoogle(idToken: string) {
     body: JSON.stringify({ idToken }),
   });
 
-  const json = await res.json();
+  const json = await parseAuthResponse(res, 'Lỗi máy chủ khi đăng nhập Google');
   if (!res.ok) throw new Error(json.message || 'Đăng nhập Google thất bại');
   setAccessToken(json.data.accessToken);
   return json.data;

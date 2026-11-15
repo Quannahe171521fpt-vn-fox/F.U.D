@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
 import { StudentViolationNoticesPage } from '../pages/Violations/StudentViolationNoticesPage';
 import { StudentViolationHistoryPage } from '../pages/Violations/StudentViolationHistoryPage';
@@ -7,6 +7,7 @@ import { StudentRequestListPage } from '../pages/Requests/StudentRequestListPage
 import { AnnouncementsPage } from '../pages/Announcements/AnnouncementsPage';
 import { StudentCheckinRecordsPage } from '../pages/Checkin/StudentCheckinRecordsPage';
 import { StudentResidencyHistoryPage } from '../pages/Residency/StudentResidencyHistoryPage';
+import { StudentKeepingPage } from '../pages/Keeping/StudentKeepingPage';
 import { newsApi } from '../services/api';
 import type { NewsItem } from '../types/management';
 import { useAuth } from '../contexts/AuthContext';
@@ -50,6 +51,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
     {
       label: 'NỘI TRÚ & PHÒNG Ở',
       items: [
+        { id: 'keeping', name: 'Giữ phòng kỳ tiếp' },
         { id: 'residency-history', name: 'Lịch sử lưu trú' },
         { id: 'checkin-records', name: 'Biên bản nhận phòng' },
       ],
@@ -136,6 +138,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
         {activeTab === 'submit-request' && (
           <SubmitRequestPage onSubmitted={() => setActiveTab('request-list')} />
         )}
+
+        {activeTab === 'keeping' && <StudentKeepingPage />}
 
         {activeTab === 'residency-history' && (
           <StudentResidencyHistoryPage
@@ -345,3 +349,4 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
     </div>
   );
 };
+
