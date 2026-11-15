@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
 import { StudentViolationNoticesPage } from '../pages/Violations/StudentViolationNoticesPage';
 import { StudentViolationHistoryPage } from '../pages/Violations/StudentViolationHistoryPage';
@@ -8,7 +8,6 @@ import { AnnouncementsPage } from '../pages/Announcements/AnnouncementsPage';
 import { StudentCheckinRecordsPage } from '../pages/Checkin/StudentCheckinRecordsPage';
 import { StudentResidencyHistoryPage } from '../pages/Residency/StudentResidencyHistoryPage';
 import { StudentKeepingPage } from '../pages/Keeping/StudentKeepingPage';
-import { newsApi } from '../services/api';
 import { newsApi, violationApi, requestApi, bookingApi } from '../services/api';
 import { BookingPage } from '../pages/Booking/BookingPage';
 import { StudentEwUsagePage } from '../pages/Student/StudentEwUsagePage';

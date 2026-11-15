@@ -2089,6 +2089,8 @@ export const keepingApi = {
 
   getById: (id: number) =>
     keepingRequest<KeepingRequestResult>(`${BASE_URL}/keeping/requests/${id}`, undefined, 'Không thể tải yêu cầu giữ phòng'),
+};
+
 // ── Booking Room API ──────────────────────────────────────
 export interface BookingEligibilityDto {
   eligible: boolean;
