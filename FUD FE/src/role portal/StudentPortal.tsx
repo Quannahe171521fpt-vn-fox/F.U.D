@@ -7,7 +7,8 @@ import { StudentRequestListPage } from '../pages/Requests/StudentRequestListPage
 import { AnnouncementsPage } from '../pages/Announcements/AnnouncementsPage';
 import { StudentCheckinRecordsPage } from '../pages/Checkin/StudentCheckinRecordsPage';
 import { StudentResidencyHistoryPage } from '../pages/Residency/StudentResidencyHistoryPage';
-import { newsApi, violationApi, requestApi } from '../services/api';
+import { newsApi, violationApi, requestApi, bookingApi } from '../services/api';
+import { BookingPage } from '../pages/Booking/BookingPage';
 import type { NewsItem } from '../types/management';
 import { useAuth } from '../contexts/AuthContext';
 import '../styles/management.css';
@@ -24,6 +25,22 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
   const [hasNewViolationNotice, setHasNewViolationNotice] = useState<boolean>(false);
   const [hasNewAnnouncements, setHasNewAnnouncements] = useState<boolean>(false);
   const [hasNewRequestUpdate, setHasNewRequestUpdate] = useState<boolean>(false);
+  const [isBookingOpen, setIsBookingOpen] = useState<boolean>(false);
+
+  // Kiểm tra thời gian mở cổng đặt phòng (Booking)
+  useEffect(() => {
+    const checkBooking = async () => {
+      try {
+        const elig = await bookingApi.getEligibility();
+        setIsBookingOpen(elig.isBookingPeriodOpen);
+      } catch {
+        setIsBookingOpen(false);
+      }
+    };
+    checkBooking();
+    const interval = setInterval(checkBooking, 15000);
+    return () => clearInterval(interval);
+  }, [currentUser?.id]);
 
   // Tải danh sách thông báo tin tức KTX
   useEffect(() => {
@@ -114,6 +131,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
     {
       label: 'NỘI TRÚ & PHÒNG Ở',
       items: [
+        { id: 'booking', name: 'Đặt phòng KTX', showBadgeDot: isBookingOpen },
         { id: 'residency-history', name: 'Lịch sử lưu trú' },
         { id: 'checkin-records', name: 'Biên bản nhận phòng' },
       ],
@@ -181,6 +199,10 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
               </div>
             </div>
           </div>
+        )}
+
+        {activeTab === 'booking' && (
+          <BookingPage onGoToRequests={() => setActiveTab('request-list')} />
         )}
 
         {activeTab === 'notices' && (
@@ -298,6 +320,50 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
                 <div><strong>Vai trò hệ thống:</strong> Sinh viên (Student)</div>
               </div>
 
+              {isBookingOpen && (
+                <div
+                  style={{
+                    marginBottom: 20,
+                    padding: '16px 20px',
+                    backgroundColor: '#FFF7ED',
+                    border: '1.5px solid #F97316',
+                    borderRadius: '10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '15px', color: '#9A3412', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span>🛏️</span> Cổng Đặt phòng KTX đang mở!
+                    </div>
+                    <div style={{ fontSize: '13px', color: '#C2410C', marginTop: 2 }}>
+                      Đang trong thời gian đăng ký chỗ ở Ký túc xá cho học kỳ mới.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('booking')}
+                    style={{
+                      padding: '10px 20px',
+                      backgroundColor: '#EA580C',
+                      color: '#FFFFFF',
+                      border: 'none',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 8px rgba(234, 88, 12, 0.35)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <span>🛏️</span> Booking now
+                  </button>
+                </div>
+              )}
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <button
                   type="button"
@@ -342,6 +408,27 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: 12 }}>
                 <button
                   type="button"
+                  onClick={() => setActiveTab('booking')}
+                  style={{
+                    padding: '12px 16px',
+                    backgroundColor: isBookingOpen ? '#EA580C' : '#FFF7ED',
+                    color: isBookingOpen ? '#FFFFFF' : '#C2410C',
+                    border: isBookingOpen ? 'none' : '1px solid #FDBA74',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span>🛏️</span> {isBookingOpen ? 'Booking now (Đang mở)' : 'Đặt phòng KTX'}
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setActiveTab('residency-history')}
                   style={{
                     padding: '12px 16px',
@@ -360,11 +447,14 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
                 >
                   <span>🏠</span> Xem Lịch sử lưu trú
                 </button>
+              </div>
 
+              <div style={{ marginTop: 12 }}>
                 <button
                   type="button"
                   onClick={() => setActiveTab('checkin-records')}
                   style={{
+                    width: '100%',
                     padding: '12px 16px',
                     backgroundColor: '#FFF7ED',
                     color: '#C2410C',

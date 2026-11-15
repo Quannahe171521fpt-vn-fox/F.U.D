@@ -1936,3 +1936,157 @@ export const accountApi = {
   restore: (id: number, payload: { reason?: string }) =>
     adminAccountRequest<AccountItem>(`${BASE_URL}/admin/users/${id}/restore`, jsonInit('POST', payload), 'Lỗi khi khôi phục tài khoản'),
 };
+
+// ── Booking Room API ──────────────────────────────────────
+export interface BookingEligibilityDto {
+  eligible: boolean;
+  ineligibleReason?: string;
+  isBookingPeriodOpen: boolean;
+  periodStart?: string;
+  periodEnd?: string;
+  nextTermId?: number;
+  nextTermName?: string;
+  studentGender?: string;
+  currentBooking?: BookingRequestItemDto;
+}
+
+export interface BookingAvailableDormDto {
+  dormId: number;
+  dormName: string;
+  dormCode: string;
+  totalAvailableBeds: number;
+}
+
+export interface BookingAvailableBlockDto {
+  blockId: number;
+  blockName: string;
+  blockCode: string;
+  genderType: string;
+  dormId: number;
+  totalAvailableBeds: number;
+}
+
+export interface BookingAvailableRoomDto {
+  roomId: number;
+  roomNumber: string;
+  floorLevel?: number;
+  roomTypeId: number;
+  roomTypeName: string;
+  bedCapacity: number;
+  freeBeds: number;
+  blockId: number;
+}
+
+export interface BookingAvailableBedDto {
+  bedId: number;
+  bedCode: string;
+  positionInRoom?: string;
+  roomId: number;
+  roomNumber: string;
+  termPrice?: number;
+}
+
+export interface BookingRequestItemDto {
+  requestId: number;
+  status: string;
+  bedId: number;
+  bedCode: string;
+  roomNumber: string;
+  blockName: string;
+  dormName: string;
+  termId: number;
+  termName: string;
+  termPrice?: number;
+  createdTime: string;
+  paymentDeadline: string;
+  agreementToRegulations: boolean;
+  rejectReason?: string;
+}
+
+export interface BookingRequestManagerDto {
+  id: number;
+  studentId: number;
+  studentCode: string;
+  studentName: string;
+  studentGender: string;
+  bedId: number;
+  bedCode: string;
+  roomNumber: string;
+  blockName: string;
+  dormName: string;
+  termId: number;
+  termName: string;
+  termPrice?: number;
+  status: string;
+  createdTime: string;
+  processedTime?: string;
+  processedByName?: string;
+  rejectReason?: string;
+}
+
+export const bookingApi = {
+  getEligibility: async (): Promise<BookingEligibilityDto> => {
+    const res = await authFetch(`${BASE_URL}/booking/eligibility`);
+    const json = await safeParseResponse<BookingEligibilityDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể kiểm tra điều kiện đặt phòng');
+    return json.data;
+  },
+
+  getAvailableDorms: async (): Promise<BookingAvailableDormDto[]> => {
+    const res = await authFetch(`${BASE_URL}/booking/available-dorms`);
+    const json = await safeParseResponse<BookingAvailableDormDto[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải danh sách tòa KTX');
+    return json.data || [];
+  },
+
+  getAvailableBlocks: async (dormId: number): Promise<BookingAvailableBlockDto[]> => {
+    const res = await authFetch(`${BASE_URL}/booking/available-blocks?dormId=${dormId}`);
+    const json = await safeParseResponse<BookingAvailableBlockDto[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải danh sách Block');
+    return json.data || [];
+  },
+
+  getAvailableRooms: async (blockId: number): Promise<BookingAvailableRoomDto[]> => {
+    const res = await authFetch(`${BASE_URL}/booking/available-rooms?blockId=${blockId}`);
+    const json = await safeParseResponse<BookingAvailableRoomDto[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải danh sách phòng');
+    return json.data || [];
+  },
+
+  getAvailableBeds: async (roomId: number): Promise<BookingAvailableBedDto[]> => {
+    const res = await authFetch(`${BASE_URL}/booking/available-beds?roomId=${roomId}`);
+    const json = await safeParseResponse<BookingAvailableBedDto[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải danh sách giường');
+    return json.data || [];
+  },
+
+  createBooking: async (payload: { bedId: number; agreementToRegulations: boolean }): Promise<BookingRequestItemDto> => {
+    const res = await authFetch(`${BASE_URL}/booking/requests`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<BookingRequestItemDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Lỗi khi gửi yêu cầu đặt phòng');
+    return json.data;
+  },
+
+  getManagerRequests: async (status?: string): Promise<BookingRequestManagerDto[]> => {
+    const query = status && status !== 'All' ? `?status=${status}` : '';
+    const res = await authFetch(`${BASE_URL}/booking/manager/requests${query}`);
+    const json = await safeParseResponse<BookingRequestManagerDto[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải danh sách đơn đặt phòng');
+    return json.data || [];
+  },
+
+  processBooking: async (id: number, decision: 'Approved' | 'Rejected', rejectReason?: string): Promise<BookingRequestManagerDto> => {
+    const res = await authFetch(`${BASE_URL}/booking/manager/requests/${id}/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision, rejectReason }),
+    });
+    const json = await safeParseResponse<BookingRequestManagerDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể xử lý đơn đặt phòng');
+    return json.data;
+  },
+};

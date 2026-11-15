@@ -16,6 +16,7 @@ public class UserInfoDto
     public string Code { get; set; } = null!;
     public string FullName { get; set; } = null!;
     public string Email { get; set; } = null!;
+    public string? Gender { get; set; }
     public string PrimaryRole { get; set; } = null!;
     public List<string> Roles { get; set; } = new();
     public string AccountStatus { get; set; } = "Active";

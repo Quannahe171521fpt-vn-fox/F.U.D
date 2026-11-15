@@ -9,18 +9,19 @@ import { RoomManagement } from '../pages/FacilityManagement/RoomManagement';
 import { BedManagement } from '../pages/FacilityManagement/BedManagement';
 import { ManagerViolationManagement } from '../pages/Violations/ManagerViolationManagement';
 import { ManagerRequestManagement } from '../pages/Requests/ManagerRequestManagement';
+import { ManagerBookingManagement } from '../pages/Booking/ManagerBookingManagement';
 import { EwManagement } from '../pages/FacilityManagement/EwManagement';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
 import type { NewsItem, EquipmentRecord, EquipmentCatalogItem } from '../types/management';
-import { equipmentApi, newsApi, violationApi, requestApi } from '../services/api';
+import { equipmentApi, newsApi, violationApi, requestApi, bookingApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
 export const ManagerPortal: React.FC = () => {
   const { currentUser, logout } = useAuth();
 
   // Sidebar navigation tabs
-  const [activeTab, setActiveTab] = useState<'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'blocks' | 'rooms' | 'beds' | 'requests' | 'ew'>(() => {
-    return (localStorage.getItem('fud_managerTab') as 'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'blocks' | 'rooms' | 'beds' | 'requests' | 'ew') || 'terms';
+  const [activeTab, setActiveTab] = useState<'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'blocks' | 'rooms' | 'beds' | 'requests' | 'ew' | 'bookings'>(() => {
+    return (localStorage.getItem('fud_managerTab') as any) || 'terms';
   });
   const [pricingTargetTermId, setPricingTargetTermId] = useState<number | null>(null);
   const handleGoToPricing = (termId: number) => {
@@ -40,17 +41,20 @@ export const ManagerPortal: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [hasPendingViolations, setHasPendingViolations] = useState(false);
   const [hasPendingRequests, setHasPendingRequests] = useState(false);
+  const [hasPendingBookings, setHasPendingBookings] = useState(false);
 
-  // Polling thời gian thực kiểm tra biên bản vi phạm và đơn từ cần xử lý
+  // Polling thời gian thực kiểm tra biên bản vi phạm, đơn từ và đơn đặt phòng cần xử lý
   useEffect(() => {
     const checkPendingManagement = async () => {
       try {
-        const [viols, reqs] = await Promise.all([
+        const [viols, reqs, bookings] = await Promise.all([
           violationApi.getViolations().catch(() => []),
           requestApi.getAll({ status: 'Pending' }).catch(() => []),
+          bookingApi.getManagerRequests('Pending').catch(() => []),
         ]);
         const lastSeenViolationsTime = Number(localStorage.getItem(`lastSeenManagerViols_${currentUser?.id || 'mgr'}`) || 0);
         const lastSeenRequestsTime = Number(localStorage.getItem(`lastSeenManagerReqs_${currentUser?.id || 'mgr'}`) || 0);
+        const lastSeenBookingsTime = Number(localStorage.getItem(`lastSeenManagerBookings_${currentUser?.id || 'mgr'}`) || 0);
 
         // Có biên bản vi phạm mới ghi nhận cần định mức/xét duyệt VÀ mới hơn lần xem cuối
         const unhandledViols = viols.filter((v: any) => {
@@ -67,8 +71,16 @@ export const ManagerPortal: React.FC = () => {
           return !lastSeenRequestsTime || time > lastSeenRequestsTime;
         }) : [];
         setHasPendingRequests(pendingReqs.length > 0);
+
+        // Có đơn đặt phòng đang chờ duyệt VÀ mới hơn lần xem cuối
+        const pendingBookings = Array.isArray(bookings) ? bookings.filter((b: any) => {
+          if (b.Status !== 'Pending') return false;
+          const time = new Date(b.CreatedTime || 0).getTime();
+          return !lastSeenBookingsTime || time > lastSeenBookingsTime;
+        }) : [];
+        setHasPendingBookings(pendingBookings.length > 0);
       } catch (err) {
-        console.error('Lỗi khi kiểm tra thông báo vi phạm/đơn từ:', err);
+        console.error('Lỗi khi kiểm tra thông báo vi phạm/đơn từ/đặt phòng:', err);
       }
     };
 
@@ -85,6 +97,9 @@ export const ManagerPortal: React.FC = () => {
     } else if (id === 'requests') {
       setHasPendingRequests(false);
       localStorage.setItem(`lastSeenManagerReqs_${currentUser?.id || 'mgr'}`, Date.now().toString());
+    } else if (id === 'bookings') {
+      setHasPendingBookings(false);
+      localStorage.setItem(`lastSeenManagerBookings_${currentUser?.id || 'mgr'}`, Date.now().toString());
     }
   };
 
@@ -347,8 +362,14 @@ export const ManagerPortal: React.FC = () => {
     },
     {
       label: 'QUẢN TRỊ VI PHẠM & ĐƠN TỪ',
-      showBadgeDot: hasPendingViolations || hasPendingRequests,
+      showBadgeDot: hasPendingViolations || hasPendingRequests || hasPendingBookings,
       items: [
+        {
+          id: 'bookings',
+          name: 'Duyệt đặt phòng',
+          counter: 'Đăng ký phòng mới',
+          showBadgeDot: hasPendingBookings,
+        },
         {
           id: 'violations',
           name: 'Quản lý vi phạm',
@@ -416,6 +437,8 @@ export const ManagerPortal: React.FC = () => {
           <BedManagement />
         ) : activeTab === 'requests' ? (
           <ManagerRequestManagement />
+        ) : activeTab === 'bookings' ? (
+          <ManagerBookingManagement />
         ) : activeTab === 'ew' ? (
           <EwManagement />
         ) : (
