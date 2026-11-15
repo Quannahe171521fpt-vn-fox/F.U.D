@@ -86,11 +86,11 @@ namespace FUD.Services.Facilities
             var dorm = await _dormRepo.GetByIdAsync(id)
                 ?? throw new KeyNotFoundException($"KTX {id} không tồn tại");
 
-            // Không xóa cứng nếu còn tòa (Block) đang hoạt động
+            // Không xóa cứng nếu còn Block đang hoạt động
             if (await _dormRepo.HasActiveBlocksAsync(id))
                 throw new InvalidOperationException(
-                    $"Không thể xóa KTX '{dorm.Name}' vì còn {dorm.Blocks?.Count ?? 0} tòa đang hoạt động. " +
-                    "Vui lòng xóa hoặc vô hiệu hóa tất cả các tòa trước.");
+                    $"Không thể xóa KTX '{dorm.Name}' vì còn {dorm.Blocks?.Count ?? 0} block đang hoạt động. " +
+                    "Vui lòng xóa hoặc vô hiệu hóa tất cả các block trước.");
 
             await _dormRepo.SoftDeleteAsync(id);
         }

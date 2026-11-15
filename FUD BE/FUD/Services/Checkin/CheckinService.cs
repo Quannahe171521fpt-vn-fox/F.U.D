@@ -49,7 +49,7 @@ namespace FUD.Services.Checkin
 
                 result.Add(new PendingCheckinStudentDto
                 {
-                    BookingRequestId = r.SourceRequestId,
+                    BookingRequestId = r.SourceBookingId,
                     ResidencyId = r.Id,
                     StudentId = r.StudentId,
                     StudentCode = r.Student.User.Code,
@@ -79,10 +79,10 @@ namespace FUD.Services.Checkin
 
             var approvedBookings = await _context.BookingRequests
                 .AsNoTracking()
-                .Include(br => br.Request).ThenInclude(req => req.Student).ThenInclude(s => s.User)
-                .Include(br => br.Request).ThenInclude(req => req.Term)
+                .Include(br => br.Student).ThenInclude(s => s.User)
+                .Include(br => br.Term)
                 .Include(br => br.Bed).ThenInclude(b => b.Room).ThenInclude(rm => rm.Block)
-                .Where(br => br.Request.Status == "Approved" || br.Request.Status == "Completed")
+                .Where(br => br.Status == "Approved" || br.Status == "Completed")
                 .ToListAsync();
 
             // Kiểm tra những sinh viên đã có Handover trong kỳ đó để không liệt kê lại
@@ -96,25 +96,24 @@ namespace FUD.Services.Checkin
 
             foreach (var br in approvedBookings)
             {
-                var req = br.Request;
-                if (req?.Student?.User == null || br.Bed?.Room == null) continue;
+                if (br.Student?.User == null || br.Bed?.Room == null) continue;
 
-                var key = (req.StudentId, req.TermId);
+                var key = (br.StudentId, br.TermId);
                 if (existingKeys.Contains(key) || checkedInKeys.Contains(key)) continue;
 
                 existingKeys.Add(key);
                 result.Add(new PendingCheckinStudentDto
                 {
-                    BookingRequestId = br.RequestId,
+                    BookingRequestId = br.Id,
                     ResidencyId = null,
-                    StudentId = req.StudentId,
-                    StudentCode = req.Student.User.Code,
-                    StudentName = req.Student.User.FullName,
-                    Gender = req.Student.User.Gender,
-                    Phone = req.Student.User.Phone,
-                    Email = req.Student.User.Email,
-                    Cohort = req.Student.Cohort,
-                    Major = req.Student.Major,
+                    StudentId = br.StudentId,
+                    StudentCode = br.Student.User.Code,
+                    StudentName = br.Student.User.FullName,
+                    Gender = br.Student.User.Gender,
+                    Phone = br.Student.User.Phone,
+                    Email = br.Student.User.Email,
+                    Cohort = br.Student.Cohort,
+                    Major = br.Student.Major,
                     BlockId = br.Bed.Room.BlockId,
                     BlockCode = br.Bed.Room.Block?.Code ?? string.Empty,
                     BlockName = br.Bed.Room.Block?.Name ?? string.Empty,
@@ -122,8 +121,8 @@ namespace FUD.Services.Checkin
                     RoomNumber = br.Bed.Room.RoomNumber,
                     BedId = br.BedId,
                     BedCode = br.Bed.BedCode,
-                    TermId = req.TermId,
-                    TermName = req.Term != null ? $"{req.Term.Name} ({req.Term.AcademicYear})" : string.Empty,
+                    TermId = br.TermId,
+                    TermName = br.Term != null ? $"{br.Term.Name} ({br.Term.AcademicYear})" : string.Empty,
                     BookingStatus = "Đơn đặt phòng đã duyệt - Chờ Check-in"
                 });
             }
@@ -231,10 +230,9 @@ namespace FUD.Services.Checkin
                 if (residency == null && dto.BookingRequestId.HasValue && dto.BookingRequestId.Value > 0)
                 {
                     var booking = await _context.BookingRequests
-                        .Include(br => br.Request)
-                        .FirstOrDefaultAsync(br => br.RequestId == dto.BookingRequestId.Value);
+                        .FirstOrDefaultAsync(br => br.Id == dto.BookingRequestId.Value);
 
-                    if (booking == null || booking.Request.StudentId != dto.StudentId)
+                    if (booking == null || booking.StudentId != dto.StudentId)
                     {
                         throw new ArgumentException("Không tìm thấy đơn đặt phòng hợp lệ của sinh viên này.");
                     }
@@ -242,7 +240,7 @@ namespace FUD.Services.Checkin
                     residency = await _context.Residencies
                         .Include(r => r.Bed)
                         .Include(r => r.Handover)
-                        .FirstOrDefaultAsync(r => r.StudentId == dto.StudentId && r.TermId == booking.Request.TermId && (r.Status == "Reserved" || r.Status == "Active"));
+                        .FirstOrDefaultAsync(r => r.StudentId == dto.StudentId && r.TermId == booking.TermId && (r.Status == "Reserved" || r.Status == "Active"));
 
                     if (residency == null)
                     {
@@ -250,8 +248,8 @@ namespace FUD.Services.Checkin
                         {
                             StudentId = dto.StudentId,
                             BedId = booking.BedId,
-                            TermId = booking.Request.TermId,
-                            SourceRequestId = booking.RequestId,
+                            TermId = booking.TermId,
+                            SourceBookingId = booking.Id,
                             RegistrationType = booking.BookingKind,
                             CheckInDate = today,
                             Status = "Active"
@@ -283,25 +281,34 @@ namespace FUD.Services.Checkin
                 bed.Status = "Occupied";
                 var targetRoomId = bed.RoomId;
 
-                var reqId = dto.BookingRequestId ?? residency.SourceRequestId;
+                var reqId = dto.BookingRequestId ?? residency.SourceBookingId;
                 if (reqId.HasValue)
                 {
-                    var req = await _context.Requests.FirstOrDefaultAsync(r => r.Id == reqId.Value);
-                    if (req != null && req.Status != "Completed")
+                    var bookingReq = await _context.BookingRequests.FirstOrDefaultAsync(b => b.Id == reqId.Value);
+                    if (bookingReq != null && bookingReq.Status != "Completed")
                     {
-                        var oldStatus = req.Status;
-                        req.Status = "Completed";
-                        req.ProcessedTime = now;
-
-                        _context.RequestLogs.Add(new RequestLog
+                        bookingReq.Status = "Completed";
+                        bookingReq.ProcessedTime = now;
+                    }
+                    else
+                    {
+                        var req = await _context.Requests.FirstOrDefaultAsync(r => r.Id == reqId.Value);
+                        if (req != null && req.Status != "Completed")
                         {
-                            RequestId = req.Id,
-                            FromStatus = oldStatus,
-                            ToStatus = "Completed",
-                            Note = "Bảo vệ đã hoàn tất lập biên bản bàn giao nhận phòng (Check-in).",
-                            ChangeTime = now,
-                            ChangedById = guardUserId
-                        });
+                            var oldStatus = req.Status;
+                            req.Status = "Completed";
+                            req.ProcessedTime = now;
+
+                            _context.RequestLogs.Add(new RequestLog
+                            {
+                                RequestId = req.Id,
+                                FromStatus = oldStatus,
+                                ToStatus = "Completed",
+                                Note = "Bảo vệ đã hoàn tất lập biên bản bàn giao nhận phòng (Check-in).",
+                                ChangeTime = now,
+                                ChangedById = guardUserId
+                            });
+                        }
                     }
                 }
 

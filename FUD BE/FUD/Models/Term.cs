@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace FUD.Models;
@@ -15,9 +15,9 @@ public partial class Term
 
     public DateOnly EndDate { get; set; }
 
-    public virtual ICollection<BedPrice> BedPrices { get; set; } = new List<BedPrice>();
-
     public virtual ICollection<BillingPeriod> BillingPeriods { get; set; } = new List<BillingPeriod>();
+
+    public virtual ICollection<BookingRequest> BookingRequests { get; set; } = new List<BookingRequest>();
 
     public virtual ICollection<Invoice> Invoices { get; set; } = new List<Invoice>();
 

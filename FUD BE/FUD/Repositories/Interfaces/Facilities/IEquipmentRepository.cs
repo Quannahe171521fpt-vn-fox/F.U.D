@@ -10,8 +10,6 @@ namespace FUD.Repositories.Interfaces.Facilities
         Task<Equipment?> GetByAssetCodeAsync(string assetCode);
         Task<Equipment> AddAsync(Equipment equipment);
         Task UpdateAsync(Equipment equipment);
-        Task<bool> HasOpenTicketAsync(int id);
-        Task<IEnumerable<IncidentTicket>> GetTicketsByEquipmentAsync(int id);
         
         // Catalog operations
         Task<IEnumerable<EquipmentCatalog>> GetCatalogsAsync();

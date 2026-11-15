@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
-namespace FUD.Controllers
+namespace FUD.Controllers.Keeping
 {
     /// <summary>
     /// UC02 – Giữ phòng (sinh viên giữ giường hiện tại cho học kỳ kế tiếp).

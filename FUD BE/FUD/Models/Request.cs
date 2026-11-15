@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace FUD.Models;
@@ -19,10 +19,6 @@ public partial class Request
 
     public string? RejectReason { get; set; }
 
-    public string? CancelReason { get; set; }
-
-    public bool CancelledBySystem { get; set; }
-
     public int? ProcessedById { get; set; }
 
     public DateTime CreatedTime { get; set; }
@@ -30,8 +26,6 @@ public partial class Request
     public DateTime? ProcessedTime { get; set; }
 
     public virtual BedTransferRequest? BedTransferRequest { get; set; }
-
-    public virtual BookingRequest? BookingRequest { get; set; }
 
     public virtual CheckoutRequest? CheckoutRequest { get; set; }
 
@@ -44,8 +38,6 @@ public partial class Request
     public virtual ICollection<Refund> Refunds { get; set; } = new List<Refund>();
 
     public virtual ICollection<RequestLog> RequestLogs { get; set; } = new List<RequestLog>();
-
-    public virtual ICollection<Residency> Residencies { get; set; } = new List<Residency>();
 
     public virtual Student Student { get; set; } = null!;
 

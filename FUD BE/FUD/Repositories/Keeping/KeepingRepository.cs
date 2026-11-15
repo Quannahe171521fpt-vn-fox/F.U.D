@@ -104,11 +104,6 @@ namespace FUD.Repositories.Keeping
             return await _context.Requests
                 .AsNoTracking()
                 .Include(r => r.Term)
-                .Include(r => r.Residencies)
-                    .ThenInclude(res => res.Bed)
-                        .ThenInclude(b => b.Room)
-                            .ThenInclude(rm => rm.Block)
-                                .ThenInclude(bl => bl.Dorm)
                 .FirstOrDefaultAsync(r => r.StudentId == studentId
                                        && r.TermId == termId
                                        && r.RequestType == "Keeping"
@@ -121,44 +116,45 @@ namespace FUD.Repositories.Keeping
                 .AsNoTracking()
                 .Include(r => r.Term)
                 .Include(r => r.Student)
-                .Include(r => r.Residencies)
-                    .ThenInclude(res => res.Bed)
-                        .ThenInclude(b => b.Room)
-                            .ThenInclude(rm => rm.Block)
-                                .ThenInclude(bl => bl.Dorm)
                 .FirstOrDefaultAsync(r => r.Id == requestId && r.RequestType == "Keeping");
+        }
+
+        public async Task<Residency?> GetResidencyByStudentAndTermAsync(int studentId, int termId)
+        {
+            return await _context.Residencies
+                .AsNoTracking()
+                .Include(r => r.Bed)
+                    .ThenInclude(b => b.Room)
+                        .ThenInclude(rm => rm.Block)
+                            .ThenInclude(bl => bl.Dorm)
+                .FirstOrDefaultAsync(r => r.StudentId == studentId && r.TermId == termId);
         }
 
         public async Task<decimal?> GetKeepingBedPriceAsync(int bedId, int termId)
         {
-            var prices = await _context.BedPrices
+            var bed = await _context.Beds
                 .AsNoTracking()
-                .Where(bp => bp.BedId == bedId && bp.TermId == termId)
-                .Select(bp => bp.UnitPrice)
-                .ToListAsync();
+                .Include(b => b.Room)
+                    .ThenInclude(r => r.Block)
+                .FirstOrDefaultAsync(b => b.Id == bedId);
 
-            if (prices.Count == 0)
-            {
-                return null;
-            }
+            if (bed == null) return null;
 
-            // Bed_Price có thể tách theo TargetMonth (từng tháng) hoặc 1 dòng cho cả kỳ.
-            // Nếu có TargetMonth khác nhau → lấy giá tháng đầu tiên làm đơn giá/tháng.
-            // Nếu tất cả TargetMonth đều null → tổng toàn bộ là phí cả kỳ.
-            var distinctMonthly = prices.Distinct().ToList();
-            return distinctMonthly.Count == 1 ? distinctMonthly[0] : prices.Min();
+            var dormId = bed.Room.Block.DormId;
+            var roomTypeId = bed.Room.RoomTypeId;
+
+            var price = await _context.PriceItems
+                .AsNoTracking()
+                .Where(pi => pi.PriceList.TermId == termId && pi.DormId == dormId && pi.RoomTypeId == roomTypeId)
+                .Select(pi => (decimal?)pi.UnitPrice)
+                .FirstOrDefaultAsync();
+
+            return price;
         }
 
         public async Task<int> GetKeepingMonthsAsync(int bedId, int termId)
         {
-            var months = await _context.BedPrices
-                .AsNoTracking()
-                .Where(bp => bp.BedId == bedId && bp.TermId == termId && bp.TargetMonth != null)
-                .Select(bp => bp.TargetMonth!.Value)
-                .Distinct()
-                .ToListAsync();
-
-            return months.Count > 0 ? months.Count : 1;
+            return await Task.FromResult(1);
         }
 
         public async Task<bool> IsBedOccupiedForTermAsync(int bedId, int termId)

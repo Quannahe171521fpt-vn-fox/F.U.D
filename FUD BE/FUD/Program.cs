@@ -11,6 +11,7 @@ using FUD.Repositories.Facilities;
 using FUD.Repositories.Interfaces;
 using FUD.Repositories.Interfaces.Facilities;
 using FUD.Services;
+using FUD.Services.Admin;
 using FUD.Services.Facilities;
 using FUD.Services.Interfaces;
 using FUD.Services.Interfaces.Facilities;
@@ -309,8 +310,10 @@ builder.Services.AddAccountValidators();
 // Facilities DI
 builder.Services.AddScoped<IBlockRepository, BlockRepository>();
 builder.Services.AddScoped<IRoomRepository, RoomRepository>();
+builder.Services.AddScoped<IBedRepository, BedRepository>();
 builder.Services.AddScoped<IBlockService, BlockService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
+builder.Services.AddScoped<IBedService, BedService>();
 // UC-Dorm: Dorm Management
 builder.Services.AddScoped<FUD.Repositories.Interfaces.Facilities.IDormRepository, FUD.Repositories.Facilities.DormRepository>();
 builder.Services.AddScoped<FUD.Services.Interfaces.Facilities.IDormService, FUD.Services.Facilities.DormService>();

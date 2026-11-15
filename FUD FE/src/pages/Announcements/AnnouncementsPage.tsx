@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import type { NewsItem } from '../../types/management';
+import { Pagination } from '../../components/Pagination';
+import { removeVietnameseTones } from '../../utils/textUtils';
 
 interface AnnouncementsPageProps {
   newsList: NewsItem[];
-  onBackToHome: () => void;
+  onBackToHome?: () => void;
 }
 
 export const AnnouncementsPage: React.FC<AnnouncementsPageProps> = ({
   newsList,
-  onBackToHome,
 }) => {
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -20,11 +21,10 @@ export const AnnouncementsPage: React.FC<AnnouncementsPageProps> = ({
 
   const filteredNews = publishedNews.filter((item) => {
     if (!searchKeyword.trim()) return true;
-    const query = searchKeyword.toLowerCase();
-    return (
-      item.title.toLowerCase().includes(query) ||
-      item.content.toLowerCase().includes(query)
-    );
+    const term = removeVietnameseTones(searchKeyword);
+    const titleNorm = removeVietnameseTones(item.title || '');
+    const contentNorm = removeVietnameseTones(item.content || '');
+    return titleNorm.includes(term) || contentNorm.includes(term);
   });
 
   const totalPages = Math.max(1, Math.ceil(filteredNews.length / pageSize));
@@ -43,13 +43,6 @@ export const AnnouncementsPage: React.FC<AnnouncementsPageProps> = ({
     <div className="announcements-page-wrapper">
       <div className="announcements-hero-header">
         <div className="announcements-inner-header">
-          <div className="announcements-breadcrumb">
-            <button type="button" onClick={onBackToHome} className="breadcrumb-btn">
-              Trang chủ
-            </button>
-            <span className="breadcrumb-sep">/</span>
-            <span className="breadcrumb-current">Thông báo KTX</span>
-          </div>
           <h1 className="announcements-main-title">Thông báo & Tin tức Ký túc xá FUD</h1>
           <p className="announcements-desc">
             Cổng thông báo chính thức của Ban Quản lý KTX Đại học FPT về lịch đăng ký phòng,
@@ -122,54 +115,13 @@ export const AnnouncementsPage: React.FC<AnnouncementsPageProps> = ({
         )}
 
         {/* Dedicated Announcements Pagination */}
-        {filteredNews.length > pageSize && (
-          <div className="announcements-pagination-row">
-            <button
-              type="button"
-              className="announcement-page-nav-btn"
-              onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
-              disabled={validCurrentPage === 1}
-            >
-              Trang trước
-            </button>
-            <div className="announcement-pages-group">
-              {(() => {
-                const pages: (number | '...')[] = [];
-                for (let i = 1; i <= totalPages; i++) {
-                  if (i === 1 || i === totalPages || Math.abs(i - validCurrentPage) <= 1) {
-                    pages.push(i);
-                  } else if (pages[pages.length - 1] !== '...') {
-                    pages.push('...');
-                  }
-                }
-                return pages.map((page, idx) =>
-                  page === '...' ? (
-                    <span key={`dots-${idx}`} style={{ padding: '0 6px', color: '#94a3b8', lineHeight: '38px' }}>
-                      …
-                    </span>
-                  ) : (
-                    <button
-                      key={page}
-                      type="button"
-                      className={`announcement-page-btn ${page === validCurrentPage ? 'active' : ''}`}
-                      onClick={() => setCurrentPage(page as number)}
-                    >
-                      {page}
-                    </button>
-                  )
-                );
-              })()}
-            </div>
-            <button
-              type="button"
-              className="announcement-page-nav-btn"
-              onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
-              disabled={validCurrentPage === totalPages}
-            >
-              Trang sau
-            </button>
-          </div>
-        )}
+        <Pagination
+          currentPage={validCurrentPage}
+          totalItems={filteredNews.length}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          itemName="thông báo"
+        />
       </div>
 
       {/* Detail Modal */}

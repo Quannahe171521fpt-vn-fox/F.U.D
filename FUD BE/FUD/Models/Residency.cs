@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace FUD.Models;
@@ -13,7 +13,7 @@ public partial class Residency
 
     public int TermId { get; set; }
 
-    public int? SourceRequestId { get; set; }
+    public int? SourceBookingId { get; set; }
 
     public string? RegistrationType { get; set; }
 
@@ -37,7 +37,7 @@ public partial class Residency
 
     public virtual Handover? Handover { get; set; }
 
-    public virtual Request? SourceRequest { get; set; }
+    public virtual BookingRequest? SourceBooking { get; set; }
 
     public virtual Student Student { get; set; } = null!;
 

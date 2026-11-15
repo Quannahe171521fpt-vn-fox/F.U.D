@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { violationApi, type ViolationItem } from '../../services/api';
 import { Pagination } from '../../components/Pagination';
 import { formatDateTime, formatDate } from '../../utils/dateUtils';
+import { removeVietnameseTones } from '../../utils/textUtils';
 import '../../styles/violation.css';
 
 const PAGE_SIZE = 10;
@@ -25,6 +26,11 @@ export const StudentViolationHistoryPage: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterTerm, setFilterTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterLevel, setFilterLevel] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedRecord, setSelectedRecord] = useState<ViolationItem | null>(null);
 
@@ -62,7 +68,54 @@ export const StudentViolationHistoryPage: React.FC = () => {
     }
   };
 
-  const paginatedHistory = history.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const filteredHistory = history
+    .filter(v => {
+      if (filterLevel) {
+        const level = v.finalLevel || v.initialLevel || '';
+        if (!level.toLowerCase().includes(filterLevel.toLowerCase())) return false;
+      }
+
+      if (dateFrom) {
+        const from = new Date(dateFrom);
+        from.setHours(0, 0, 0, 0);
+        if (new Date(v.occurrenceTime) < from) return false;
+      }
+
+      if (dateTo) {
+        const to = new Date(dateTo);
+        to.setHours(23, 59, 59, 999);
+        if (new Date(v.occurrenceTime) > to) return false;
+      }
+
+      if (searchTerm.trim()) {
+        const term = removeVietnameseTones(searchTerm);
+        const codeNorm = removeVietnameseTones(v.code || '');
+        const typeNorm = removeVietnameseTones(v.violationTypeName || '');
+        const roomNorm = removeVietnameseTones(v.roomNumber || '');
+        const blockNorm = removeVietnameseTones(v.blockName || '');
+        const termNorm = removeVietnameseTones(v.termName || '');
+        const levelNorm = removeVietnameseTones(v.finalLevel || v.initialLevel || '');
+
+        const matches =
+          codeNorm.includes(term) ||
+          typeNorm.includes(term) ||
+          roomNorm.includes(term) ||
+          blockNorm.includes(term) ||
+          termNorm.includes(term) ||
+          levelNorm.includes(term);
+
+        if (!matches) return false;
+      }
+
+      return true;
+    })
+    .sort((a, b) => {
+      const timeA = new Date(a.occurrenceTime).getTime();
+      const timeB = new Date(b.occurrenceTime).getTime();
+      return sortOrder === 'desc' ? timeB - timeA : timeA - timeB;
+    });
+
+  const paginatedHistory = filteredHistory.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
     <div style={{ padding: '24px 32px' }}>
@@ -97,7 +150,7 @@ export const StudentViolationHistoryPage: React.FC = () => {
         </div>
       )}
 
-      {/* Bộ lọc */}
+      {/* Bộ lọc đa nhiệm */}
       <div
         style={{
           display: 'flex',
@@ -111,13 +164,38 @@ export const StudentViolationHistoryPage: React.FC = () => {
           flexWrap: 'wrap',
         }}
       >
-        <div style={{ minWidth: '220px' }}>
+        <div style={{ flex: '1 1 200px', minWidth: '180px' }}>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+            Tìm kiếm từ khóa (có dấu & không dấu)
+          </label>
+          <input
+            type="text"
+            placeholder="Mã biên bản, loại vi phạm, phòng, học kỳ..."
+            value={searchTerm}
+            onChange={e => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              border: '1px solid #CBD5E1',
+              fontSize: '13px',
+            }}
+          />
+        </div>
+
+        <div style={{ minWidth: '160px' }}>
           <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
             Lọc theo Trạng thái
           </label>
           <select
             value={filterStatus}
-            onChange={e => setFilterStatus(e.target.value)}
+            onChange={e => {
+              setFilterStatus(e.target.value);
+              setCurrentPage(1);
+            }}
             style={{
               width: '100%',
               padding: '8px 12px',
@@ -134,15 +212,45 @@ export const StudentViolationHistoryPage: React.FC = () => {
           </select>
         </div>
 
-        <div style={{ minWidth: '200px' }}>
+        <div style={{ minWidth: '150px' }}>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+            Mức độ xử lý
+          </label>
+          <select
+            value={filterLevel}
+            onChange={e => {
+              setFilterLevel(e.target.value);
+              setCurrentPage(1);
+            }}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              border: '1px solid #CBD5E1',
+              fontSize: '13px',
+              backgroundColor: '#FFF',
+            }}
+          >
+            <option value="">Tất cả mức độ</option>
+            <option value="Nhắc nhở">Nhắc nhở</option>
+            <option value="Khiển trách">Khiển trách</option>
+            <option value="Cảnh cáo">Cảnh cáo</option>
+            <option value="Đình chỉ">Đình chỉ nội trú</option>
+          </select>
+        </div>
+
+        <div style={{ minWidth: '150px' }}>
           <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
             Tìm theo Học kỳ
           </label>
           <input
             type="text"
-            placeholder="Ví dụ: Fall 2026, Spring 2026..."
+            placeholder="Fall 2026, Spring 2026..."
             value={filterTerm}
-            onChange={e => setFilterTerm(e.target.value)}
+            onChange={e => {
+              setFilterTerm(e.target.value);
+              setCurrentPage(1);
+            }}
             style={{
               width: '100%',
               padding: '8px 12px',
@@ -153,7 +261,98 @@ export const StudentViolationHistoryPage: React.FC = () => {
           />
         </div>
 
-        <div style={{ alignSelf: 'flex-end' }}>
+        <div style={{ minWidth: '125px' }}>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+            Từ ngày
+          </label>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={e => {
+              setDateFrom(e.target.value);
+              setCurrentPage(1);
+            }}
+            style={{
+              width: '100%',
+              padding: '6px 10px',
+              borderRadius: '6px',
+              border: '1px solid #CBD5E1',
+              fontSize: '12px',
+            }}
+          />
+        </div>
+
+        <div style={{ minWidth: '125px' }}>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+            Đến ngày
+          </label>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={e => {
+              setDateTo(e.target.value);
+              setCurrentPage(1);
+            }}
+            style={{
+              width: '100%',
+              padding: '6px 10px',
+              borderRadius: '6px',
+              border: '1px solid #CBD5E1',
+              fontSize: '12px',
+            }}
+          />
+        </div>
+
+        <div style={{ minWidth: '140px' }}>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+            Sắp xếp thời gian
+          </label>
+          <select
+            value={sortOrder}
+            onChange={e => setSortOrder(e.target.value as 'desc' | 'asc')}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              border: '1px solid #CBD5E1',
+              fontSize: '13px',
+              backgroundColor: '#FFF',
+              fontWeight: 600,
+            }}
+          >
+            <option value="desc">Mới nhất trước ↓</option>
+            <option value="asc">Cũ nhất trước ↑</option>
+          </select>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', alignSelf: 'flex-end' }}>
+          {(filterStatus || filterTerm || searchTerm || filterLevel || dateFrom || dateTo || sortOrder !== 'desc') && (
+            <button
+              type="button"
+              onClick={() => {
+                setFilterStatus('');
+                setFilterTerm('');
+                setSearchTerm('');
+                setFilterLevel('');
+                setDateFrom('');
+                setDateTo('');
+                setSortOrder('desc');
+                setCurrentPage(1);
+              }}
+              style={{
+                padding: '8px 12px',
+                borderRadius: '6px',
+                border: '1px solid #CBD5E1',
+                backgroundColor: '#F8FAFC',
+                color: '#64748B',
+                fontSize: '12px',
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              Đặt lại lọc
+            </button>
+          )}
           <button
             type="button"
             onClick={() => loadHistory(true)}
@@ -351,7 +550,7 @@ export const StudentViolationHistoryPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setSelectedRecord(null)}
-                style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#94A3B8' }}
+                style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#000000ff' }}
               >
                 Đóng
               </button>

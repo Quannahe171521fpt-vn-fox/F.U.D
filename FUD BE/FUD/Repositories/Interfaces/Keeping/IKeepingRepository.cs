@@ -55,6 +55,9 @@ namespace FUD.Repositories.Interfaces.Keeping
         /// <summary>Lấy danh sách sinh viên đã giữ phòng (Request Keeping Completed) cho kỳ kế tiếp.</summary>
         Task<HashSet<int>> GetStudentsWithCompletedKeepingAsync(int termId);
 
+        /// <summary>Lấy cư trú của sinh viên theo học kỳ kèm Bed → Room → Block → Dorm.</summary>
+        Task<Residency?> GetResidencyByStudentAndTermAsync(int studentId, int termId);
+
         /// <summary>Bắt đầu transaction để thao tác tạo yêu cầu + cư trú an toàn.</summary>
         Task<IAccountTransaction> BeginTransactionAsync();
 

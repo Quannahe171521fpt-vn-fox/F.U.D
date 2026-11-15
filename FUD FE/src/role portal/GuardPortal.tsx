@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { RecordViolationPage } from '../pages/Violations/RecordViolationPage';
 import { ViolationListPage } from '../pages/Violations/ViolationListPage';
 import { GuardCheckinPage } from '../pages/Checkin/GuardCheckinPage';
+import { GuardBedTransferPage } from '../pages/Requests/GuardBedTransferPage';
 import { EwManagement } from '../pages/FacilityManagement/EwManagement';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
 
@@ -12,7 +13,7 @@ interface GuardPortalProps {
 
 export const GuardPortal: React.FC<GuardPortalProps> = ({ onLogout }) => {
   const { currentUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<'checkin' | 'checkin-list' | 'create' | 'list' | 'ew' | 'overview'>('checkin');
+  const [activeTab, setActiveTab] = useState<'checkin' | 'checkin-list' | 'bed-transfer' | 'create' | 'list' | 'ew' | 'overview'>('checkin');
 
   const guardSections: SidebarSection[] = [
     {
@@ -20,6 +21,7 @@ export const GuardPortal: React.FC<GuardPortalProps> = ({ onLogout }) => {
       items: [
         { id: 'checkin', name: 'Check-in nhận phòng', counter: 'Lập biên bản bàn giao' },
         { id: 'checkin-list', name: 'Biên bản đã Check-in', counter: 'Tra cứu & In biên bản' },
+        { id: 'bed-transfer', name: 'Kiểm tra chuyển giường', counter: 'Chốt thiết bị & điện nước' },
       ],
     },
     {
@@ -50,7 +52,9 @@ export const GuardPortal: React.FC<GuardPortalProps> = ({ onLogout }) => {
         roleBadge="BẢO VỆ"
         roleBadgeColor={{ bg: '#ECFDF5', text: '#047857' }}
         title="An ninh Ký túc xá"
-        subText={currentUser?.fullName ? `${currentUser.fullName} (${currentUser.code})` : 'Cổng Đội Bảo vệ'}
+        subText={currentUser?.fullName 
+          ? `${currentUser.fullName} (${currentUser.code})${currentUser.dormName ? ` · KTX: ${currentUser.dormName}` : ''}`
+          : 'Cổng Đội Bảo vệ'}
         sections={guardSections}
         activeId={activeTab}
         onSelect={(id) => setActiveTab(id as any)}
@@ -63,6 +67,8 @@ export const GuardPortal: React.FC<GuardPortalProps> = ({ onLogout }) => {
           <GuardCheckinPage mode="create" onNavigateHistory={() => setActiveTab('checkin-list')} />
         ) : activeTab === 'checkin-list' ? (
           <GuardCheckinPage mode="history" />
+        ) : activeTab === 'bed-transfer' ? (
+          <GuardBedTransferPage />
         ) : activeTab === 'create' ? (
           <RecordViolationPage onSuccessNavigate={() => setActiveTab('list')} />
         ) : activeTab === 'list' ? (
@@ -121,6 +127,9 @@ export const GuardPortal: React.FC<GuardPortalProps> = ({ onLogout }) => {
               >
                 <div><strong>Mã cán bộ:</strong> {currentUser?.code || 'GRD01'}</div>
                 <div><strong>Email công vụ:</strong> {currentUser?.email || 'guard@fpt.edu.vn'}</div>
+                {currentUser?.dormName && (
+                  <div><strong>KTX phụ trách:</strong> {currentUser.dormName}</div>
+                )}
                 <div><strong>Ca trực:</strong> Toàn thời gian ký túc xá</div>
                 <div><strong>Nhiệm vụ chính:</strong> Bàn giao nhận phòng (Check-in), tuần tra & lập biên bản vi phạm</div>
               </div>
