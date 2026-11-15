@@ -7,6 +7,7 @@ import { StudentRequestListPage } from '../pages/Requests/StudentRequestListPage
 import { AnnouncementsPage } from '../pages/Announcements/AnnouncementsPage';
 import { StudentCheckinRecordsPage } from '../pages/Checkin/StudentCheckinRecordsPage';
 import { StudentResidencyHistoryPage } from '../pages/Residency/StudentResidencyHistoryPage';
+import { StudentKeepingPage } from '../pages/Keeping/StudentKeepingPage';
 import { newsApi, violationApi, requestApi, bookingApi } from '../services/api';
 import { BookingPage } from '../pages/Booking/BookingPage';
 import { StudentEwUsagePage } from '../pages/Student/StudentEwUsagePage';
@@ -132,6 +133,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
     {
       label: 'NỘI TRÚ & PHÒNG Ở',
       items: [
+        { id: 'keeping', name: 'Giữ phòng kỳ tiếp' },
         { id: 'booking', name: 'Đặt phòng KTX', showBadgeDot: isBookingOpen },
         { id: 'residency-history', name: 'Lịch sử lưu trú' },
         { id: 'checkin-records', name: 'Biên bản nhận phòng' },
@@ -224,6 +226,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
         {activeTab === 'submit-request' && (
           <SubmitRequestPage onSubmitted={() => setActiveTab('request-list')} />
         )}
+
+        {activeTab === 'keeping' && <StudentKeepingPage />}
 
         {activeTab === 'residency-history' && (
           <StudentResidencyHistoryPage
@@ -527,3 +531,4 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
     </div>
   );
 };
+

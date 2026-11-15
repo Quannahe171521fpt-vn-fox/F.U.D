@@ -1997,6 +1997,100 @@ export const accountApi = {
     adminAccountRequest<AccountItem>(`${BASE_URL}/admin/users/${id}/restore`, jsonInit('POST', payload), 'Lỗi khi khôi phục tài khoản'),
 };
 
+
+// ── Keeping API (UC02 – Giữ phòng, Student) ────────────────
+export interface KeepingCurrentStay {
+  bedId: number;
+  dormName: string;
+  blockName: string;
+  roomNumber: string;
+  bedCode: string;
+  currentTermId: number;
+  currentTerm: string;
+  status: string;
+}
+
+export interface KeepingNextTerm {
+  id: number;
+  name: string;
+  academicYear: string;
+  startDate: string;
+  endDate: string;
+}
+
+export interface KeepingFee {
+  amount: number;
+  currency: string;
+  months: number;
+  description: string;
+}
+
+export interface KeepingPeriod {
+  start: string;
+  end: string;
+}
+
+export interface KeepingEligibility {
+  eligible: boolean;
+  reasonCode?: string | null;
+  message?: string | null;
+  currentStay?: KeepingCurrentStay | null;
+  nextTerm?: KeepingNextTerm | null;
+  fee?: KeepingFee | null;
+  period?: KeepingPeriod | null;
+}
+
+export interface KeepingBed {
+  bedId: number;
+  bedCode: string;
+  dormName: string;
+  blockName: string;
+  roomNumber: string;
+}
+
+export interface KeepingRequestResult {
+  requestId: number;
+  status: string;
+  requestType: string;
+  nextTerm?: KeepingNextTerm | null;
+  bed?: KeepingBed | null;
+  feeAmount?: number | null;
+  currency: string;
+  createdAt: string;
+}
+
+async function keepingRequest<T>(url: string, init: RequestInit | undefined, defaultError: string): Promise<T> {
+  const res = await authFetch(url, init);
+  if (res.status === 403) {
+    throw new Error('Chức năng giữ phòng chỉ dành cho tài khoản Sinh viên.');
+  }
+  const json = await safeParseResponse<T>(res, defaultError);
+  if (!res.ok || !json.success) {
+    const detail = json.errors && json.errors.length > 0 ? json.errors.join('; ') : '';
+    throw new Error(json.message || detail || defaultError);
+  }
+  return json.data;
+}
+
+export const keepingApi = {
+  getEligibility: () =>
+    keepingRequest<KeepingEligibility>(`${BASE_URL}/keeping/eligibility`, undefined, 'Không thể kiểm tra điều kiện giữ phòng'),
+
+  create: (agreedToRegulations: boolean) =>
+    keepingRequest<KeepingRequestResult>(
+      `${BASE_URL}/keeping/requests`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agreedToRegulations }),
+      },
+      'Lỗi khi giữ phòng'
+    ),
+
+  getById: (id: number) =>
+    keepingRequest<KeepingRequestResult>(`${BASE_URL}/keeping/requests/${id}`, undefined, 'Không thể tải yêu cầu giữ phòng'),
+};
+
 // ── Booking Room API ──────────────────────────────────────
 export interface BookingEligibilityDto {
   eligible: boolean;
