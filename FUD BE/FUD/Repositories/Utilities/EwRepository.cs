@@ -470,6 +470,220 @@ namespace FUD.Repositories.Utilities
             await _ctx.SaveChangesAsync();
         }
 
+        // ── Student EW Usage ────────────────────────────────────
+        public async Task<List<StudentTermOptionDto>> GetStudentTermsAsync(int studentUserId)
+        {
+            var terms = await _ctx.Residencies
+                .Where(r => r.StudentId == studentUserId)
+                .Select(r => new {
+                    r.TermId,
+                    r.Term.Name,
+                    r.Term.AcademicYear,
+                    r.Term.StartDate,
+                    r.Term.EndDate,
+                    r.Status
+                })
+                .Distinct()
+                .ToListAsync();
+
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            return terms
+                .OrderByDescending(t => t.StartDate)
+                .Select(t => new StudentTermOptionDto
+                {
+                    TermId = t.TermId,
+                    TermName = t.Name,
+                    AcademicYear = t.AcademicYear,
+                    IsCurrent = (today >= t.StartDate && today <= t.EndDate) || t.Status == "Active"
+                })
+                .ToList();
+        }
+
+        public async Task<StudentEwReportDto?> GetStudentEwReportAsync(int studentUserId, int? termId)
+        {
+            var residencyQuery = _ctx.Residencies
+                .AsNoTracking()
+                .Include(r => r.Term)
+                .Include(r => r.Bed)
+                    .ThenInclude(b => b.Room)
+                        .ThenInclude(rm => rm.Block)
+                .Where(r => r.StudentId == studentUserId);
+
+            Residency? studentResidency = null;
+            if (termId.HasValue && termId.Value > 0)
+            {
+                studentResidency = await residencyQuery
+                    .OrderByDescending(r => r.Status == "Active" ? 1 : 0)
+                    .FirstOrDefaultAsync(r => r.TermId == termId.Value);
+            }
+            else
+            {
+                studentResidency = await residencyQuery
+                    .OrderByDescending(r => r.Status == "Active" ? 1 : 0)
+                    .ThenByDescending(r => r.Term.StartDate)
+                    .FirstOrDefaultAsync();
+            }
+
+            if (studentResidency == null || studentResidency.Bed == null || studentResidency.Bed.Room == null)
+            {
+                return null;
+            }
+
+            var targetTermId = studentResidency.TermId;
+            var currentRoom = studentResidency.Bed.Room;
+            var currentBlock = currentRoom.Block;
+
+            var rawRoomNum = currentRoom.RoomNumber ?? "";
+            var baseRoom = rawRoomNum.EndsWith("L", StringComparison.OrdinalIgnoreCase) || rawRoomNum.EndsWith("R", StringComparison.OrdinalIgnoreCase)
+                ? rawRoomNum.Substring(0, rawRoomNum.Length - 1)
+                : rawRoomNum;
+
+            var studentRoomId = currentRoom.Id;
+            var studentRoomNumber = !string.IsNullOrEmpty(rawRoomNum) ? rawRoomNum : baseRoom;
+
+            var clusterRooms = await _ctx.Rooms
+                .Where(r => r.BlockId == currentBlock.Id)
+                .ToListAsync();
+            var clusterRoomIds = clusterRooms.Select(r => r.Id).ToList();
+
+            // 1. Sinh viên đăng ký và đã check-in trong chính phòng này
+            var checkedInResidencies = await _ctx.Residencies
+                .AsNoTracking()
+                .Include(r => r.Student)
+                    .ThenInclude(s => s.User)
+                .Where(r => r.TermId == targetTermId
+                         && r.Bed.RoomId == studentRoomId
+                         && (r.Status == "Active" || r.Status == "Completed")
+                         && r.CheckInDate != null)
+                .ToListAsync();
+
+            if (checkedInResidencies.Count == 0)
+            {
+                checkedInResidencies = await _ctx.Residencies
+                    .AsNoTracking()
+                    .Include(r => r.Student)
+                        .ThenInclude(s => s.User)
+                    .Where(r => r.TermId == targetTermId
+                             && clusterRoomIds.Contains(r.Bed.RoomId)
+                             && (r.Status == "Active" || r.Status == "Completed")
+                             && r.CheckInDate != null)
+                    .ToListAsync();
+            }
+
+            int residentCount = checkedInResidencies.Count;
+            int divisionCount = residentCount > 0 ? residentCount : 1;
+
+            var roommates = checkedInResidencies
+                .Select(r => $"{r.Student.User.FullName} ({r.Student.User.Code})")
+                .Distinct()
+                .ToList();
+
+            // 2. Chỉ số công tơ thuộc các kỳ trong termId của chính phòng này
+            var readings = await _ctx.MeterReadings
+                .AsNoTracking()
+                .Include(m => m.BillingPeriod)
+                .Where(m => m.BillingPeriod.TermId == targetTermId
+                         && m.RoomId == studentRoomId
+                         && (m.Status == "Recorded" || m.Status == "Flagged"))
+                .ToListAsync();
+
+            if (readings.Count == 0)
+            {
+                readings = await _ctx.MeterReadings
+                    .AsNoTracking()
+                    .Include(m => m.BillingPeriod)
+                    .Where(m => m.BillingPeriod.TermId == targetTermId
+                             && clusterRoomIds.Contains(m.RoomId)
+                             && (m.Status == "Recorded" || m.Status == "Flagged"))
+                    .ToListAsync();
+            }
+
+            var rows = new List<StudentEwMonthlyRowDto>();
+
+            var grouped = readings
+                .GroupBy(m => new {
+                    m.BillingPeriod.TargetYear,
+                    m.BillingPeriod.TargetMonth,
+                    Type = (m.MeterType.Contains("Elec") || m.MeterType.Contains("Điện")) ? "Electricity" : "Water"
+                })
+                .OrderBy(g => g.Key.TargetYear)
+                .ThenBy(g => g.Key.TargetMonth)
+                .ThenBy(g => g.Key.Type == "Water" ? 0 : 1)
+                .ToList();
+
+            foreach (var g in grouped)
+            {
+                var totalConsumption = g.Sum(m => m.Consumption ?? (m.CurrentValue - m.PreviousValue));
+                var isElec = g.Key.Type == "Electricity";
+                var monthlyQuota = isElec ? 50m : 3m;
+                var yourUsage = Math.Round(totalConsumption / divisionCount, 2);
+                var yourOverUsage = yourUsage - monthlyQuota;
+                var latestDate = g.Max(m => m.RecordedTime);
+
+                rows.Add(new StudentEwMonthlyRowDto
+                {
+                    Block = studentRoomNumber, // Tên phòng cụ thể (VD: 101L)
+                    RoomNumber = studentRoomNumber,
+                    MonthYear = $"{g.Key.TargetMonth} - {g.Key.TargetYear}",
+                    TargetMonth = g.Key.TargetMonth,
+                    TargetYear = g.Key.TargetYear,
+                    RecordDate = latestDate,
+                    Type = isElec ? "Điện" : "Nước",
+                    RawType = isElec ? "Electricity" : "Water",
+                    RoomTotalUsage = totalConsumption,
+                    YourUsage = yourUsage,
+                    QuotaMonthly = monthlyQuota,
+                    YourOverUsage = yourOverUsage
+                });
+            }
+
+            var totalElecUsage = rows.Where(r => r.RawType == "Electricity").Sum(r => r.YourUsage);
+            var totalElecOverUsage = rows.Where(r => r.RawType == "Electricity").Sum(r => r.YourOverUsage);
+
+            var totalWaterUsage = rows.Where(r => r.RawType == "Water").Sum(r => r.YourUsage);
+            var totalWaterOverUsage = rows.Where(r => r.RawType == "Water").Sum(r => r.YourOverUsage);
+
+            var prices = await _ctx.UtilityPrices.Where(p => p.TermId == targetTermId).ToListAsync();
+            var elecPrice = prices.FirstOrDefault(p => p.MeterType.Contains("Elec") || p.MeterType.Contains("Điện"))?.UnitPrice ?? 2500m;
+            var waterPrice = prices.FirstOrDefault(p => p.MeterType.Contains("Water") || p.MeterType.Contains("Nước"))?.UnitPrice ?? 10000m;
+
+            decimal elecPayment = 0m;
+            if (totalElecOverUsage > 0)
+            {
+                elecPayment = Math.Round(totalElecOverUsage * elecPrice / 1000m, MidpointRounding.AwayFromZero) * 1000m;
+            }
+
+            decimal waterPayment = 0m;
+            if (totalWaterOverUsage > 0)
+            {
+                waterPayment = Math.Round(totalWaterOverUsage * waterPrice / 1000m, MidpointRounding.AwayFromZero) * 1000m;
+            }
+
+            return new StudentEwReportDto
+            {
+                TermId = targetTermId,
+                TermName = studentResidency.Term?.Name ?? "",
+                AcademicYear = studentResidency.Term?.AcademicYear ?? "",
+                BlockId = currentBlock.Id,
+                BlockCode = currentBlock.Code,
+                BlockName = currentBlock.Name,
+                RoomNumber = baseRoom,
+                NumberOfCheckedInResidents = residentCount,
+                Roommates = roommates,
+                Rows = rows,
+                TotalElectricUsage = totalElecUsage,
+                ElectricQuota = 50m,
+                TotalElectricOverUsage = totalElecOverUsage,
+                ElectricUnitPrice = elecPrice,
+                ElectricOverUsagePayment = elecPayment,
+                TotalWaterUsage = totalWaterUsage,
+                WaterQuota = 3m,
+                TotalWaterOverUsage = totalWaterOverUsage,
+                WaterUnitPrice = waterPrice,
+                WaterOverUsagePayment = waterPayment
+            };
+        }
+
         public async Task SaveChangesAsync()
         {
             await _ctx.SaveChangesAsync();

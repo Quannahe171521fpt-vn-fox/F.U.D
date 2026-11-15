@@ -358,6 +358,45 @@ namespace FUD.Controllers.Utilities
             var fileName = "Ew_Template.xlsx";
             return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
         }
+
+        // ═════════════════════════════════════════════════════════════
+        // UC-Student: Xem chỉ số điện nước & phí phụ trội theo kỳ
+        // ═════════════════════════════════════════════════════════════
+        [HttpGet("my-terms")]
+        [Authorize]
+        public async Task<IActionResult> GetMyTerms()
+        {
+            try
+            {
+                var studentUserId = GetCurrentUserId();
+                var terms = await _ewService.GetStudentTermsAsync(studentUserId);
+                return Ok(ApiResponse<List<StudentTermOptionDto>>.Ok(terms));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ApiResponse.Fail($"Lỗi khi tải danh sách học kỳ: {ex.Message}"));
+            }
+        }
+
+        [HttpGet("my-usage")]
+        [Authorize]
+        public async Task<IActionResult> GetMyUsage([FromQuery] int? termId)
+        {
+            try
+            {
+                var studentUserId = GetCurrentUserId();
+                var report = await _ewService.GetStudentEwReportAsync(studentUserId, termId);
+                if (report == null)
+                {
+                    return Ok(ApiResponse<StudentEwReportDto?>.Ok(null, "Sinh viên chưa có hồ sơ lưu trú hoặc chưa check-in trong kỳ này."));
+                }
+                return Ok(ApiResponse<StudentEwReportDto>.Ok(report));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ApiResponse.Fail($"Lỗi khi tải báo cáo điện nước cá nhân: {ex.Message}"));
+            }
+        }
     }
 
     public class UpdateReadingRequestDto
