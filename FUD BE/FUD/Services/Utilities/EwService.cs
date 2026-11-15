@@ -859,5 +859,16 @@ namespace FUD.Services.Utilities
                 Flagged = false
             };
         }
+
+        // ── Student EW Usage ────────────────────────────────────
+        public async Task<List<StudentTermOptionDto>> GetStudentTermsAsync(int studentUserId)
+        {
+            return await _ewRepo.GetStudentTermsAsync(studentUserId);
+        }
+
+        public async Task<StudentEwReportDto?> GetStudentEwReportAsync(int studentUserId, int? termId)
+        {
+            return await _ewRepo.GetStudentEwReportAsync(studentUserId, termId);
+        }
     }
 }

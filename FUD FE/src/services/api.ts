@@ -1713,6 +1713,51 @@ export interface ImportBatchItemDto {
   importTime: string;
 }
 
+export interface StudentTermOptionDto {
+  termId: number;
+  termName: string;
+  academicYear: string;
+  isCurrent: boolean;
+}
+
+export interface StudentEwMonthlyRowDto {
+  block: string;
+  roomNumber?: string;
+  monthYear: string;
+  targetMonth: number;
+  targetYear: number;
+  recordDate?: string;
+  type: string; // 'Điện' | 'Nước'
+  rawType: string; // 'Electricity' | 'Water'
+  roomTotalUsage: number;
+  yourUsage: number;
+  quotaMonthly: number;
+  yourOverUsage: number;
+}
+
+export interface StudentEwReportDto {
+  termId: number;
+  termName: string;
+  academicYear: string;
+  blockId: number;
+  blockCode: string;
+  blockName: string;
+  roomNumber: string;
+  numberOfCheckedInResidents: number;
+  roommates: string[];
+  rows: StudentEwMonthlyRowDto[];
+  totalElectricUsage: number;
+  electricQuota: number;
+  totalElectricOverUsage: number;
+  electricUnitPrice: number;
+  electricOverUsagePayment: number;
+  totalWaterUsage: number;
+  waterQuota: number;
+  totalWaterOverUsage: number;
+  waterUnitPrice: number;
+  waterOverUsagePayment: number;
+}
+
 export const ewApi = {
   getBillingPeriods: async (): Promise<BillingPeriodLookupDto[]> => {
     const res = await authFetch(`${BASE_URL}/ew/billing-periods`);
@@ -1802,6 +1847,21 @@ export const ewApi = {
     const json = await safeParseResponse<{ success: boolean; message: string }>(res);
     if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể cập nhật chỉ số');
     return json;
+  },
+
+  getMyTerms: async (): Promise<StudentTermOptionDto[]> => {
+    const res = await authFetch(`${BASE_URL}/ew/my-terms`);
+    const json = await safeParseResponse<StudentTermOptionDto[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải danh sách học kỳ');
+    return json.data || [];
+  },
+
+  getMyUsage: async (termId?: number): Promise<StudentEwReportDto | null> => {
+    const qs = termId ? `?termId=${termId}` : '';
+    const res = await authFetch(`${BASE_URL}/ew/my-usage${qs}`);
+    const json = await safeParseResponse<StudentEwReportDto | null>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải thông tin điện nước');
+    return json.data || null;
   },
 };
 

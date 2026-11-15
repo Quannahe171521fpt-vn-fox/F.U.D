@@ -7,6 +7,7 @@ import { StudentRequestListPage } from '../pages/Requests/StudentRequestListPage
 import { AnnouncementsPage } from '../pages/Announcements/AnnouncementsPage';
 import { StudentCheckinRecordsPage } from '../pages/Checkin/StudentCheckinRecordsPage';
 import { StudentResidencyHistoryPage } from '../pages/Residency/StudentResidencyHistoryPage';
+import { StudentEwUsagePage } from '../pages/Student/StudentEwUsagePage';
 import { newsApi, violationApi, requestApi } from '../services/api';
 import type { NewsItem } from '../types/management';
 import { useAuth } from '../contexts/AuthContext';
@@ -116,6 +117,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
       items: [
         { id: 'residency-history', name: 'Lịch sử lưu trú' },
         { id: 'checkin-records', name: 'Biên bản nhận phòng' },
+        { id: 'student-ew', name: 'Điện nước & Định mức' },
       ],
     },
     {
@@ -211,6 +213,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
         {activeTab === 'checkin-records' && (
           <StudentCheckinRecordsPage onBackToProfile={() => setActiveTab('profile')} />
         )}
+
+        {activeTab === 'student-ew' && <StudentEwUsagePage />}
 
         {/* Xem trực tiếp Bảng tin Thông báo ngay bên trong StudentPortal */}
         {activeTab === 'announcements' && (
@@ -380,6 +384,30 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
                   }}
                 >
                   <span>📋</span> Xem Biên bản nhận phòng
+                </button>
+              </div>
+
+              <div style={{ marginTop: 12 }}>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('student-ew')}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    backgroundColor: '#EFF6FF',
+                    color: '#1D4ED8',
+                    border: '1px solid #BFDBFE',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span>⚡💧</span> Xem Điện nước & Phí phụ trội
                 </button>
               </div>
 
