@@ -62,7 +62,7 @@ public class BookingRepository : IBookingRepository
             .FirstOrDefaultAsync(b => b.Id == bedId);
     }
 
-    public async Task<bool> IsBedAvailableForTermAsync(int bedId, int termId)
+    public async Task<bool> IsBedAvailableForTermAsync(int bedId, int termId, int? excludeBookingId = null)
     {
         var bed = await _context.Beds.AsNoTracking().FirstOrDefaultAsync(b => b.Id == bedId);
         if (bed == null || bed.Status == "Maintenance") return false;
@@ -72,7 +72,9 @@ public class BookingRepository : IBookingRepository
         if (hasResidency) return false;
 
         var hasBooking = await _context.BookingRequests.AsNoTracking()
-            .AnyAsync(b => b.BedId == bedId && b.TermId == termId && (b.Status == "Pending" || b.Status == "Approved"));
+            .AnyAsync(b => b.BedId == bedId && b.TermId == termId 
+                        && (excludeBookingId == null || b.Id != excludeBookingId) 
+                        && (b.Status == "Pending" || b.Status == "Approved"));
         if (hasBooking) return false;
 
         return true;
@@ -208,6 +210,19 @@ public class BookingRepository : IBookingRepository
 
     public async Task<BookingRequest> CreateBookingRequestAsync(BookingRequest request)
     {
+        // Ensure student record exists in Students table
+        var studentExists = await _context.Students.AnyAsync(s => s.UserId == request.StudentId);
+        if (!studentExists)
+        {
+            _context.Students.Add(new Student
+            {
+                UserId = request.StudentId,
+                Major = "Chưa cập nhật",
+                Cohort = "K17"
+            });
+            await _context.SaveChangesAsync();
+        }
+
         _context.BookingRequests.Add(request);
         await _context.SaveChangesAsync();
         return request;
@@ -254,10 +269,18 @@ public class BookingRepository : IBookingRepository
         if (booking.Status != "Pending")
             throw new InvalidOperationException($"Đơn đặt phòng đang ở trạng thái '{booking.Status}', không thể phê duyệt.");
 
-        // Check if bed is still free
-        var isFree = await IsBedAvailableForTermAsync(booking.BedId, booking.TermId);
+        // Check if bed is still free (exclude this booking itself from collision check)
+        var isFree = await IsBedAvailableForTermAsync(booking.BedId, booking.TermId, bookingId);
         if (!isFree)
             throw new InvalidOperationException("Giường này hiện không còn trống cho học kỳ này.");
+
+        // Ensure manager record exists in Managers table to avoid FK error
+        var managerExists = await _context.Managers.AnyAsync(m => m.UserId == managerId);
+        if (!managerExists)
+        {
+            _context.Managers.Add(new Manager { UserId = managerId });
+            await _context.SaveChangesAsync();
+        }
 
         booking.Status = "Approved";
         booking.ProcessedById = managerId;
@@ -292,6 +315,14 @@ public class BookingRepository : IBookingRepository
 
         if (booking.Status != "Pending")
             throw new InvalidOperationException($"Đơn đặt phòng đang ở trạng thái '{booking.Status}', không thể từ chối.");
+
+        // Ensure manager record exists in Managers table
+        var managerExists = await _context.Managers.AnyAsync(m => m.UserId == managerId);
+        if (!managerExists)
+        {
+            _context.Managers.Add(new Manager { UserId = managerId });
+            await _context.SaveChangesAsync();
+        }
 
         booking.Status = "Rejected";
         booking.RejectReason = reason;

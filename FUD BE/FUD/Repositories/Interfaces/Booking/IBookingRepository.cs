@@ -18,7 +18,7 @@ public interface IBookingRepository
     Task<List<BookingAvailableBedDto>> GetAvailableBedsAsync(int roomId, int termId);
     Task<decimal?> GetBedPriceAsync(int bedId, int termId);
     Task<Bed?> GetBedByIdAsync(int bedId);
-    Task<bool> IsBedAvailableForTermAsync(int bedId, int termId);
+    Task<bool> IsBedAvailableForTermAsync(int bedId, int termId, int? excludeBookingId = null);
     Task<BookingRequest> CreateBookingRequestAsync(BookingRequest request);
     Task<BookingRequest?> GetBookingRequestByIdAsync(int id);
     Task<List<BookingRequest>> GetAllForManagerAsync(string? status);
