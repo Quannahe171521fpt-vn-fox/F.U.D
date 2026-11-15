@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
+import { AccountManagement } from '../pages/Admin/AccountManagement';
 
 interface AdminPortalProps {
   onLogout: () => void;
@@ -8,16 +9,14 @@ interface AdminPortalProps {
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
   const { currentUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'accounts' | 'roles' | 'system'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'accounts'>('overview');
 
   const adminSections: SidebarSection[] = [
     {
       label: 'QUẢN TRỊ HỆ THỐNG',
       items: [
         { id: 'overview', name: 'Tổng quan hệ thống', counter: 'Dashboard' },
-        { id: 'accounts', name: 'Quản lý Tài khoản', counter: 'Users' },
-        { id: 'roles', name: 'Phân quyền & Vai trò', counter: 'Roles' },
-        { id: 'system', name: 'Nhật ký & Cấu hình', counter: 'Audit Logs' },
+        { id: 'accounts', name: 'Quản lý Tài khoản', counter: 'Tạo, phân quyền, tạm ngưng' },
       ],
     },
   ];
@@ -38,13 +37,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
 
       {/* Vùng nội dung chính */}
       <main className="manager-main-content">
+        {activeTab === 'accounts' ? (
+          <AccountManagement />
+        ) : (
         <div style={{ padding: '24px 32px' }}>
           <div style={{ marginBottom: '24px' }}>
             <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 6px', color: '#0F172A' }}>
               {activeTab === 'overview' && 'Tổng quan hệ thống KTX FUD'}
-              {activeTab === 'accounts' && 'Quản lý danh sách tài khoản'}
-              {activeTab === 'roles' && 'Phân quyền & Gán vai trò người dùng'}
-              {activeTab === 'system' && 'Nhật ký kiểm toán & Cấu hình hệ thống'}
             </h1>
             <p style={{ color: '#64748B', fontSize: '13px', margin: 0 }}>
               Dành riêng cho Quản trị viên (Admin) quản lý và vận hành toàn bộ nền tảng
@@ -133,7 +132,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
             <strong>Lưu ý:</strong> Phân hệ quản lý tài khoản và phân quyền người dùng đang được kích hoạt kết nối CSDL và các bảng kiểm toán hệ thống.
           </div>
         </div>
+        )}
       </main>
     </div>
   );
 };
+
