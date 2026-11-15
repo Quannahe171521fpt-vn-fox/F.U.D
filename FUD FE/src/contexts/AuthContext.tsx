@@ -7,6 +7,7 @@ export interface UserInfo {
   code: string;
   fullName: string;
   email: string;
+  gender?: string;
   primaryRole: 'Admin' | 'Manager' | 'Guard' | 'Student';
   roles: string[];
   accountStatus?: string;

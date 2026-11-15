@@ -333,6 +333,10 @@ builder.Services.AddScoped<FUD.Services.Interfaces.Keeping.IKeepingService, FUD.
 builder.Services.AddScoped<FUD.Services.Keeping.KeepingPeriodCloseJob>();
 // Job đóng kỳ giữ phòng: tự động trả giường về pool booking sau khi kỳ Keeping kết thúc.
 builder.Services.AddHostedService<FUD.Services.Keeping.KeepingPeriodCloseHostedService>();
+
+// ── Booking Room DI ──
+builder.Services.AddScoped<FUD.Repositories.Interfaces.Booking.IBookingRepository, FUD.Repositories.Booking.BookingRepository>();
+builder.Services.AddScoped<FUD.Services.Interfaces.Booking.IBookingService, FUD.Services.Booking.BookingService>();
 // Requests DI
 builder.Services.AddScoped<FUD.Repositories.Interfaces.Requests.IRequestRepository, FUD.Repositories.Requests.RequestRepository>();
 builder.Services.AddScoped<FUD.Services.Interfaces.Requests.IRequestService, FUD.Services.Requests.RequestService>();
