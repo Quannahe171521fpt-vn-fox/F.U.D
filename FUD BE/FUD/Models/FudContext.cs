@@ -355,6 +355,8 @@ public partial class FudContext : DbContext
         {
             entity.HasKey(e => e.Id).HasName("PK__Blocks__3214EC07F117F1D5");
 
+            entity.ToTable("Blocks", tb => tb.HasTrigger("trg_Blocks_PreventGenderChangeWhenOccupied"));
+
             entity.HasIndex(e => new { e.DormId, e.Code }, "UQ_Block_Code").IsUnique();
 
             entity.Property(e => e.Code)
@@ -1223,6 +1225,8 @@ public partial class FudContext : DbContext
         modelBuilder.Entity<Residency>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PK__Residenc__3214EC07374334CD");
+
+            entity.ToTable("Residencies", tb => tb.HasTrigger("trg_Residency_GenderMatch"));
 
             entity.HasIndex(e => new { e.BedId, e.TermId }, "UX_Residency_Bed_Term")
                 .IsUnique()
