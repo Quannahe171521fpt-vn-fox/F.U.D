@@ -965,8 +965,286 @@ export const roomApi = {
   },
 };
 
+// ── Bed Management API ─────────────────────────────────────
+export interface BedDto {
+  id: number;
+  roomId: number;
+  roomNumber: string;
+  blockName: string;
+  bedCode: string;
+  positionInRoom?: string;
+  status: string; // 'Free' | 'Holding' | 'Pending Transfer' | 'Occupied' | 'Maintenance'
+}
+
+export interface BedQuery {
+  roomId?: number;
+  bedCode?: string;
+  status?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface CreateBedPayload {
+  roomId: number;
+  bedCode: string;
+  positionInRoom?: string;
+}
+
+export interface UpdateBedPayload {
+  bedCode: string;
+  positionInRoom?: string;
+}
+
+export const bedApi = {
+  getAll: async (params?: BedQuery): Promise<PagedResult<BedDto>> => {
+    const query = new URLSearchParams();
+    if (params?.roomId) query.append('roomId', params.roomId.toString());
+    if (params?.bedCode) query.append('bedCode', params.bedCode);
+    if (params?.status && params.status !== 'All') query.append('status', params.status);
+    if (params?.page) query.append('page', params.page.toString());
+    if (params?.pageSize) query.append('pageSize', params.pageSize.toString());
+
+    const res = await authFetch(`${BASE_URL}/beds?${query.toString()}`);
+    const json = await safeParseResponse<PagedResult<BedDto>>(res, 'Không thể tải danh sách giường');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải danh sách giường');
+    return json.data;
+  },
+
+  getById: async (id: number): Promise<BedDto> => {
+    const res = await authFetch(`${BASE_URL}/beds/${id}`);
+    const json = await safeParseResponse<BedDto>(res, 'Không thể tải thông tin giường');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải thông tin giường');
+    return json.data;
+  },
+
+  create: async (payload: CreateBedPayload): Promise<BedDto> => {
+    const res = await authFetch(`${BASE_URL}/beds`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<BedDto>(res, 'Lỗi khi tạo giường');
+    if (!res.ok || !json.success) throw new Error(json.message || (json.errors?.join(', ')) || 'Lỗi khi tạo giường');
+    return json.data;
+  },
+
+  update: async (id: number, payload: UpdateBedPayload): Promise<BedDto> => {
+    const res = await authFetch(`${BASE_URL}/beds/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<BedDto>(res, 'Lỗi khi cập nhật giường');
+    if (!res.ok || !json.success) throw new Error(json.message || (json.errors?.join(', ')) || 'Lỗi khi cập nhật giường');
+    return json.data;
+  },
+
+  updateStatus: async (id: number, status: 'Free' | 'Maintenance'): Promise<BedDto> => {
+    const res = await authFetch(`${BASE_URL}/beds/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    const json = await safeParseResponse<BedDto>(res, 'Lỗi khi đổi trạng thái giường');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Lỗi khi đổi trạng thái giường');
+    return json.data;
+  },
+};
+
 
 // ── Requests API (Booking, BedTransfer, Checkout, Complaint, Others) ───────────
+export interface BedTransferHandoverItemDto {
+  id: number;
+  equipmentId: number;
+  equipmentCode: string;
+  equipmentName: string;
+  category: string;
+  itemCondition: 'Good' | 'Damaged' | 'Missing' | string;
+  description?: string;
+  compensationAmount: number;
+}
+
+export interface BedTransferHandoverInfoDto {
+  id: number;
+  handoverCode: string;
+  status: string;
+  inspectorName: string;
+  inspectionNote?: string;
+  totalCompensation: number;
+  studentAcceptedFlag: boolean;
+  studentAcceptedTime?: string;
+  completedTime?: string;
+  items: BedTransferHandoverItemDto[];
+}
+
+export interface BedTransferMeterReadingDto {
+  id: number;
+  meterType: 'Electricity' | 'Water' | string;
+  previousValue: number;
+  currentValue: number;
+  consumption: number;
+  unitPrice: number;
+  totalCost: number;
+  studentShareCost: number;
+  residentCount: number;
+  recordedTime: string;
+  note?: string;
+}
+
+export interface BedTransferInvoiceSummaryDto {
+  id: number;
+  invoiceNumber: string;
+  invoiceType: string;
+  status: string;
+  totalAmount: number;
+  issueDate: string;
+  dueDate?: string;
+  description?: string;
+}
+
+export interface GuardLookupDto {
+  userId: number;
+  fullName: string;
+  guardCode: string;
+  phoneNumber?: string;
+  assignedDormId: number;
+  assignedDormName: string;
+}
+
+export interface TransferInspectionTaskDto {
+  requestId: number;
+  requestCode: string;
+  status: string;
+  studentId: number;
+  studentName: string;
+  studentCode: string;
+  studentPhone?: string;
+  fromResidencyId: number;
+  fromDormName: string;
+  fromBlockName: string;
+  fromRoomId: number;
+  fromRoomNumber: string;
+  fromBedId: number;
+  fromBedCode: string;
+  toDormName: string;
+  toBlockName: string;
+  toRoomNumber: string;
+  toBedCode: string;
+  transferDate?: string;
+  transferReason: string;
+  assignedGuardId?: number;
+  assignedGuardName?: string;
+  previousElectricityReading: number;
+  previousWaterReading: number;
+  electricityUnitPrice: number;
+  waterUnitPrice: number;
+  activeResidentCount: number;
+  handoverCompleted: boolean;
+  handover?: BedTransferHandoverInfoDto;
+  meterReadings: BedTransferMeterReadingDto[];
+}
+
+export interface SubmitTransferInspectionPayload {
+  currentElectricityReading: number;
+  currentWaterReading: number;
+  note?: string;
+  items: Array<{
+    equipmentId: number;
+    itemCondition: 'Good' | 'Damaged' | 'Missing';
+    description?: string;
+    compensationAmount: number;
+  }>;
+}
+
+export interface BedTransferDetailDto {
+  fromResidencyId: number;
+  fromBedId: number;
+  fromRoomId: number;
+  fromDormId: number;
+  fromBedCode: string;
+  fromRoomNumber: string;
+  fromBlockCode: string;
+  fromBlockName: string;
+  fromDormName: string;
+  toBedId: number;
+  toBedCode: string;
+  toRoomNumber: string;
+  toBlockCode: string;
+  toBlockName: string;
+  toDormName: string;
+  toRoomTypeName: string;
+  transferReason: string;
+  transferDate?: string;
+  oldBedDailyRate?: number;
+  newBedDailyRate?: number;
+  daysStayed?: number;
+  daysRemaining?: number;
+  oldBedAmount?: number;
+  newBedAmount?: number;
+  amountAlreadyPaid?: number;
+  totalAmount?: number;
+  priceDifference?: number;
+  assignedGuardId?: number;
+  assignedGuardName?: string;
+  assignedGuardCode?: string;
+  reviewedById?: number;
+  reviewedTime?: string;
+  newResidencyId?: number;
+  handover?: BedTransferHandoverInfoDto;
+  meterReadings?: BedTransferMeterReadingDto[];
+  utilityShareAmount?: number;
+  equipmentCompensationAmount?: number;
+  totalOutstandingAmount?: number;
+  refundDueAmount?: number;
+  invoices?: BedTransferInvoiceSummaryDto[];
+}
+
+export interface CurrentResidencyTransferDto {
+  residencyId: number;
+  termId: number;
+  termName: string;
+  academicYear: string;
+  termStartDate: string;
+  termEndDate: string;
+  dormName: string;
+  blockCode: string;
+  blockName: string;
+  roomId: number;
+  roomNumber: string;
+  roomTypeName: string;
+  bedId: number;
+  bedCode: string;
+  positionInRoom?: string;
+  checkInDate?: string;
+  currentTermPrice?: number;
+}
+
+export interface AvailableTransferBedDto {
+  bedId: number;
+  bedCode: string;
+  positionInRoom?: string;
+  roomId: number;
+  roomNumber: string;
+  floorLevel?: number;
+  roomTypeId: number;
+  roomTypeName: string;
+  bedCapacity: number;
+  blockId: number;
+  blockCode: string;
+  blockName: string;
+  dormId: number;
+  dormCode: string;
+  dormName: string;
+  termPrice?: number;
+}
+
+export interface BedTransferContextDto {
+  eligible: boolean;
+  ineligibleReason?: string;
+  currentResidency?: CurrentResidencyTransferDto;
+  availableBeds: AvailableTransferBedDto[];
+}
+
 export interface RequestItemDto {
   id: number;
   requestCode: string;
@@ -988,10 +1266,14 @@ export interface RequestItemDto {
     violationId?: number;
     violationCode?: string;
     violationTypeName?: string;
+    initialLevel?: string;
+    finalLevel?: string;
+    violationStatus?: string;
     content: string;
     resolutionNote?: string;
     evidences: string[];
   };
+  bedTransfer?: BedTransferDetailDto;
 }
 
 export const requestApi = {
@@ -1012,6 +1294,13 @@ export const requestApi = {
     return Array.isArray(json) ? json : json?.data || [];
   },
 
+  getBedTransferContext: async (): Promise<BedTransferContextDto> => {
+    const res = await authFetch(`${BASE_URL}/requests/bed-transfer/context`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(json?.message || 'Không thể tải thông tin chuyển giường');
+    return json?.data || json;
+  },
+
   create: async (formData: FormData): Promise<RequestItemDto> => {
     const res = await authFetch(`${BASE_URL}/requests`, {
       method: 'POST',
@@ -1022,7 +1311,45 @@ export const requestApi = {
     return json?.data || json;
   },
 
-  process: async (id: number, payload: { decision: string; note?: string; adjustedLevel?: string }): Promise<RequestItemDto> => {
+  getGuards: async (dormId?: number): Promise<GuardLookupDto[]> => {
+    const query = dormId ? `?dormId=${dormId}` : '';
+    const res = await authFetch(`${BASE_URL}/requests/guards${query}`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(json?.message || 'Không thể tải danh sách Bảo vệ');
+    return Array.isArray(json) ? json : json?.data || [];
+  },
+
+  getGuardTransferTasks: async (): Promise<TransferInspectionTaskDto[]> => {
+    const res = await authFetch(`${BASE_URL}/requests/bed-transfer/guard-tasks`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(json?.message || 'Không thể tải nhiệm vụ kiểm tra chuyển giường');
+    return Array.isArray(json) ? json : json?.data || [];
+  },
+
+  submitTransferInspection: async (
+    requestId: number,
+    payload: SubmitTransferInspectionPayload
+  ): Promise<TransferInspectionTaskDto> => {
+    const res = await authFetch(`${BASE_URL}/requests/${requestId}/transfer-inspection`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(json?.message || 'Không thể gửi biên bản kiểm tra chuyển giường');
+    return json?.data || json;
+  },
+
+  process: async (
+    id: number,
+    payload: {
+      decision: string;
+      note?: string;
+      adjustedLevel?: string;
+      assignedGuardId?: number;
+      transferDate?: string;
+    }
+  ): Promise<RequestItemDto> => {
     const res = await authFetch(`${BASE_URL}/requests/${id}/process`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1295,6 +1622,249 @@ export interface ResidencyHistoryDetail extends ResidencyHistoryItem {
   invoices: ResidencyInvoiceSummary[];
 }
 
+// ── EW (Electricity & Water) API ─────────────────────────
+export interface BillingPeriodLookupDto {
+  id: number;
+  termId?: number;
+  targetMonth: number;
+  targetYear: number;
+  displayName: string;
+  status: string; // "Open" | "Calculated" | "Closed"
+  termName: string;
+}
+
+export interface EwReadingDetailItem {
+  readingId: number;
+  roomId: number;
+  roomNumber: string;
+  floorLevel?: number;
+  meterType: string;
+  previousValue: number;
+  currentValue: number;
+  consumption: number;
+  source: string;
+  status: string;
+  note?: string;
+  recordedTime: string;
+  recordedByName?: string;
+}
+
+export interface EwUsageRow {
+  id: number;
+  block: string;
+  tenBlock?: string;
+  blockCode?: string;
+  blockName?: string;
+  roomNumber?: string;
+  termId?: number;
+  billingPeriodId?: number;
+  periodStatus?: string;
+  targetMonth?: number;
+  targetYear?: number;
+  loaiSuDung: string;    // "Electricity" | "Water"
+  ngayTao: string | null;
+  hocKy: string;
+  meterNumberDisplay: string;
+  totalConsumption: number;
+  donvi?: string;
+  readings?: EwReadingDetailItem[];
+}
+
+export interface ExcelPreviewRowDto {
+  rowIndex: number;
+  dorm: string;
+  blockCode: string;
+  meterType: string;
+  dateStr: string;
+  leftValue?: number;
+  rightValue?: number;
+  leftRoomId?: number;
+  rightRoomId?: number;
+  leftRoomNumber: string;
+  rightRoomNumber: string;
+  leftOldReading: number;
+  rightOldReading: number;
+  leftConsumption: number;
+  rightConsumption: number;
+  status: string; // "Valid" | "Warning" | "Error"
+  errorMessage?: string;
+  flagReason?: string;
+}
+
+export interface ExcelPreviewResponseDto {
+  totalRows: number;
+  validRows: number;
+  warningRows: number;
+  errorRows: number;
+  alreadyHasDataInPeriod: boolean;
+  rows: ExcelPreviewRowDto[];
+}
+
+export interface ImportBatchItemDto {
+  id: number;
+  billingPeriodId: number;
+  billingPeriodDisplay: string;
+  blockCode: string;
+  guardName: string;
+  method: string;
+  fileName?: string;
+  totalRows: number;
+  errorRows: number;
+  importTime: string;
+}
+
+export interface StudentTermOptionDto {
+  termId: number;
+  termName: string;
+  academicYear: string;
+  isCurrent: boolean;
+}
+
+export interface StudentEwMonthlyRowDto {
+  block: string;
+  roomNumber?: string;
+  monthYear: string;
+  targetMonth: number;
+  targetYear: number;
+  recordDate?: string;
+  type: string; // 'Điện' | 'Nước'
+  rawType: string; // 'Electricity' | 'Water'
+  roomTotalUsage: number;
+  yourUsage: number;
+  quotaMonthly: number;
+  yourOverUsage: number;
+}
+
+export interface StudentEwReportDto {
+  termId: number;
+  termName: string;
+  academicYear: string;
+  blockId: number;
+  blockCode: string;
+  blockName: string;
+  roomNumber: string;
+  numberOfCheckedInResidents: number;
+  roommates: string[];
+  rows: StudentEwMonthlyRowDto[];
+  totalElectricUsage: number;
+  electricQuota: number;
+  totalElectricOverUsage: number;
+  electricUnitPrice: number;
+  electricOverUsagePayment: number;
+  totalWaterUsage: number;
+  waterQuota: number;
+  totalWaterOverUsage: number;
+  waterUnitPrice: number;
+  waterOverUsagePayment: number;
+}
+
+export const ewApi = {
+  getBillingPeriods: async (): Promise<BillingPeriodLookupDto[]> => {
+    const res = await authFetch(`${BASE_URL}/ew/billing-periods`);
+    const json = await safeParseResponse<BillingPeriodLookupDto[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải danh sách kỳ thanh toán');
+    return json.data || [];
+  },
+
+  getUsages: async (params?: {
+    blockCode?: string;
+    meterType?: string;
+    month?: number;
+    year?: number;
+    termId?: number;
+    billingPeriodId?: number;
+  }): Promise<EwUsageRow[]> => {
+    const query = new URLSearchParams();
+    if (params?.blockCode) query.append('blockCode', params.blockCode);
+    if (params?.meterType) query.append('meterType', params.meterType);
+    if (params?.month) query.append('month', params.month.toString());
+    if (params?.year) query.append('year', params.year.toString());
+    if (params?.termId) query.append('termId', params.termId.toString());
+    if (params?.billingPeriodId) query.append('billingPeriodId', params.billingPeriodId.toString());
+    const qs = query.toString();
+    const res = await authFetch(`${BASE_URL}/ew/usages${qs ? `?${qs}` : ''}`);
+    const json = await safeParseResponse<EwUsageRow[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải dữ liệu sử dụng');
+    return json.data || [];
+  },
+
+  previewImport: async (file: File, billingPeriodId: number): Promise<ExcelPreviewResponseDto> => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('billingPeriodId', billingPeriodId.toString());
+    const res = await authFetch(`${BASE_URL}/ew/import/preview`, { method: 'POST', body: form });
+    const json = await safeParseResponse<ExcelPreviewResponseDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể xem trước dữ liệu');
+    return json.data;
+  },
+
+  uploadImport: async (file: File, billingPeriodId: number): Promise<{ savedReadings: number; message: string }> => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('billingPeriodId', billingPeriodId.toString());
+    const res = await authFetch(`${BASE_URL}/ew/import/upload`, { method: 'POST', body: form });
+    const json = await safeParseResponse<any>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Import thất bại');
+    return json.data;
+  },
+
+  confirmImport: async (payload: {
+    billingPeriodId: number;
+    fileName: string;
+    importOnlyValid: boolean;
+    overwriteExisting: boolean;
+    rows: ExcelPreviewRowDto[];
+  }): Promise<{ savedReadings: number; message: string }> => {
+    const res = await authFetch(`${BASE_URL}/ew/import/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<any>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Xác nhận import thất bại');
+    return json.data;
+  },
+
+  getImportBatches: async (billingPeriodId?: number): Promise<ImportBatchItemDto[]> => {
+    const qs = billingPeriodId ? `?billingPeriodId=${billingPeriodId}` : '';
+    const res = await authFetch(`${BASE_URL}/ew/import/batches${qs}`);
+    const json = await safeParseResponse<ImportBatchItemDto[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải lịch sử import');
+    return json.data || [];
+  },
+
+  downloadTemplate: (billingPeriodId?: number): void => {
+    const qs = billingPeriodId ? `?billingPeriodId=${billingPeriodId}` : '';
+    window.open(`${BASE_URL}/ew/import/template${qs}`, '_blank');
+  },
+
+  updateReading: async (id: number, currentValue: number, note?: string): Promise<{ success: boolean; message: string }> => {
+    const res = await authFetch(`${BASE_URL}/ew/readings/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentValue, note }),
+    });
+    const json = await safeParseResponse<{ success: boolean; message: string }>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể cập nhật chỉ số');
+    return json;
+  },
+
+  getMyTerms: async (): Promise<StudentTermOptionDto[]> => {
+    const res = await authFetch(`${BASE_URL}/ew/my-terms`);
+    const json = await safeParseResponse<StudentTermOptionDto[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải danh sách học kỳ');
+    return json.data || [];
+  },
+
+  getMyUsage: async (termId?: number): Promise<StudentEwReportDto | null> => {
+    const qs = termId ? `?termId=${termId}` : '';
+    const res = await authFetch(`${BASE_URL}/ew/my-usage${qs}`);
+    const json = await safeParseResponse<StudentEwReportDto | null>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải thông tin điện nước');
+    return json.data || null;
+  },
+};
+
 export const residencyApi = {
   getMyHistory: async (params?: {
     status?: string;
@@ -1519,4 +2089,156 @@ export const keepingApi = {
 
   getById: (id: number) =>
     keepingRequest<KeepingRequestResult>(`${BASE_URL}/keeping/requests/${id}`, undefined, 'Không thể tải yêu cầu giữ phòng'),
+// ── Booking Room API ──────────────────────────────────────
+export interface BookingEligibilityDto {
+  eligible: boolean;
+  ineligibleReason?: string;
+  isBookingPeriodOpen: boolean;
+  periodStart?: string;
+  periodEnd?: string;
+  nextTermId?: number;
+  nextTermName?: string;
+  studentGender?: string;
+  currentBooking?: BookingRequestItemDto;
+}
+
+export interface BookingAvailableDormDto {
+  dormId: number;
+  dormName: string;
+  dormCode: string;
+  totalAvailableBeds: number;
+}
+
+export interface BookingAvailableBlockDto {
+  blockId: number;
+  blockName: string;
+  blockCode: string;
+  genderType: string;
+  dormId: number;
+  totalAvailableBeds: number;
+}
+
+export interface BookingAvailableRoomDto {
+  roomId: number;
+  roomNumber: string;
+  floorLevel?: number;
+  roomTypeId: number;
+  roomTypeName: string;
+  bedCapacity: number;
+  freeBeds: number;
+  blockId: number;
+}
+
+export interface BookingAvailableBedDto {
+  bedId: number;
+  bedCode: string;
+  positionInRoom?: string;
+  roomId: number;
+  roomNumber: string;
+  termPrice?: number;
+}
+
+export interface BookingRequestItemDto {
+  requestId: number;
+  status: string;
+  bedId: number;
+  bedCode: string;
+  roomNumber: string;
+  blockName: string;
+  dormName: string;
+  termId: number;
+  termName: string;
+  termPrice?: number;
+  createdTime: string;
+  paymentDeadline: string;
+  agreementToRegulations: boolean;
+  rejectReason?: string;
+}
+
+export interface BookingRequestManagerDto {
+  id: number;
+  studentId: number;
+  studentCode: string;
+  studentName: string;
+  studentGender: string;
+  bedId: number;
+  bedCode: string;
+  roomNumber: string;
+  blockName: string;
+  dormName: string;
+  termId: number;
+  termName: string;
+  termPrice?: number;
+  status: string;
+  createdTime: string;
+  processedTime?: string;
+  processedByName?: string;
+  rejectReason?: string;
+}
+
+export const bookingApi = {
+  getEligibility: async (): Promise<BookingEligibilityDto> => {
+    const res = await authFetch(`${BASE_URL}/booking/eligibility`);
+    const json = await safeParseResponse<BookingEligibilityDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể kiểm tra điều kiện đặt phòng');
+    return json.data;
+  },
+
+  getAvailableDorms: async (): Promise<BookingAvailableDormDto[]> => {
+    const res = await authFetch(`${BASE_URL}/booking/available-dorms`);
+    const json = await safeParseResponse<BookingAvailableDormDto[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải danh sách tòa KTX');
+    return json.data || [];
+  },
+
+  getAvailableBlocks: async (dormId: number): Promise<BookingAvailableBlockDto[]> => {
+    const res = await authFetch(`${BASE_URL}/booking/available-blocks?dormId=${dormId}`);
+    const json = await safeParseResponse<BookingAvailableBlockDto[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải danh sách Block');
+    return json.data || [];
+  },
+
+  getAvailableRooms: async (blockId: number): Promise<BookingAvailableRoomDto[]> => {
+    const res = await authFetch(`${BASE_URL}/booking/available-rooms?blockId=${blockId}`);
+    const json = await safeParseResponse<BookingAvailableRoomDto[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải danh sách phòng');
+    return json.data || [];
+  },
+
+  getAvailableBeds: async (roomId: number): Promise<BookingAvailableBedDto[]> => {
+    const res = await authFetch(`${BASE_URL}/booking/available-beds?roomId=${roomId}`);
+    const json = await safeParseResponse<BookingAvailableBedDto[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải danh sách giường');
+    return json.data || [];
+  },
+
+  createBooking: async (payload: { bedId: number; agreementToRegulations: boolean }): Promise<BookingRequestItemDto> => {
+    const res = await authFetch(`${BASE_URL}/booking/requests`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<BookingRequestItemDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Lỗi khi gửi yêu cầu đặt phòng');
+    return json.data;
+  },
+
+  getManagerRequests: async (status?: string): Promise<BookingRequestManagerDto[]> => {
+    const query = status && status !== 'All' ? `?status=${status}` : '';
+    const res = await authFetch(`${BASE_URL}/booking/manager/requests${query}`);
+    const json = await safeParseResponse<BookingRequestManagerDto[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải danh sách đơn đặt phòng');
+    return json.data || [];
+  },
+
+  processBooking: async (id: number, decision: 'Approved' | 'Rejected', rejectReason?: string): Promise<BookingRequestManagerDto> => {
+    const res = await authFetch(`${BASE_URL}/booking/manager/requests/${id}/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision, rejectReason }),
+    });
+    const json = await safeParseResponse<BookingRequestManagerDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể xử lý đơn đặt phòng');
+    return json.data;
+  },
 };

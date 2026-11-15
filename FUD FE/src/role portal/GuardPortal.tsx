@@ -3,6 +3,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { RecordViolationPage } from '../pages/Violations/RecordViolationPage';
 import { ViolationListPage } from '../pages/Violations/ViolationListPage';
 import { GuardCheckinPage } from '../pages/Checkin/GuardCheckinPage';
+import { GuardBedTransferPage } from '../pages/Requests/GuardBedTransferPage';
+import { EwManagement } from '../pages/FacilityManagement/EwManagement';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
 
 interface GuardPortalProps {
@@ -11,7 +13,7 @@ interface GuardPortalProps {
 
 export const GuardPortal: React.FC<GuardPortalProps> = ({ onLogout }) => {
   const { currentUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<'checkin' | 'checkin-list' | 'create' | 'list' | 'overview'>('checkin');
+  const [activeTab, setActiveTab] = useState<'checkin' | 'checkin-list' | 'bed-transfer' | 'create' | 'list' | 'ew' | 'overview'>('checkin');
 
   const guardSections: SidebarSection[] = [
     {
@@ -19,6 +21,7 @@ export const GuardPortal: React.FC<GuardPortalProps> = ({ onLogout }) => {
       items: [
         { id: 'checkin', name: 'Check-in nhận phòng', counter: 'Lập biên bản bàn giao' },
         { id: 'checkin-list', name: 'Biên bản đã Check-in', counter: 'Tra cứu & In biên bản' },
+        { id: 'bed-transfer', name: 'Kiểm tra chuyển giường', counter: 'Chốt thiết bị & điện nước' },
       ],
     },
     {
@@ -26,6 +29,12 @@ export const GuardPortal: React.FC<GuardPortalProps> = ({ onLogout }) => {
       items: [
         { id: 'create', name: 'Ghi nhận vi phạm', counter: 'Lập biên bản mới' },
         { id: 'list', name: 'Danh sách hồ sơ', counter: 'Xem & đối soát' },
+      ],
+    },
+    {
+      label: 'ĐIỆN & NƯỚC',
+      items: [
+        { id: 'ew', name: 'Nhập chỉ số điện – nước', counter: 'Import theo kỳ' },
       ],
     },
     {
@@ -58,10 +67,14 @@ export const GuardPortal: React.FC<GuardPortalProps> = ({ onLogout }) => {
           <GuardCheckinPage mode="create" onNavigateHistory={() => setActiveTab('checkin-list')} />
         ) : activeTab === 'checkin-list' ? (
           <GuardCheckinPage mode="history" />
+        ) : activeTab === 'bed-transfer' ? (
+          <GuardBedTransferPage />
         ) : activeTab === 'create' ? (
           <RecordViolationPage onSuccessNavigate={() => setActiveTab('list')} />
         ) : activeTab === 'list' ? (
           <ViolationListPage />
+        ) : activeTab === 'ew' ? (
+          <EwManagement />
         ) : (
           <div style={{ padding: '24px 32px' }}>
             <div

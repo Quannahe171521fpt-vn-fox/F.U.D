@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { violationApi, type ViolationItem } from '../../services/api';
 import { Pagination } from '../../components/Pagination';
 import { formatDateTime, formatDate } from '../../utils/dateUtils';
+import { removeVietnameseTones } from '../../utils/textUtils';
 import '../../styles/violation.css';
 
 const PAGE_SIZE = 10;
@@ -23,6 +24,10 @@ export const StudentViolationNoticesPage: React.FC<StudentViolationNoticesPagePr
   const [notices, setNotices] = useState<ViolationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterLevel, setFilterLevel] = useState('');
+  const [filterCanAppeal, setFilterCanAppeal] = useState<'all' | 'can' | 'expired'>('all');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [selectedNotice, setSelectedNotice] = useState<ViolationItem | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -64,13 +69,50 @@ export const StudentViolationNoticesPage: React.FC<StudentViolationNoticesPagePr
     setSelectedNotice(notice);
   };
 
-  const paginatedNotices = notices.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-
   // Kiểm tra thời hạn 24h
   const isExpired = (deadline?: string) => {
     if (!deadline) return true;
     return new Date() > new Date(deadline);
   };
+
+  const filteredNotices = notices.filter(n => {
+    if (filterLevel) {
+      const level = n.finalLevel || n.initialLevel || '';
+      if (!level.toLowerCase().includes(filterLevel.toLowerCase())) return false;
+    }
+
+    if (filterCanAppeal === 'can') {
+      if (n.linkedRequestId || isExpired(n.requestDeadline)) return false;
+    } else if (filterCanAppeal === 'expired') {
+      if (!isExpired(n.requestDeadline) && !n.linkedRequestId) return false;
+    }
+
+    if (searchTerm.trim()) {
+      const term = removeVietnameseTones(searchTerm);
+      const codeNorm = removeVietnameseTones(n.code || '');
+      const typeNorm = removeVietnameseTones(n.violationTypeName || '');
+      const roomNorm = removeVietnameseTones(n.roomNumber || '');
+      const blockNorm = removeVietnameseTones(n.blockName || '');
+      const levelNorm = removeVietnameseTones(n.finalLevel || n.initialLevel || '');
+
+      const matches =
+        codeNorm.includes(term) ||
+        typeNorm.includes(term) ||
+        roomNorm.includes(term) ||
+        blockNorm.includes(term) ||
+        levelNorm.includes(term);
+
+      if (!matches) return false;
+    }
+
+    return true;
+  }).sort((a, b) => {
+    const timeA = new Date(a.occurrenceTime).getTime();
+    const timeB = new Date(b.occurrenceTime).getTime();
+    return sortOrder === 'desc' ? timeB - timeA : timeA - timeB;
+  });
+
+  const paginatedNotices = filteredNotices.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
     <div style={{ padding: '24px 32px' }}>
@@ -110,7 +152,7 @@ export const StudentViolationNoticesPage: React.FC<StudentViolationNoticesPagePr
         <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0', padding: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: '#1E293B' }}>
-              Danh sách biên bản thông báo ({notices.length})
+              Danh sách biên bản thông báo ({filteredNotices.length})
             </h2>
             <button
               type="button"
@@ -126,6 +168,129 @@ export const StudentViolationNoticesPage: React.FC<StudentViolationNoticesPagePr
             >
               Tải lại
             </button>
+          </div>
+
+          {/* Advance Search Bar */}
+          <div
+            style={{
+              display: 'flex',
+              gap: '10px',
+              alignItems: 'center',
+              backgroundColor: '#F8FAFC',
+              padding: '12px 14px',
+              borderRadius: '8px',
+              border: '1px solid #E2E8F0',
+              marginBottom: 14,
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ flex: '1 1 180px', minWidth: '150px' }}>
+              <input
+                type="text"
+                placeholder="Tìm mã, loại vi phạm, phòng (có dấu & không dấu)..."
+                value={searchTerm}
+                onChange={e => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid #CBD5E1',
+                  fontSize: '12px',
+                }}
+              />
+            </div>
+
+            <div style={{ minWidth: '130px' }}>
+              <select
+                value={filterLevel}
+                onChange={e => {
+                  setFilterLevel(e.target.value);
+                  setCurrentPage(1);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid #CBD5E1',
+                  fontSize: '12px',
+                  backgroundColor: '#FFF',
+                }}
+              >
+                <option value="">Tất cả mức độ</option>
+                <option value="Nhắc nhở">Nhắc nhở</option>
+                <option value="Khiển trách">Khiển trách</option>
+                <option value="Cảnh cáo">Cảnh cáo</option>
+                <option value="Đình chỉ">Đình chỉ nội trú</option>
+              </select>
+            </div>
+
+            <div style={{ minWidth: '140px' }}>
+              <select
+                value={filterCanAppeal}
+                onChange={e => {
+                  setFilterCanAppeal(e.target.value as any);
+                  setCurrentPage(1);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid #CBD5E1',
+                  fontSize: '12px',
+                  backgroundColor: '#FFF',
+                }}
+              >
+                <option value="all">Tất cả thời hạn</option>
+                <option value="can">Còn hạn khiếu nại (24h)</option>
+                <option value="expired">Đã hết hạn / Đã khiếu nại</option>
+              </select>
+            </div>
+
+            <div style={{ minWidth: '145px' }}>
+              <select
+                value={sortOrder}
+                onChange={e => setSortOrder(e.target.value as 'desc' | 'asc')}
+                style={{
+                  width: '100%',
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid #CBD5E1',
+                  fontSize: '12px',
+                  backgroundColor: '#FFF',
+                  fontWeight: 600,
+                }}
+              >
+                <option value="desc">Mới nhất trước ↓</option>
+                <option value="asc">Cũ nhất trước ↑</option>
+              </select>
+            </div>
+
+            {(searchTerm || filterLevel || filterCanAppeal !== 'all' || sortOrder !== 'desc') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setFilterLevel('');
+                  setFilterCanAppeal('all');
+                  setSortOrder('desc');
+                  setCurrentPage(1);
+                }}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid #CBD5E1',
+                  backgroundColor: '#FFF',
+                  color: '#64748B',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                }}
+              >
+                Đặt lại
+              </button>
+            )}
           </div>
 
           {loading ? (
@@ -203,10 +368,10 @@ export const StudentViolationNoticesPage: React.FC<StudentViolationNoticesPagePr
                                 whiteSpace: 'nowrap',
                                 backgroundColor:
                                   n.status === 'Recorded' ? '#FEF3C7' :
-                                  n.status === 'Finalized' ? '#FEE2E2' : '#F1F5F9',
+                                    n.status === 'Finalized' ? '#FEE2E2' : '#F1F5F9',
                                 color:
                                   n.status === 'Recorded' ? '#92400E' :
-                                  n.status === 'Finalized' ? '#B91C1C' : '#475569',
+                                    n.status === 'Finalized' ? '#B91C1C' : '#475569',
                               }}
                             >
                               {VIOLATION_STATUS_VI[n.status] || n.status}
@@ -246,7 +411,7 @@ export const StudentViolationNoticesPage: React.FC<StudentViolationNoticesPagePr
               <button
                 type="button"
                 onClick={() => setSelectedNotice(null)}
-                style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#94A3B8' }}
+                style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#000000ff' }}
               >
                 Đóng
               </button>

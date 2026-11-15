@@ -190,7 +190,7 @@ namespace FUD.Services.Violations
             var now = DateTime.UtcNow;
 
             // Kiểm tra và tự động chuyển các biên bản quá hạn 24h mà SV không kháng cáo sang Finalized
-            foreach (var v in list.Where(v => v.Status == "Recorded" && v.RequestDeadline.HasValue && now > v.RequestDeadline.Value))
+            foreach (var v in list.Where(v => v.Status == "Recorded" && v.RequestDeadline.HasValue && now > v.RequestDeadline.Value && (v.ComplaintRequests == null || !v.ComplaintRequests.Any())))
             {
                 v.Status = "Finalized";
                 v.FinalLevel = v.InitialLevel ?? "Cảnh cáo";
@@ -291,20 +291,7 @@ namespace FUD.Services.Violations
 
             await _violationRepo.UpdateViolationAsync(violation);
 
-            // Nếu mức phạt là Đình chỉ / Buộc rời → Khóa tài khoản ngay lập tức khi ban hành
-            if (!string.IsNullOrEmpty(request.InitialLevel) &&
-                (request.InitialLevel.Contains("Đình chỉ") || request.InitialLevel.Contains("Buộc rời")))
-            {
-                var studentUser = await _violationRepo.GetUserByIdAsync(violation.StudentId);
-                if (studentUser != null && studentUser.AccountStatus != "Suspended")
-                {
-                    studentUser.AccountStatus = "Suspended";
-                    studentUser.SuspendedAt = DateTime.UtcNow;
-                    studentUser.SuspendedById = managerUserId;
-                    studentUser.SuspensionReason = $"Bị đình chỉ nội trú theo quyết định kỷ luật biên bản {violation.Code} ({request.InitialLevel})";
-                    await _violationRepo.UpdateUserAsync(studentUser);
-                }
-            }
+            // Mức độ ban đầu: đình chỉ thì chưa đình chỉ ngay (chỉ đình chỉ nếu không gửi complaint trong 24h hoặc sau khi complaint bị từ chối)
 
             var updated = await _violationRepo.GetViolationByIdAsync(violation.Id);
 

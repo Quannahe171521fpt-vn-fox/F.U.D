@@ -7,3 +7,4 @@ Expertise/
 .env.local
 .env.*.local
 *.appsettings.json
+FUD FE/.env.example

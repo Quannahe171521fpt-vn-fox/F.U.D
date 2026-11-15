@@ -160,6 +160,7 @@ builder.Services.AddControllers()
     {
         opts.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
         opts.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+        opts.JsonSerializerOptions.Converters.Add(new FUD.Common.FlexibleStringConverter());
     });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -294,6 +295,10 @@ builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 
+//9. Utilites
+builder.Services.AddScoped<FUD.Repositories.Interfaces.Utilities.IEwRepository, FUD.Repositories.Utilities.EwRepository>();
+builder.Services.AddScoped<FUD.Services.Interfaces.Utilities.IEwService, FUD.Services.Utilities.EwService>();
+
 // ── Account Management DI (UC: Create Account / Assign Roles / Suspend / Restore) ──
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));
 builder.Services.AddScoped<INotificationService, GmailNotificationService>();
@@ -305,8 +310,10 @@ builder.Services.AddAccountValidators();
 // Facilities DI
 builder.Services.AddScoped<IBlockRepository, BlockRepository>();
 builder.Services.AddScoped<IRoomRepository, RoomRepository>();
+builder.Services.AddScoped<IBedRepository, BedRepository>();
 builder.Services.AddScoped<IBlockService, BlockService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
+builder.Services.AddScoped<IBedService, BedService>();
 // UC-Dorm: Dorm Management
 builder.Services.AddScoped<FUD.Repositories.Interfaces.Facilities.IDormRepository, FUD.Repositories.Facilities.DormRepository>();
 builder.Services.AddScoped<FUD.Services.Interfaces.Facilities.IDormService, FUD.Services.Facilities.DormService>();
@@ -326,6 +333,10 @@ builder.Services.AddScoped<FUD.Services.Interfaces.Keeping.IKeepingService, FUD.
 builder.Services.AddScoped<FUD.Services.Keeping.KeepingPeriodCloseJob>();
 // Job đóng kỳ giữ phòng: tự động trả giường về pool booking sau khi kỳ Keeping kết thúc.
 builder.Services.AddHostedService<FUD.Services.Keeping.KeepingPeriodCloseHostedService>();
+
+// ── Booking Room DI ──
+builder.Services.AddScoped<FUD.Repositories.Interfaces.Booking.IBookingRepository, FUD.Repositories.Booking.BookingRepository>();
+builder.Services.AddScoped<FUD.Services.Interfaces.Booking.IBookingService, FUD.Services.Booking.BookingService>();
 // Requests DI
 builder.Services.AddScoped<FUD.Repositories.Interfaces.Requests.IRequestRepository, FUD.Repositories.Requests.RequestRepository>();
 builder.Services.AddScoped<FUD.Services.Interfaces.Requests.IRequestService, FUD.Services.Requests.RequestService>();
@@ -337,6 +348,7 @@ builder.Services.AddControllers()
     {
         opts.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
         opts.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+        opts.JsonSerializerOptions.Converters.Add(new FUD.Common.FlexibleStringConverter());
     });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

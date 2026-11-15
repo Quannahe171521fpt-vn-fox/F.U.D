@@ -9,6 +9,9 @@ import { StudentCheckinRecordsPage } from '../pages/Checkin/StudentCheckinRecord
 import { StudentResidencyHistoryPage } from '../pages/Residency/StudentResidencyHistoryPage';
 import { StudentKeepingPage } from '../pages/Keeping/StudentKeepingPage';
 import { newsApi } from '../services/api';
+import { newsApi, violationApi, requestApi, bookingApi } from '../services/api';
+import { BookingPage } from '../pages/Booking/BookingPage';
+import { StudentEwUsagePage } from '../pages/Student/StudentEwUsagePage';
 import type { NewsItem } from '../types/management';
 import { useAuth } from '../contexts/AuthContext';
 import '../styles/management.css';
@@ -22,6 +25,25 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
   const { currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState<string>('profile');
   const [newsList, setNewsList] = useState<NewsItem[]>([]);
+  const [hasNewViolationNotice, setHasNewViolationNotice] = useState<boolean>(false);
+  const [hasNewAnnouncements, setHasNewAnnouncements] = useState<boolean>(false);
+  const [hasNewRequestUpdate, setHasNewRequestUpdate] = useState<boolean>(false);
+  const [isBookingOpen, setIsBookingOpen] = useState<boolean>(false);
+
+  // Kiểm tra thời gian mở cổng đặt phòng (Booking)
+  useEffect(() => {
+    const checkBooking = async () => {
+      try {
+        const elig = await bookingApi.getEligibility();
+        setIsBookingOpen(elig.isBookingPeriodOpen);
+      } catch {
+        setIsBookingOpen(false);
+      }
+    };
+    checkBooking();
+    const interval = setInterval(checkBooking, 15000);
+    return () => clearInterval(interval);
+  }, [currentUser?.id]);
 
   // Tải danh sách thông báo tin tức KTX
   useEffect(() => {
@@ -33,12 +55,73 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
           status: 'Published' as const,
         }));
         setNewsList(mapped);
+
+        // Kiểm tra xem có tin tức mới (trong 3 ngày gần nhất hoặc chưa xem)
+        const lastSeenNewsTime = localStorage.getItem(`lastSeenNews_${currentUser?.id || 'guest'}`);
+        if (data.length > 0) {
+          const latestNewsDate = new Date(data[0].createdTime || data[0].publishDate || 0).getTime();
+          if (!lastSeenNewsTime || latestNewsDate > Number(lastSeenNewsTime)) {
+            setHasNewAnnouncements(true);
+          }
+        }
       } catch (err) {
         console.error('Không thể tải tin tức:', err);
       }
     };
     loadNews();
-  }, []);
+  }, [currentUser?.id]);
+
+  // Kiểm tra thông báo vi phạm mới và cập nhật đơn từ
+  useEffect(() => {
+    const checkBadges = async () => {
+      try {
+        const [notices, requests] = await Promise.all([
+          violationApi.getStudentNotices().catch(() => []),
+          requestApi.getMyRequests().catch(() => []),
+        ]);
+
+        // Thông báo vi phạm: Có biên bản vi phạm mới (Recorded) và chưa đọc
+        const lastSeenNoticeTime = localStorage.getItem(`lastSeenNotice_${currentUser?.id || 'guest'}`);
+        const unhandledNotices = notices.filter((n: any) => {
+          if (n.status !== 'Recorded') return false;
+          const time = new Date(n.occurrenceTime || 0).getTime();
+          return !lastSeenNoticeTime || time > Number(lastSeenNoticeTime);
+        });
+        setHasNewViolationNotice(unhandledNotices.length > 0);
+
+        // Đơn từ: Có đơn được duyệt / từ chối gần đây hoặc đang có phản hồi
+        const lastSeenReqTime = localStorage.getItem(`lastSeenReq_${currentUser?.id || 'guest'}`);
+        const recentlyProcessed = requests.find((r: any) => {
+          if (r.status === 'Approved' || r.status === 'Rejected') {
+            const time = new Date(r.processedTime || r.createdTime).getTime();
+            return !lastSeenReqTime || time > Number(lastSeenReqTime);
+          }
+          return false;
+        });
+        setHasNewRequestUpdate(!!recentlyProcessed);
+      } catch (err) {
+        console.error('Lỗi khi kiểm tra thông báo sidebar:', err);
+      }
+    };
+
+    checkBadges();
+    const interval = setInterval(checkBadges, 10000);
+    return () => clearInterval(interval);
+  }, [currentUser?.id]);
+
+  const handleTabSelect = (tabId: string) => {
+    setActiveTab(tabId);
+    if (tabId === 'announcements') {
+      setHasNewAnnouncements(false);
+      localStorage.setItem(`lastSeenNews_${currentUser?.id || 'guest'}`, Date.now().toString());
+    } else if (tabId === 'request-list') {
+      setHasNewRequestUpdate(false);
+      localStorage.setItem(`lastSeenReq_${currentUser?.id || 'guest'}`, Date.now().toString());
+    } else if (tabId === 'notices') {
+      setHasNewViolationNotice(false);
+      localStorage.setItem(`lastSeenNotice_${currentUser?.id || 'guest'}`, Date.now().toString());
+    }
+  };
 
   // Menu bên trái dành cho Sinh viên
   const sidebarSections: SidebarSection[] = [
@@ -52,27 +135,29 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
       label: 'NỘI TRÚ & PHÒNG Ở',
       items: [
         { id: 'keeping', name: 'Giữ phòng kỳ tiếp' },
+        { id: 'booking', name: 'Đặt phòng KTX', showBadgeDot: isBookingOpen },
         { id: 'residency-history', name: 'Lịch sử lưu trú' },
         { id: 'checkin-records', name: 'Biên bản nhận phòng' },
+        { id: 'student-ew', name: 'Điện nước & Định mức' },
       ],
     },
     {
       label: 'THÔNG BÁO & TIN TỨC',
       items: [
-        { id: 'announcements', name: 'Bảng tin KTX' },
+        { id: 'announcements', name: 'Bảng tin KTX', showBadgeDot: hasNewAnnouncements },
       ],
     },
     {
       label: 'ĐƠN TỪ & YÊU CẦU',
       items: [
-        { id: 'request-list', name: 'Danh sách đơn từ' },
+        { id: 'request-list', name: 'Danh sách đơn từ', showBadgeDot: hasNewRequestUpdate },
         { id: 'submit-request', name: 'Gửi đơn yêu cầu' },
       ],
     },
     {
       label: 'KỶ LUẬT & NỘI QUY',
       items: [
-        { id: 'notices', name: 'Thông báo vi phạm' },
+        { id: 'notices', name: 'Thông báo vi phạm', showBadgeDot: hasNewViolationNotice },
         { id: 'history', name: 'Lịch sử vi phạm' },
       ],
     },
@@ -88,7 +173,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
         subText={currentUser?.fullName || 'Sinh viên KTX'}
         sections={sidebarSections}
         activeId={activeTab}
-        onSelect={(tabId) => setActiveTab(tabId)}
+        onSelect={handleTabSelect}
         onLogout={onLogout}
       />
 
@@ -108,7 +193,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
               gap: '14px',
             }}
           >
-            <span style={{ fontSize: '24px' }}>⚠️</span>
+            <span style={{ fontSize: '24px' }}></span>
             <div>
               <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '2px' }}>
                 Tài khoản đang trong diện ĐÌNH CHỈ NỘI TRÚ
@@ -119,6 +204,10 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
               </div>
             </div>
           </div>
+        )}
+
+        {activeTab === 'booking' && (
+          <BookingPage onGoToRequests={() => setActiveTab('request-list')} />
         )}
 
         {activeTab === 'notices' && (
@@ -151,6 +240,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
         {activeTab === 'checkin-records' && (
           <StudentCheckinRecordsPage onBackToProfile={() => setActiveTab('profile')} />
         )}
+
+        {activeTab === 'student-ew' && <StudentEwUsagePage />}
 
         {/* Xem trực tiếp Bảng tin Thông báo ngay bên trong StudentPortal */}
         {activeTab === 'announcements' && (
@@ -238,10 +329,54 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
                 <div><strong>Vai trò hệ thống:</strong> Sinh viên (Student)</div>
               </div>
 
+              {isBookingOpen && (
+                <div
+                  style={{
+                    marginBottom: 20,
+                    padding: '16px 20px',
+                    backgroundColor: '#FFF7ED',
+                    border: '1.5px solid #F97316',
+                    borderRadius: '10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '15px', color: '#9A3412', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span>🛏️</span> Cổng Đặt phòng KTX đang mở!
+                    </div>
+                    <div style={{ fontSize: '13px', color: '#C2410C', marginTop: 2 }}>
+                      Đang trong thời gian đăng ký chỗ ở Ký túc xá cho học kỳ mới.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('booking')}
+                    style={{
+                      padding: '10px 20px',
+                      backgroundColor: '#EA580C',
+                      color: '#FFFFFF',
+                      border: 'none',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 8px rgba(234, 88, 12, 0.35)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <span>🛏️</span> Booking now
+                  </button>
+                </div>
+              )}
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <button
                   type="button"
-                  onClick={() => setActiveTab('notices')}
+                  onClick={() => handleTabSelect('notices')}
                   style={{
                     padding: '12px 16px',
                     backgroundColor: '#EA580C',
@@ -282,6 +417,27 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: 12 }}>
                 <button
                   type="button"
+                  onClick={() => setActiveTab('booking')}
+                  style={{
+                    padding: '12px 16px',
+                    backgroundColor: isBookingOpen ? '#EA580C' : '#FFF7ED',
+                    color: isBookingOpen ? '#FFFFFF' : '#C2410C',
+                    border: isBookingOpen ? 'none' : '1px solid #FDBA74',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span>🛏️</span> {isBookingOpen ? 'Booking now (Đang mở)' : 'Đặt phòng KTX'}
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setActiveTab('residency-history')}
                   style={{
                     padding: '12px 16px',
@@ -300,11 +456,14 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
                 >
                   <span>🏠</span> Xem Lịch sử lưu trú
                 </button>
+              </div>
 
+              <div style={{ marginTop: 12 }}>
                 <button
                   type="button"
                   onClick={() => setActiveTab('checkin-records')}
                   style={{
+                    width: '100%',
                     padding: '12px 16px',
                     backgroundColor: '#FFF7ED',
                     color: '#C2410C',
@@ -320,6 +479,30 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
                   }}
                 >
                   <span>📋</span> Xem Biên bản nhận phòng
+                </button>
+              </div>
+
+              <div style={{ marginTop: 12 }}>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('student-ew')}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    backgroundColor: '#EFF6FF',
+                    color: '#1D4ED8',
+                    border: '1px solid #BFDBFE',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span>⚡💧</span> Xem Điện nước & Phí phụ trội
                 </button>
               </div>
 
