@@ -75,4 +75,13 @@ namespace FUD.DTOs.Violations
     {
         public string? Note { get; set; }
     }
+
+    public class BlockForViolationDto
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Code { get; set; } = string.Empty;
+        public int DormId { get; set; }
+        public string DormName { get; set; } = string.Empty;
+    }
 }

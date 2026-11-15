@@ -6,6 +6,7 @@ import {
   type BlockDto,
   type RoomTypeLookup,
 } from '../../services/api';
+import { Pagination } from '../../components/Pagination';
 import '../../styles/facilities.css';
 
 interface RoomFormData {
@@ -62,7 +63,7 @@ export const RoomManagement: React.FC = () => {
         setBlocks(blockRes.items || []);
         setRoomTypes(typesRes || []);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   // Load rooms
@@ -128,7 +129,7 @@ export const RoomManagement: React.FC = () => {
       return;
     }
     if (!formData.blockId && !editingRoom) {
-      setFormError('Vui lòng chọn tòa nhà');
+      setFormError('Vui lòng chọn Block');
       return;
     }
     if (!formData.roomTypeId) {
@@ -190,8 +191,6 @@ export const RoomManagement: React.FC = () => {
     }
   };
 
-  const totalPages = Math.ceil(totalCount / pageSize);
-
   return (
     <div className="facilities-container">
       {/* Header */}
@@ -238,7 +237,7 @@ export const RoomManagement: React.FC = () => {
           />
           <input
             className="facilities-search-input"
-            placeholder="Tìm theo tên tòa..."
+            placeholder="Tìm theo tên Block..."
             value={searchBlockName}
             onChange={e => { setSearchBlockName(e.target.value); setPage(1); }}
           />
@@ -297,7 +296,7 @@ export const RoomManagement: React.FC = () => {
               <thead>
                 <tr>
                   <th style={{ width: '12%' }}>Số phòng</th>
-                  <th style={{ width: '18%' }}>Thuộc tòa</th>
+                  <th style={{ width: '18%' }}>Thuộc Block</th>
                   <th style={{ width: '12%', textAlign: 'center' }}>Giới tính</th>
                   <th style={{ width: '10%', textAlign: 'center' }}>Tầng</th>
                   <th style={{ width: '20%' }}>Loại phòng</th>
@@ -353,57 +352,13 @@ export const RoomManagement: React.FC = () => {
         </div>
 
         {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="facilities-pagination">
-            <span className="facilities-page-info">
-              Hiển thị {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, totalCount)} / {totalCount} phòng
-            </span>
-            <div className="facilities-page-btns">
-              <button
-                type="button"
-                className="facilities-page-btn"
-                disabled={page <= 1}
-                onClick={() => setPage(p => p - 1)}
-              >
-                Trước
-              </button>
-              {(() => {
-                const pages: (number | '...')[] = [];
-                for (let i = 1; i <= totalPages; i++) {
-                  if (i === 1 || i === totalPages || Math.abs(i - page) <= 1) {
-                    pages.push(i);
-                  } else if (pages[pages.length - 1] !== '...') {
-                    pages.push('...');
-                  }
-                }
-                return pages.map((p, idx) =>
-                  p === '...' ? (
-                    <span key={`dots-${idx}`} style={{ padding: '0 6px', color: '#94a3b8' }}>
-                      …
-                    </span>
-                  ) : (
-                    <button
-                      key={p}
-                      type="button"
-                      className={`facilities-page-btn ${p === page ? 'active' : ''}`}
-                      onClick={() => setPage(p as number)}
-                    >
-                      {p}
-                    </button>
-                  )
-                );
-              })()}
-              <button
-                type="button"
-                className="facilities-page-btn"
-                disabled={page >= totalPages}
-                onClick={() => setPage(p => p + 1)}
-              >
-                Sau
-              </button>
-            </div>
-          </div>
-        )}
+        <Pagination
+          currentPage={page}
+          totalItems={totalCount}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          itemName="phòng"
+        />
       </div>
 
       {/* ── Create / Edit Modal ────────────────────────────── */}
@@ -419,7 +374,7 @@ export const RoomManagement: React.FC = () => {
 
               {!editingRoom && (
                 <div className="facilities-form-group">
-                  <label className="facilities-form-label">Tòa nhà <span className="required">*</span></label>
+                  <label className="facilities-form-label">Block<span className="required">*</span></label>
                   <select
                     className="facilities-form-input"
                     value={formData.blockId}
@@ -427,7 +382,7 @@ export const RoomManagement: React.FC = () => {
                   >
                     {blocks.map(b => (
                       <option key={b.id} value={b.id}>
-                        {b.name} ({b.dormName || b.code}) - {b.genderType === 'Male' ? 'Tòa Nam' : 'Tòa Nữ'}
+                        {b.name} ({b.dormName || b.code}) - {b.genderType === 'Male' ? 'Block Nam' : 'Block Nữ'}
                       </option>
                     ))}
                   </select>
@@ -436,9 +391,9 @@ export const RoomManagement: React.FC = () => {
 
               {editingRoom && (
                 <div className="facilities-form-group">
-                  <label className="facilities-form-label">Tòa nhà</label>
+                  <label className="facilities-form-label">Block</label>
                   <input className="facilities-form-input" value={editingRoom.blockName} disabled />
-                  <span className="facilities-form-hint">Không thể chuyển phòng sang tòa khác sau khi tạo</span>
+                  <span className="facilities-form-hint">Không thể chuyển phòng sang BLock khác sau khi tạo</span>
                 </div>
               )}
 
@@ -504,7 +459,7 @@ export const RoomManagement: React.FC = () => {
               {statusError && <div className="facilities-form-error">{statusError}</div>}
               <p style={{ margin: 0 }}>Bạn có chắc chắn muốn chuyển đổi trạng thái cho phòng:</p>
               <p style={{ fontWeight: 700, color: '#0f172a', margin: '4px 0 10px', fontSize: '15px' }}>
-                Phòng {statusModalTarget.roomNumber} - Tòa {statusModalTarget.blockName}
+                Phòng {statusModalTarget.roomNumber} - Block {statusModalTarget.blockName}
               </p>
               <p style={{ fontSize: '13px', color: '#475569', lineHeight: 1.5, margin: 0 }}>
                 Trạng thái hiện tại: <strong>{statusModalTarget.status === 'Active' ? 'Đang hoạt động' : 'Đang bảo trì'}</strong>

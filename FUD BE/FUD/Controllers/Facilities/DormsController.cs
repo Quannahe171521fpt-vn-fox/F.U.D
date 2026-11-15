@@ -87,7 +87,7 @@ namespace FUD.Controllers.Facilities
 
         /// <summary>
         /// DELETE /api/dorms/{id} — Xóa mềm KTX [Admin only]
-        /// Chỉ soft-delete (set DeletedAt). Nếu còn tòa (Block) thì trả 409 Conflict.
+        /// Chỉ soft-delete (set DeletedAt). Nếu còn Block thì trả 409 Conflict.
         /// </summary>
         [HttpDelete("{id:int}")]
         [Authorize(Policy = "RequireAdmin")]

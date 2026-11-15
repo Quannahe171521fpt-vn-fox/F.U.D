@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { violationApi, type ViolationItem } from '../../services/api';
 import { Pagination } from '../../components/Pagination';
 import { formatDateTime, formatDate } from '../../utils/dateUtils';
+import { removeVietnameseTones } from '../../utils/textUtils';
 import '../../styles/violation.css';
 
 const PAGE_SIZE = 10;
@@ -50,6 +51,7 @@ export const ManagerViolationManagement: React.FC = () => {
   // Bộ lọc
   const [filterStatus, setFilterStatus] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [currentPage, setCurrentPage] = useState(1);
 
   // Modal xử lý (Định mức ban đầu hoặc Xem chi tiết)
@@ -157,18 +159,34 @@ export const ManagerViolationManagement: React.FC = () => {
     }
   };
 
-  // Lọc dữ liệu client
-  const filteredViolations = violations.filter(v => {
-    if (!searchTerm.trim()) return true;
-    const term = searchTerm.toLowerCase();
-    return (
-      v.code.toLowerCase().includes(term) ||
-      v.studentName.toLowerCase().includes(term) ||
-      v.studentCode.toLowerCase().includes(term) ||
-      v.roomNumber.toLowerCase().includes(term) ||
-      v.violationTypeName.toLowerCase().includes(term)
-    );
-  });
+  // Lọc dữ liệu client (hỗ trợ có dấu và không dấu)
+  const filteredViolations = violations
+    .filter(v => {
+      if (filterStatus && v.status !== filterStatus) return false;
+      if (!searchTerm.trim()) return true;
+
+      const term = removeVietnameseTones(searchTerm);
+      const codeNorm = removeVietnameseTones(v.code || '');
+      const studentNameNorm = removeVietnameseTones(v.studentName || '');
+      const studentCodeNorm = removeVietnameseTones(v.studentCode || '');
+      const roomNorm = removeVietnameseTones(v.roomNumber || '');
+      const blockNorm = removeVietnameseTones(v.blockName || '');
+      const typeNorm = removeVietnameseTones(v.violationTypeName || '');
+
+      return (
+        codeNorm.includes(term) ||
+        studentNameNorm.includes(term) ||
+        studentCodeNorm.includes(term) ||
+        roomNorm.includes(term) ||
+        blockNorm.includes(term) ||
+        typeNorm.includes(term)
+      );
+    })
+    .sort((a, b) => {
+      const timeA = new Date(a.occurrenceTime).getTime();
+      const timeB = new Date(b.occurrenceTime).getTime();
+      return sortOrder === 'desc' ? timeB - timeA : timeA - timeB;
+    });
 
   const paginatedViolations = filteredViolations.slice(
     (currentPage - 1) * PAGE_SIZE,
@@ -231,13 +249,13 @@ export const ManagerViolationManagement: React.FC = () => {
           </select>
         </div>
 
-        <div style={{ flex: 1, minWidth: '260px' }}>
+        <div style={{ flex: 1, minWidth: '240px' }}>
           <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
-            Tìm theo mã, MSSV, tên, phòng
+            Tìm kiếm đa nhiệm (có dấu & không dấu)
           </label>
           <input
             type="text"
-            placeholder="Nhập thông tin tìm kiếm..."
+            placeholder="Mã biên bản, MSSV, tên, phòng, loại..."
             value={searchTerm}
             onChange={e => {
               setSearchTerm(e.target.value);
@@ -251,6 +269,28 @@ export const ManagerViolationManagement: React.FC = () => {
               fontSize: '13px',
             }}
           />
+        </div>
+
+        <div style={{ minWidth: '170px' }}>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+            Sắp xếp thời gian
+          </label>
+          <select
+            value={sortOrder}
+            onChange={e => setSortOrder(e.target.value as 'desc' | 'asc')}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              border: '1px solid #CBD5E1',
+              fontSize: '13px',
+              backgroundColor: '#FFF',
+              fontWeight: 600,
+            }}
+          >
+            <option value="desc">Mới nhất trước ↓</option>
+            <option value="asc">Cũ nhất trước ↑</option>
+          </select>
         </div>
 
         <div style={{ alignSelf: 'flex-end' }}>
@@ -321,16 +361,31 @@ export const ManagerViolationManagement: React.FC = () => {
                     </span>
                   </td>
 
-                  {/* Sinh viên (1 dòng, hover xem full) */}
+                  {/* Sinh viên (1 dòng, hover xem full) kèm tag đỏ nổi bật nếu bị đình chỉ */}
                   <td>
                     <div className="cell-text-1line" title={`${item.studentName} (${item.studentCode})`}>
-                      <span style={{ fontWeight: 600, color: item.studentAccountStatus === 'Suspended' ? '#DC2626' : undefined }}>
-                        {item.studentName}
-                        {item.studentAccountStatus === 'Suspended' && ' 🔒'}
-                      </span>
-                      <div style={{ fontSize: '11px', color: item.studentAccountStatus === 'Suspended' ? '#DC2626' : '#64748B' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontWeight: 600 }}>{item.studentName}</span>
+                        {(item.studentAccountStatus === 'Suspended' || item.suspensionReason) && (
+                          <span
+                            title={`Tài khoản bị đình chỉ: ${item.suspensionReason || 'Vi phạm quy chế KTX'}`}
+                            style={{
+                              display: 'inline-block',
+                              padding: '1px 5px',
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              backgroundColor: '#FEE2E2',
+                              color: '#DC2626',
+                              borderRadius: '4px',
+                              border: '1px solid #FCA5A5',
+                            }}
+                          >
+                            Đình chỉ
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#64748B' }}>
                         {item.studentCode}
-                        {item.studentAccountStatus === 'Suspended' && ' • Đình chỉ'}
                       </div>
                     </div>
                   </td>
@@ -470,7 +525,7 @@ export const ManagerViolationManagement: React.FC = () => {
               <button
                 type="button"
                 onClick={handleCloseModal}
-                style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#94A3B8' }}
+                style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#000000ff' }}
               >
                 Đóng
               </button>
@@ -498,7 +553,7 @@ export const ManagerViolationManagement: React.FC = () => {
               {/* Nút mở khóa sinh viên nếu bị đình chỉ VÀ hồ sơ này KHÔNG có request khiếu nại (nếu có request thì nút nằm ở trang Request) */}
               {selectedViolation.studentAccountStatus === 'Suspended' && (
                 <div style={{ marginTop: 10, padding: '10px 14px', backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: '6px', color: '#991B1B' }}>
-                  <div style={{ fontWeight: 700 }}>⚠️ Sinh viên đang bị ĐÌNH CHỈ (Khóa Book & Giữ phòng):</div>
+                  <div style={{ fontWeight: 700 }}>Sinh viên đang bị ĐÌNH CHỈ (Khóa Đặt & Giữ phòng):</div>
                   <div style={{ fontSize: '12px', marginTop: 2 }}>{selectedViolation.suspensionReason || 'Đình chỉ nội trú do vi phạm quy chế.'}</div>
                   {!selectedViolation.linkedRequestId ? (
                     <button
@@ -517,11 +572,11 @@ export const ManagerViolationManagement: React.FC = () => {
                         cursor: 'pointer',
                       }}
                     >
-                      {unsuspending ? 'Đang mở khóa...' : '🔓 Mở khóa lại trạng thái (Khôi phục quyền Book & Giữ phòng)'}
+                      {unsuspending ? 'Đang mở khóa...' : 'Mở khóa lại trạng thái (Khôi phục quyền ĐẶt & Giữ phòng)'}
                     </button>
                   ) : (
                     <div style={{ marginTop: 6, fontSize: '12px', color: '#1D4ED8', fontStyle: 'italic' }}>
-                      ℹ️ Biên bản này đã được sinh viên gửi Đơn khiếu nại (Request #{selectedViolation.linkedRequestId}). Vui lòng xử lý mở khóa tại phân hệ Quản lý Đơn từ (Requests) theo quy trình.
+                      ℹ️ Biên bản này đã được sinh viên gửi Đơn khiếu nại. Vui lòng xử lý mở khóa tại phân hệ Quản lý Đơn từ (Requests) theo quy trình.
                     </div>
                   )}
                 </div>

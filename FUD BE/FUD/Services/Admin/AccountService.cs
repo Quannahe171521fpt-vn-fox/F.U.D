@@ -12,7 +12,7 @@ using FUD.Services.Interfaces;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
-namespace FUD.Services;
+namespace FUD.Services.Admin;
 
 /// <summary>
 /// Service Layer cho module Account Management.

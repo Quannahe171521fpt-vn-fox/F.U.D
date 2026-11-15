@@ -393,10 +393,6 @@ public class TermRepositoryTests
             UtilityPrices = new List<UtilityPrice>
             {
                 new UtilityPrice { Id = 1, TermId = 1, MeterType = "Electricity", UnitPrice = 3000 }
-            },
-            BedPrices = new List<BedPrice>
-            {
-                new BedPrice { Id = 1, BedId = 1, TermId = 1, UnitPrice = 1200000, EffectiveFrom = new DateOnly(2026, 1, 1), EffectiveTo = new DateOnly(2026, 4, 30) }
             }
         };
 
@@ -414,7 +410,6 @@ public class TermRepositoryTests
         (await context.PriceItems.FindAsync(1)).Should().BeNull();
         (await context.RegistrationPeriods.FindAsync(1)).Should().BeNull();
         (await context.UtilityPrices.FindAsync(1)).Should().BeNull();
-        (await context.BedPrices.FindAsync(1)).Should().BeNull();
     }
 
     [Fact]

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace FUD.Models;
@@ -15,11 +15,15 @@ public partial class Dorm
 
     public string? Address { get; set; }
 
+    public int? NumberOfFloors { get; set; }
+
     public string Status { get; set; } = null!;
 
     public virtual ICollection<Block> Blocks { get; set; } = new List<Block>();
 
     public virtual Campus Campus { get; set; } = null!;
+
+    public virtual ICollection<Guard> Guards { get; set; } = new List<Guard>();
 
     public virtual ICollection<PriceItem> PriceItems { get; set; } = new List<PriceItem>();
 }

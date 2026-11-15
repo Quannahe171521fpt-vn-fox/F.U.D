@@ -47,6 +47,22 @@ namespace FUD.Controllers.Requests
         }
 
         /// <summary>
+        /// Lấy ngữ cảnh chuyển giường (chỗ ở hiện tại, điều kiện gửi đơn và danh sách giường trống phù hợp giới tính)
+        /// </summary>
+        [HttpGet("bed-transfer/context")]
+        public async Task<IActionResult> GetBedTransferContext()
+        {
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirst("sub")?.Value;
+            if (string.IsNullOrEmpty(userIdStr) || !int.TryParse(userIdStr, out var studentId))
+            {
+                return Unauthorized(new { message = "Không xác định được danh tính người dùng." });
+            }
+
+            var result = await _requestService.GetBedTransferContextAsync(studentId);
+            return Ok(result);
+        }
+
+        /// <summary>
         /// Sinh viên gửi đơn yêu cầu (Booking, BedTransfer, Checkout, Complaint, Others)
         /// </summary>
         [HttpPost]
@@ -62,6 +78,73 @@ namespace FUD.Controllers.Requests
             {
                 var result = await _requestService.CreateRequestAsync(studentId, dto);
                 return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Danh sách Bảo vệ để Quản lý phân công kiểm tra phòng khi duyệt chuyển giường (Bước 1)
+        /// </summary>
+        [HttpGet("guards")]
+        public async Task<IActionResult> GetGuards([FromQuery] int? dormId)
+        {
+            try
+            {
+                var result = await _requestService.GetGuardsAsync(dormId);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Danh sách nhiệm vụ kiểm tra phòng cũ & chốt điện nước cho Bảo vệ được phân công
+        /// </summary>
+        [HttpGet("bed-transfer/guard-tasks")]
+        public async Task<IActionResult> GetGuardTransferTasks()
+        {
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirst("sub")?.Value;
+            if (string.IsNullOrEmpty(userIdStr) || !int.TryParse(userIdStr, out var guardUserId))
+            {
+                return Unauthorized(new { message = "Không xác định được danh tính người dùng." });
+            }
+
+            try
+            {
+                var result = await _requestService.GetGuardTransferInspectionsAsync(guardUserId);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Bảo vệ gửi biên bản kiểm tra thiết bị phòng cũ & chỉ số điện nước cuối cho đơn chuyển giường
+        /// </summary>
+        [HttpPost("{id}/transfer-inspection")]
+        public async Task<IActionResult> SubmitTransferInspection(int id, [FromBody] SubmitTransferInspectionDto dto)
+        {
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirst("sub")?.Value;
+            if (string.IsNullOrEmpty(userIdStr) || !int.TryParse(userIdStr, out var guardUserId))
+            {
+                return Unauthorized(new { message = "Không xác định được danh tính người dùng." });
+            }
+
+            try
+            {
+                var result = await _requestService.SubmitTransferInspectionAsync(id, guardUserId, dto);
+                return Ok(result);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
             }
             catch (Exception ex)
             {

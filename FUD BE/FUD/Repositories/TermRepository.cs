@@ -85,7 +85,6 @@ namespace FUD.Repositories
                     .ThenInclude(pl => pl!.PriceItems)
                 .Include(t => t.RegistrationPeriods)
                 .Include(t => t.UtilityPrices)
-                .Include(t => t.BedPrices)
                 .FirstOrDefaultAsync(t => t.Id == termId);
 
             if (term == null) return;
@@ -99,11 +98,6 @@ namespace FUD.Repositories
             if (term.UtilityPrices.Any())
             {
                 _context.UtilityPrices.RemoveRange(term.UtilityPrices);
-            }
-
-            if (term.BedPrices.Any())
-            {
-                _context.BedPrices.RemoveRange(term.BedPrices);
             }
 
             if (term.PriceList != null)

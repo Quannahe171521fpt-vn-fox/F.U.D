@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { TermLookupItem, PricingItem } from '../../types/management';
 import { pricingApi } from '../../services/api';
 
@@ -139,6 +139,7 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
   };
 
   const roomTypeGroups = groupByRoomType(priceItems);
+  const isEditableTerm = termStatus === 'Đang mở đăng ký';
 
   // Check whether form has unsaved modifications
   const hasUnsavedChanges = (): boolean => {
@@ -188,6 +189,10 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
   // Handle Save
   const handleSaveClick = async () => {
     if (roomTypeGroups.length === 0) return;
+    if (!isEditableTerm) {
+      setPageError('Chỉ được thiết lập giá phòng cho học kỳ đang mở đăng ký. Các kỳ khác chỉ ở chế độ xem giá.');
+      return;
+    }
     if (!validate()) return;
     if (isRegistrationStarted) {
       setShowWarningModal(true);
@@ -281,7 +286,7 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
             Thiết lập bảng giá phòng
           </h1>
           <p style={{ color: '#64748b', fontSize: '0.925rem', marginTop: '0.35rem' }}>
-            Cập nhật đơn giá theo loại phòng cho từng học kỳ. Giá áp dụng đồng nhất cho tất cả các tòa nhà.
+            Cập nhật đơn giá theo loại phòng cho từng học kỳ. Giá áp dụng đồng nhất cho tất cả các Block.
           </p>
         </div>
       </div>
@@ -330,7 +335,7 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '1.2rem' }}>⚠️</span>
+            <span style={{ fontSize: '1.2rem' }}></span>
             <span style={{ fontWeight: 500 }}>{pageError}</span>
           </div>
           <button
@@ -398,21 +403,20 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
                 termStatus === 'Đang mở đăng ký'
                   ? '#fef3c7'
                   : termStatus === 'Đã kết thúc'
-                  ? '#fee2e2'
-                  : '#e0f2fe',
+                    ? '#fee2e2'
+                    : '#e0f2fe',
               color:
                 termStatus === 'Đang mở đăng ký'
                   ? '#b45309'
                   : termStatus === 'Đã kết thúc'
-                  ? '#b91c1c'
-                  : '#0369a1',
-              border: `1px solid ${
-                termStatus === 'Đang mở đăng ký'
-                  ? '#fde68a'
-                  : termStatus === 'Đã kết thúc'
+                    ? '#b91c1c'
+                    : '#0369a1',
+              border: `1px solid ${termStatus === 'Đang mở đăng ký'
+                ? '#fde68a'
+                : termStatus === 'Đã kết thúc'
                   ? '#fecaca'
                   : '#bae6fd'
-              }`,
+                }`,
             }}
           >
             {termStatus}
@@ -436,7 +440,7 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
             Bảng giá theo loại phòng
           </h3>
           <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
-            Giá áp dụng đồng nhất cho tất cả tòa nhà. Đơn vị: VNĐ / học kỳ.
+            Giá áp dụng đồng nhất cho tất cả Block. Đơn vị: VNĐ / học kỳ.
           </span>
         </div>
 
@@ -492,28 +496,39 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
                         {formatVND(group.previousSemesterPrice)}
                       </td>
                       <td style={{ padding: '1rem' }}>
-                        <input
-                          type="number"
-                          min="1"
-                          step="100000"
-                          value={editedPrices[group.roomTypeId] ?? ''}
-                          onChange={(e) => handlePriceChange(group.roomTypeId, e.target.value)}
-                          placeholder="Nhập đơn giá..."
-                          style={{
-                            width: '100%',
-                            padding: '0.55rem 0.85rem',
-                            borderRadius: '6px',
-                            border: `1px solid ${hasError ? '#ef4444' : '#cbd5e1'}`,
-                            background: hasError ? '#fff5f5' : '#ffffff',
-                            color: '#1e293b',
-                            fontWeight: 600,
-                            fontSize: '0.95rem',
-                            outline: 'none',
-                          }}
-                        />
-                        {hasError && (
-                          <div style={{ color: '#dc2626', fontSize: '0.8rem', marginTop: '0.35rem', fontWeight: 500 }}>
-                            {errors[group.roomTypeId]}
+                        {isEditableTerm ? (
+                          <>
+                            <input
+                              type="number"
+                              min="1"
+                              step="100000"
+                              value={editedPrices[group.roomTypeId] ?? ''}
+                              onChange={(e) => handlePriceChange(group.roomTypeId, e.target.value)}
+                              placeholder="Nhập đơn giá..."
+                              style={{
+                                width: '100%',
+                                padding: '0.55rem 0.85rem',
+                                borderRadius: '6px',
+                                border: `1px solid ${hasError ? '#ef4444' : '#cbd5e1'}`,
+                                background: hasError ? '#fff5f5' : '#ffffff',
+                                color: '#1e293b',
+                                fontWeight: 600,
+                                fontSize: '0.95rem',
+                                outline: 'none',
+                              }}
+                            />
+                            {hasError && (
+                              <div style={{ color: '#dc2626', fontSize: '0.8rem', marginTop: '0.35rem', fontWeight: 500 }}>
+                                {errors[group.roomTypeId]}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '1rem' }}>
+                            {formatVND(group.currentPrice)}
+                            <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginLeft: 6 }}>
+                              (Chỉ xem)
+                            </span>
                           </div>
                         )}
                       </td>
@@ -529,55 +544,72 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
         )}
 
         {/* 5. Action Buttons */}
-        <div
-          style={{
-            padding: '1.25rem',
-            background: '#f8fafc',
-            borderTop: '1px solid #e2e8f0',
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: '1rem',
-          }}
-        >
-          <button
-            type="button"
-            onClick={handleCancelClick}
-            disabled={saving || loading || roomTypeGroups.length === 0}
+        {isEditableTerm ? (
+          <div
             style={{
-              padding: '0.65rem 1.5rem',
-              borderRadius: '6px',
-              border: '1px solid #cbd5e1',
-              background: '#ffffff',
-              color: '#475569',
-              fontWeight: 600,
-              fontSize: '0.95rem',
-              cursor: 'pointer',
+              padding: '1.25rem',
+              background: '#f8fafc',
+              borderTop: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '1rem',
             }}
           >
-            Hủy
-          </button>
-          <button
-            type="button"
-            onClick={handleSaveClick}
-            disabled={saving || loading || roomTypeGroups.length === 0}
+            <button
+              type="button"
+              onClick={handleCancelClick}
+              disabled={saving || loading || roomTypeGroups.length === 0}
+              style={{
+                padding: '0.65rem 1.5rem',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
+                background: '#ffffff',
+                color: '#475569',
+                fontWeight: 600,
+                fontSize: '0.95rem',
+                cursor: 'pointer',
+              }}
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveClick}
+              disabled={saving || loading || roomTypeGroups.length === 0}
+              style={{
+                padding: '0.65rem 1.75rem',
+                borderRadius: '6px',
+                border: 'none',
+                background: '#2563eb',
+                color: '#ffffff',
+                fontWeight: 600,
+                fontSize: '0.95rem',
+                cursor: saving ? 'not-allowed' : 'pointer',
+                boxShadow: '0 2px 4px rgba(37, 99, 235, 0.25)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              {saving ? 'Đang lưu...' : 'Lưu bảng giá'}
+            </button>
+          </div>
+        ) : (
+          <div
             style={{
-              padding: '0.65rem 1.75rem',
-              borderRadius: '6px',
-              border: 'none',
-              background: '#2563eb',
-              color: '#ffffff',
-              fontWeight: 600,
-              fontSize: '0.95rem',
-              cursor: saving ? 'not-allowed' : 'pointer',
-              boxShadow: '0 2px 4px rgba(37, 99, 235, 0.25)',
+              padding: '1rem 1.25rem',
+              background: '#f8fafc',
+              borderTop: '1px solid #e2e8f0',
+              color: '#64748b',
+              fontSize: '0.9rem',
               display: 'flex',
               alignItems: 'center',
-              gap: '6px',
+              justifyContent: 'space-between',
             }}
           >
-            {saving ? 'Đang lưu...' : 'Lưu bảng giá'}
-          </button>
-        </div>
+            <span>Học kỳ này không trong trạng thái <strong>Đang mở đăng ký</strong>. Chỉ được xem giá lịch sử, không thể chỉnh sửa.</span>
+          </div>
+        )}
       </div>
 
       {/* Note */}
@@ -592,7 +624,7 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
           lineHeight: '1.5',
         }}
       >
-        <strong>Lưu ý:</strong> Giá được nhập sẽ áp dụng đồng nhất cho tất cả các tòa nhà (Dom A đến Dom K)
+        <strong>Lưu ý:</strong> Giá được nhập sẽ áp dụng đồng nhất cho tất cả các Block (Dom A đến Dom K)
         có cùng loại phòng. Giá mới sẽ đồng bộ ngay lên trang chủ sau khi lưu.
       </div>
 

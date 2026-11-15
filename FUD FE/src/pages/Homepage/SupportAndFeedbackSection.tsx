@@ -20,7 +20,7 @@ export const SupportAndFeedbackSection: React.FC = () => {
           <ul className="contact-list">
             <li>
               <span className="contact-icon-wrap"><BuildingIcon size={18} /></span>
-              <span><strong>Địa chỉ:</strong> Tầng 1, Tòa Dom A, KTX ĐH FPT (Khu CNC Hòa Lạc, Hà Nội)</span>
+              <span><strong>Địa chỉ:</strong> Tầng 1, Dom A, KTX ĐH FPT (Khu CNC Hòa Lạc, Hà Nội)</span>
             </li>
             <li>
               <span className="contact-icon-wrap"><ClockIcon size={18} /></span>

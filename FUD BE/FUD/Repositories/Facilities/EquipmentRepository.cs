@@ -21,7 +21,6 @@ namespace FUD.Repositories.Facilities
                 .Include(e => e.Room)
                     .ThenInclude(r => r.Block)
                 .Include(e => e.Bed)
-                .Include(e => e.IncidentTickets)
                 .AsQueryable();
 
             if (!string.IsNullOrWhiteSpace(query.Search))
@@ -63,7 +62,6 @@ namespace FUD.Repositories.Facilities
                 .Include(e => e.Room)
                     .ThenInclude(r => r.Block)
                 .Include(e => e.Bed)
-                .Include(e => e.IncidentTickets)
                 .FirstOrDefaultAsync(e => e.Id == id);
         }
 
@@ -88,20 +86,6 @@ namespace FUD.Repositories.Facilities
         {
             _context.Equipments.Update(equipment);
             await _context.SaveChangesAsync();
-        }
-
-        public async Task<bool> HasOpenTicketAsync(int id)
-        {
-            return await _context.IncidentTickets
-                .AnyAsync(t => t.EquipmentId == id && t.Status != "Closed" && t.Status != "Done");
-        }
-
-        public async Task<IEnumerable<IncidentTicket>> GetTicketsByEquipmentAsync(int id)
-        {
-            return await _context.IncidentTickets
-                .Where(t => t.EquipmentId == id)
-                .OrderByDescending(t => t.CreatedTime)
-                .ToListAsync();
         }
 
         public async Task<IEnumerable<EquipmentCatalog>> GetCatalogsAsync()

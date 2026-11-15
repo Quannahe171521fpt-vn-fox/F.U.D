@@ -88,7 +88,7 @@ export const RegistrationGuideAndForm: React.FC<RegistrationProps> = () => {
             <div>
               <h4 className="notice-heading">Hỗ trợ & Giải đáp thắc mắc</h4>
               <p className="notice-desc">
-                Mọi thắc mắc về thủ tục đăng ký xin liên hệ trực tiếp Văn phòng Quản lý KTX tại Tòa Dom A hoặc hotline: <strong>(024) 7300 1866</strong>.
+                Mọi thắc mắc về thủ tục đăng ký xin liên hệ trực tiếp Văn phòng Quản lý KTX tại Dom A hoặc hotline: <strong>(024) 7300 1866</strong>.
               </p>
             </div>
           </div>

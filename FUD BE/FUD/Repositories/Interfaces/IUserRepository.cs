@@ -14,4 +14,5 @@ public interface IUserRepository
     Task AtomicResetFailedLoginAsync(int userId);
     Task UpdateGoogleIdAsync(int userId, string googleId);
     Task UpdatePasswordAsync(int userId, string newPasswordHash);
+    Task<(int DormId, string DormName)?> GetGuardDormInfoAsync(int userId);
 }

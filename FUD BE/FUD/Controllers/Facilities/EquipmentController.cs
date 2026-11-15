@@ -97,13 +97,6 @@ namespace FUD.Controllers.Facilities
             catch (InvalidOperationException ex) { return BadRequest(ApiResponse.Fail(ex.Message)); }
         }
 
-        [HttpGet("{id:int}/repair-history")]
-        public async Task<IActionResult> GetRepairHistory(int id)
-        {
-            var history = await _service.GetRepairHistoryAsync(id);
-            return Ok(ApiResponse<IEnumerable<TicketDto>>.Ok(history));
-        }
-
         [HttpGet("catalogs")]
         public async Task<IActionResult> GetCatalogs()
         {

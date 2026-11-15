@@ -355,6 +355,77 @@
   border-color: #a7f3d0;
 }
 
+/* ── Bed Status Badges ── */
+.badge-bed-free {
+  display: inline-block;
+  background-color: #ecfdf5;
+  color: #059669;
+  border: 1px solid #a7f3d0;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.badge-bed-occupied {
+  display: inline-block;
+  background-color: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.badge-bed-holding {
+  display: inline-block;
+  background-color: #fffbeb;
+  color: #d97706;
+  border: 1px solid #fde68a;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.badge-bed-transfer {
+  display: inline-block;
+  background-color: #faf5ff;
+  color: #9333ea;
+  border: 1px solid #e9d5ff;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.badge-bed-maintenance {
+  display: inline-block;
+  background-color: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.badge-status-clickable {
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.badge-status-clickable:hover {
+  opacity: 0.85;
+  transform: translateY(-1px);
+}
+
 /* ── Action Buttons ── */
 .facilities-actions {
   display: flex;

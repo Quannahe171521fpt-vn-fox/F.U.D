@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace FUD.Models;
@@ -13,7 +13,10 @@ public partial class Block
 
     public string Name { get; set; } = null!;
 
-    public int? NumberOfFloors { get; set; }
+    public int? FloorLevel { get; set; }
+
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public int? NumberOfFloors { get => FloorLevel; set => FloorLevel = value; }
 
     public string GenderType { get; set; } = null!;
 

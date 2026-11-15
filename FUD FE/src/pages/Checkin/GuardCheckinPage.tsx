@@ -58,8 +58,10 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
 
   // UI feedback
   const [loading, setLoading] = useState<boolean>(false);
+  const [loadingEquip, setLoadingEquip] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
+  const [modalErrorMsg, setModalErrorMsg] = useState<string>('');
   const [successMsg, setSuccessMsg] = useState<string>('');
 
   // Load Blocks on mount
@@ -101,10 +103,10 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
       if (mode === 'create') {
         const list = await checkinApi.getPendingStudents({ blockId: bId, roomId: rId, search: kw });
         setPendingStudents(list);
-        if (list.length > 0) {
-          const stillExists = selectedStudent && list.find(s => s.studentId === selectedStudent.studentId && s.bedId === selectedStudent.bedId);
-          handleSelectStudent(stillExists || list[0]);
-        } else {
+        if (
+          selectedStudent &&
+          !list.some(s => s.studentId === selectedStudent.studentId && s.bedId === selectedStudent.bedId)
+        ) {
           setSelectedStudent(null);
           setEquipItems([]);
         }
@@ -120,23 +122,57 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
   };
 
   useEffect(() => {
+    setSelectedStudent(null);
     setCompletedHandover(null);
     setViewingHandover(null);
+    setEquipItems([]);
+    setModalErrorMsg('');
     setErrorMsg('');
     setSuccessMsg('');
     loadData();
   }, [mode, selectedBlockId, selectedRoomId]);
 
+  const closeCreateModal = () => {
+    if (submitting) return;
+    setSelectedStudent(null);
+    setCompletedHandover(null);
+    setEquipItems([]);
+    setModalErrorMsg('');
+  };
+
+  const isCreateModalOpen = mode === 'create' && Boolean(selectedStudent || completedHandover);
+  const isHistoryModalOpen = mode === 'history' && Boolean(viewingHandover);
+
+  useEffect(() => {
+    if (!isCreateModalOpen && !isHistoryModalOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || submitting) return;
+      if (isCreateModalOpen) {
+        setSelectedStudent(null);
+        setCompletedHandover(null);
+        setEquipItems([]);
+        setModalErrorMsg('');
+      } else {
+        setViewingHandover(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isCreateModalOpen, isHistoryModalOpen, submitting]);
+
   const handleSelectStudent = async (student: PendingCheckinStudent) => {
     setSelectedStudent(student);
     setCompletedHandover(null);
+    setEquipItems([]);
     setStudentTitle('Sinh viên');
     setOtherItems('');
     setElectricityL('');
     setElectricityR('');
     setWaterL('');
     setWaterR('');
-    setErrorMsg('');
+    setModalErrorMsg('');
+    setSuccessMsg('');
+    setLoadingEquip(true);
 
     try {
       const eqs = await checkinApi.getRoomEquipments(student.roomId, student.bedId);
@@ -149,7 +185,9 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
       );
     } catch (err: any) {
       setEquipItems([]);
-      setErrorMsg(err.message || 'Không thể tải danh sách thiết bị của phòng.');
+      setModalErrorMsg(err.message || 'Không thể tải danh sách thiết bị của phòng.');
+    } finally {
+      setLoadingEquip(false);
     }
   };
 
@@ -181,12 +219,12 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
   const handleCompleteCheckin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedStudent) {
-      setErrorMsg('Vui lòng chọn một sinh viên trong danh sách chờ nhận phòng.');
+      setModalErrorMsg('Vui lòng chọn một sinh viên trong danh sách chờ nhận phòng.');
       return;
     }
 
     setSubmitting(true);
-    setErrorMsg('');
+    setModalErrorMsg('');
     setSuccessMsg('');
 
     try {
@@ -210,6 +248,7 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
       });
 
       setCompletedHandover(result);
+      setSelectedStudent(null);
       setSuccessMsg(
         `Đã hoàn tất Check-in nhận phòng cho sinh viên ${result.studentName} (${result.studentCode}) tại Phòng ${result.roomNumber} - Giường ${result.bedCode}!`
       );
@@ -221,7 +260,7 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
       });
       setPendingStudents(updatedPending);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Lỗi khi hoàn tất biên bản Check-in.');
+      setModalErrorMsg(err.message || 'Lỗi khi hoàn tất biên bản Check-in.');
     } finally {
       setSubmitting(false);
     }
@@ -364,19 +403,21 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
       </div>
 
       {errorMsg && <div className="violation-alert violation-alert-error no-print">{errorMsg}</div>}
-      {successMsg && <div className="violation-alert violation-alert-success no-print">{successMsg}</div>}
+      {!isCreateModalOpen && successMsg && (
+        <div className="violation-alert violation-alert-success no-print">{successMsg}</div>
+      )}
 
       {/* Bộ lọc tìm kiếm */}
       <div className="checkin-filter-card no-print">
         <div className="checkin-filter-row">
           <div>
-            <label className="violation-label">Tòa (Block)</label>
+            <label className="violation-label">Block</label>
             <select
               className="violation-select"
               value={selectedBlockId}
               onChange={e => setSelectedBlockId(e.target.value)}
             >
-              <option value="">-- Tất cả các Tòa --</option>
+              <option value="">-- Tất cả các Block --</option>
               {blocks.map(b => (
                 <option key={b.id} value={b.id}>
                   {b.name}
@@ -407,7 +448,7 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
             <input
               type="text"
               className="violation-input"
-              placeholder="VD: SE17002, Hoàng Nữ Sinh, 202..."
+              placeholder="VD: SE170002, Hoàng Nữ Sinh, 202..."
               value={searchKeyword}
               onChange={e => setSearchKeyword(e.target.value)}
               onKeyDown={e => {
@@ -436,7 +477,7 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
                   <tr>
                     <th>MSSV</th>
                     <th>Họ và tên</th>
-                    <th>Tòa / Phòng / Giường</th>
+                    <th>Block / Phòng / Giường</th>
                     <th>Học kỳ</th>
                     <th>Trạng thái đơn</th>
                     <th style={{ width: 130, textAlign: 'right' }}>Thao tác</th>
@@ -494,252 +535,299 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
         )}
       </div>
 
-      {/* CHẾ ĐỘ 1: LẬP BIÊN BẢN CHECK-IN */}
-      {mode === 'create' && completedHandover && (
-        <div>
-          <div className="checkin-actions-bar no-print" style={{ marginBottom: 16 }}>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => {
-                setCompletedHandover(null);
-                if (pendingStudents.length > 0) {
-                  handleSelectStudent(pendingStudents[0]);
-                }
-              }}
-            >
-              Check-in sinh viên tiếp theo
-            </button>
-            {onNavigateHistory && (
-              <button type="button" className="btn-secondary" onClick={onNavigateHistory}>
-                Xem danh sách biên bản
+      {/* POP-UP CHẾ ĐỘ 1: LẬP / XEM BIÊN BẢN CHECK-IN */}
+      {isCreateModalOpen && (
+        <div className="checkin-modal-overlay" onClick={closeCreateModal}>
+          <div className="checkin-modal-content" onClick={e => e.stopPropagation()}>
+            <div className="checkin-modal-header no-print">
+              <div>
+                <h2 className="checkin-modal-title">
+                  {completedHandover
+                    ? `Biên bản bàn giao tài sản #BB-${String(completedHandover.id).padStart(4, '0')}`
+                    : 'Lập Biên bản bàn giao tài sản'}
+                </h2>
+                <p className="checkin-modal-subtitle">
+                  {completedHandover
+                    ? `Sinh viên: ${completedHandover.studentName} (${completedHandover.studentCode}) · Phòng ${completedHandover.roomNumber} - Giường ${completedHandover.bedCode}`
+                    : selectedStudent
+                      ? `Sinh viên: ${selectedStudent.studentName} (${selectedStudent.studentCode}) · ${selectedStudent.blockCode || selectedStudent.blockName} · Phòng ${selectedStudent.roomNumber} - Giường ${selectedStudent.bedCode}`
+                      : ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="checkin-modal-close"
+                onClick={closeCreateModal}
+                disabled={submitting}
+                aria-label="Đóng"
+              >
+                ✕
               </button>
-            )}
-            <button type="button" className="btn-submit" onClick={() => window.print()}>
-              In biên bản bàn giao (A4)
-            </button>
-          </div>
+            </div>
 
-          {renderPrintablePaper(completedHandover)}
+            {completedHandover ? (
+              <>
+                <div className="checkin-modal-body">
+                  {successMsg && <div className="violation-alert violation-alert-success no-print">{successMsg}</div>}
+                  {renderPrintablePaper(completedHandover)}
+                </div>
+                <div className="checkin-modal-footer no-print">
+                  <button type="button" className="btn-secondary" onClick={closeCreateModal}>
+                    Đóng
+                  </button>
+                  {onNavigateHistory && (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => {
+                        closeCreateModal();
+                        onNavigateHistory();
+                      }}
+                    >
+                      Xem danh sách biên bản
+                    </button>
+                  )}
+                  <button type="button" className="btn-submit" onClick={() => window.print()}>
+                    In biên bản bàn giao (A4)
+                  </button>
+                </div>
+              </>
+            ) : selectedStudent ? (
+              <form className="checkin-modal-form" onSubmit={handleCompleteCheckin}>
+                <div className="checkin-modal-body">
+                  {modalErrorMsg && <div className="violation-alert violation-alert-error no-print">{modalErrorMsg}</div>}
+                  <div className="fpt-handover-paper">
+                    {/* Quốc hiệu & Logo */}
+                    <div className="fpt-paper-top">
+                      <div className="fpt-paper-top-left">
+                        <div className="fpt-logo-text">FPT Education</div>
+                        <div className="fpt-org-title">TỔ CHỨC GIÁO DỤC FPT</div>
+                      </div>
+                      <div className="fpt-paper-top-right">
+                        <div className="fpt-nation-title">CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</div>
+                        <div className="fpt-nation-sub">Độc lập - Tự do - Hạnh phúc</div>
+                      </div>
+                    </div>
+
+                    {/* Tiêu đề biên bản */}
+                    <div className="fpt-paper-banner">
+                      BIÊN BẢN BÀN GIAO TÀI SẢN BLOCK: {selectedStudent.blockCode || selectedStudent.blockName} — PHÒNG{' '}
+                      {selectedStudent.roomNumber} (GIƯỜNG {selectedStudent.bedCode})
+                    </div>
+
+                    {/* Mục 1 & Mục 2 */}
+                    <div className="fpt-paper-parties">
+                      <div className="fpt-party-heading">1 - Bên bàn giao:</div>
+                      <div>
+                        Ông/Bà: <strong>{currentUser?.fullName || 'Cán bộ Bảo vệ'}</strong> ({currentUser?.code || 'GRD01'})
+                      </div>
+                      <div>Bộ phận: An ninh - Phòng Quản lý ký túc xá.</div>
+
+                      <div className="fpt-party-heading" style={{ marginTop: 8 }}>
+                        2 – Bên nhận bàn giao:
+                      </div>
+                      <div>
+                        Anh/Chị: <strong>{selectedStudent.studentName}</strong>
+                      </div>
+                      <div>
+                        MSSV(CBGV): <strong>{selectedStudent.studentCode}</strong>
+                      </div>
+                      <div className="fpt-party-line">
+                        <span>Chức danh:</span>
+                        <input
+                          type="text"
+                          className="fpt-inline-input"
+                          value={studentTitle}
+                          onChange={e => setStudentTitle(e.target.value)}
+                          placeholder="Sinh viên"
+                        />
+                        <span style={{ color: '#475569', fontSize: 13 }}>
+                          (Phòng {selectedStudent.roomNumber} · Giường {selectedStudent.bedCode} · Kỳ {selectedStudent.termName})
+                        </span>
+                      </div>
+
+                      <div className="fpt-party-heading" style={{ marginTop: 8 }}>
+                        3 – Loại thiết bị bàn giao:
+                      </div>
+                    </div>
+
+                    {/* Bảng thiết bị lấy động từ bảng Equipments của phòng */}
+                    <table className="fpt-equip-table">
+                      <thead>
+                        <tr>
+                          <th style={{ width: 48 }}>TT</th>
+                          <th>Loại thiết bị (Theo dữ liệu Phòng {selectedStudent.roomNumber})</th>
+                          <th style={{ width: 170 }}>Số lượng</th>
+                          <th style={{ width: 320 }}>Tình trạng</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {loadingEquip ? (
+                          <tr>
+                            <td colSpan={4} style={{ textAlign: 'center', color: '#64748b', padding: '14px' }}>
+                              Đang tải danh sách thiết bị của phòng {selectedStudent.roomNumber}...
+                            </td>
+                          </tr>
+                        ) : equipItems.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} style={{ textAlign: 'center', color: '#64748b', padding: '14px' }}>
+                              Phòng {selectedStudent.roomNumber} hiện chưa có thiết bị nào trong bảng Equipments. Bạn vẫn có thể ghi nhận Vật dụng khác, Số điện/nước và hoàn tất Check-in.
+                            </td>
+                          </tr>
+                        ) : (
+                          equipItems.map((item, idx) => (
+                            <tr key={item.equipmentId}>
+                              <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                              <td>
+                                <div style={{ fontWeight: 700 }}>{item.catalogName}</div>
+                                <div style={{ fontSize: 12, color: '#64748b' }}>
+                                  Mã TS: <strong>{item.assetCode}</strong> · Danh mục: {item.category}
+                                  {item.bedCode ? ` · Giường ${item.bedCode}` : ' · Dùng chung phòng'}
+                                </div>
+                              </td>
+                              <td style={{ textAlign: 'center', fontWeight: 600 }}>01</td>
+                              <td>
+                                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                  <select
+                                    className="fpt-equip-select"
+                                    value={item.itemCondition}
+                                    onChange={e =>
+                                      handleConditionChange(
+                                        item.equipmentId,
+                                        e.target.value as 'Good' | 'Damaged' | 'Missing'
+                                      )
+                                    }
+                                  >
+                                    <option value="Good">Tốt / Bình thường</option>
+                                    <option value="Damaged">Hư hỏng</option>
+                                    <option value="Missing">Thiếu</option>
+                                  </select>
+                                  <input
+                                    type="text"
+                                    className="fpt-equip-note-input"
+                                    value={item.handoverNote}
+                                    onChange={e => handleNoteChange(item.equipmentId, e.target.value)}
+                                    placeholder="Ghi chú tình trạng..."
+                                  />
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+
+                        {/* Dòng cuối giống mẫu giấy: Vật dụng khác | Số điện (L/R) | Số nước (L/R) */}
+                        <tr>
+                          <td style={{ textAlign: 'center' }}>{equipItems.length + 1}</td>
+                          <td>
+                            <div style={{ fontWeight: 700, marginBottom: 4 }}>Vật dụng khác:</div>
+                            <input
+                              type="text"
+                              className="fpt-equip-note-input"
+                              placeholder="Nhập các vật dụng bàn giao thêm (nếu có)..."
+                              value={otherItems}
+                              onChange={e => setOtherItems(e.target.value)}
+                            />
+                          </td>
+                          <td style={{ padding: '4px 10px' }}>
+                            <div style={{ textAlign: 'center', fontWeight: 700, fontStyle: 'italic' }}>Số điện</div>
+                            <div className="fpt-meter-split">
+                              <div className="fpt-meter-cell">
+                                <span>L:</span>
+                                <input
+                                  type="text"
+                                  className="fpt-meter-input"
+                                  placeholder="0"
+                                  value={electricityL}
+                                  onChange={e => setElectricityL(e.target.value)}
+                                />
+                              </div>
+                              <div className="fpt-meter-cell">
+                                <span>R:</span>
+                                <input
+                                  type="text"
+                                  className="fpt-meter-input"
+                                  placeholder="0"
+                                  value={electricityR}
+                                  onChange={e => setElectricityR(e.target.value)}
+                                />
+                              </div>
+                            </div>
+                          </td>
+                          <td style={{ padding: '4px 10px' }}>
+                            <div style={{ textAlign: 'center', fontWeight: 700, fontStyle: 'italic' }}>Số nước</div>
+                            <div className="fpt-meter-split">
+                              <div className="fpt-meter-cell">
+                                <span>L:</span>
+                                <input
+                                  type="text"
+                                  className="fpt-meter-input"
+                                  placeholder="0"
+                                  value={waterL}
+                                  onChange={e => setWaterL(e.target.value)}
+                                />
+                              </div>
+                              <div className="fpt-meter-cell">
+                                <span>R:</span>
+                                <input
+                                  type="text"
+                                  className="fpt-meter-input"
+                                  placeholder="0"
+                                  value={waterR}
+                                  onChange={e => setWaterR(e.target.value)}
+                                />
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+
+                    {/* Chân trang chữ ký */}
+                    <div className="fpt-paper-footer">
+                      <div className="fpt-date-line">
+                        Hòa Lạc, ngày {String(now.getDate()).padStart(2, '0')} tháng{' '}
+                        {String(now.getMonth() + 1).padStart(2, '0')} năm {now.getFullYear()}
+                      </div>
+                      <div className="fpt-signatures-grid">
+                        <div>
+                          <div>Người nhận bàn giao</div>
+                          <div style={{ fontWeight: 400, fontSize: 12, fontStyle: 'italic' }}>
+                            (Sinh viên kiểm tra & ký xác nhận)
+                          </div>
+                          <div className="fpt-sig-name">{selectedStudent.studentName}</div>
+                        </div>
+                        <div>
+                          <div>Người bàn giao</div>
+                          <div style={{ fontWeight: 400, fontSize: 12, fontStyle: 'italic' }}>
+                            (Cán bộ Bảo vệ lập biên bản)
+                          </div>
+                          <div className="fpt-sig-name">{currentUser?.fullName || 'Cán bộ Bảo vệ'}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="checkin-modal-footer no-print">
+                  <button type="button" className="btn-secondary" onClick={closeCreateModal} disabled={submitting}>
+                    Đóng
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => window.print()}
+                    disabled={loadingEquip}
+                  >
+                    In phôi biên bản
+                  </button>
+                  <button type="submit" className="btn-submit" disabled={submitting || loadingEquip}>
+                    {submitting ? 'Đang lưu & kích hoạt phòng...' : 'Hoàn tất Check-in'}
+                  </button>
+                </div>
+              </form>
+            ) : null}
+          </div>
         </div>
-      )}
-
-      {mode === 'create' && !completedHandover && selectedStudent && (
-        <form onSubmit={handleCompleteCheckin}>
-          <div className="fpt-handover-paper">
-            {/* Quốc hiệu & Logo */}
-            <div className="fpt-paper-top">
-              <div className="fpt-paper-top-left">
-                <div className="fpt-logo-text">FPT Education</div>
-                <div className="fpt-org-title">TỔ CHỨC GIÁO DỤC FPT</div>
-              </div>
-              <div className="fpt-paper-top-right">
-                <div className="fpt-nation-title">CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</div>
-                <div className="fpt-nation-sub">Độc lập - Tự do - Hạnh phúc</div>
-              </div>
-            </div>
-
-            {/* Tiêu đề biên bản */}
-            <div className="fpt-paper-banner">
-              BIÊN BẢN BÀN GIAO TÀI SẢN BLOCK: {selectedStudent.blockCode || selectedStudent.blockName} — PHÒNG{' '}
-              {selectedStudent.roomNumber} (GIƯỜNG {selectedStudent.bedCode})
-            </div>
-
-            {/* Mục 1 & Mục 2 */}
-            <div className="fpt-paper-parties">
-              <div className="fpt-party-heading">1 - Bên bàn giao:</div>
-              <div>
-                Ông/Bà: <strong>{currentUser?.fullName || 'Cán bộ Bảo vệ'}</strong> ({currentUser?.code || 'GRD01'})
-              </div>
-              <div>Bộ phận: An ninh - Phòng Quản lý ký túc xá.</div>
-
-              <div className="fpt-party-heading" style={{ marginTop: 8 }}>
-                2 – Bên nhận bàn giao:
-              </div>
-              <div>
-                Anh/Chị: <strong>{selectedStudent.studentName}</strong>
-              </div>
-              <div>
-                MSSV(CBGV): <strong>{selectedStudent.studentCode}</strong>
-              </div>
-              <div className="fpt-party-line">
-                <span>Chức danh:</span>
-                <input
-                  type="text"
-                  className="fpt-inline-input"
-                  value={studentTitle}
-                  onChange={e => setStudentTitle(e.target.value)}
-                  placeholder="Sinh viên"
-                />
-                <span style={{ color: '#475569', fontSize: 13 }}>
-                  (Phòng {selectedStudent.roomNumber} · Giường {selectedStudent.bedCode} · Kỳ {selectedStudent.termName})
-                </span>
-              </div>
-
-              <div className="fpt-party-heading" style={{ marginTop: 8 }}>
-                3 – Loại thiết bị bàn giao:
-              </div>
-            </div>
-
-            {/* Bảng thiết bị lấy động từ bảng Equipments của phòng */}
-            <table className="fpt-equip-table">
-              <thead>
-                <tr>
-                  <th style={{ width: 48 }}>TT</th>
-                  <th>Loại thiết bị (Theo dữ liệu Phòng {selectedStudent.roomNumber})</th>
-                  <th style={{ width: 170 }}>Số lượng</th>
-                  <th style={{ width: 320 }}>Tình trạng</th>
-                </tr>
-              </thead>
-              <tbody>
-                {equipItems.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} style={{ textAlign: 'center', color: '#64748b', padding: '14px' }}>
-                      Phòng {selectedStudent.roomNumber} hiện chưa có thiết bị nào trong bảng Equipments. Bạn vẫn có thể ghi nhận Vật dụng khác, Số điện/nước và hoàn tất Check-in.
-                    </td>
-                  </tr>
-                ) : (
-                  equipItems.map((item, idx) => (
-                    <tr key={item.equipmentId}>
-                      <td style={{ textAlign: 'center' }}>{idx + 1}</td>
-                      <td>
-                        <div style={{ fontWeight: 700 }}>{item.catalogName}</div>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>
-                          Mã TS: <strong>{item.assetCode}</strong> · Danh mục: {item.category}
-                          {item.bedCode ? ` · Giường ${item.bedCode}` : ' · Dùng chung phòng'}
-                        </div>
-                      </td>
-                      <td style={{ textAlign: 'center', fontWeight: 600 }}>01</td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                          <select
-                            className="fpt-equip-select"
-                            value={item.itemCondition}
-                            onChange={e =>
-                              handleConditionChange(
-                                item.equipmentId,
-                                e.target.value as 'Good' | 'Damaged' | 'Missing'
-                              )
-                            }
-                          >
-                            <option value="Good">Tốt / Bình thường</option>
-                            <option value="Damaged">Hư hỏng</option>
-                            <option value="Missing">Thiếu</option>
-                          </select>
-                          <input
-                            type="text"
-                            className="fpt-equip-note-input"
-                            value={item.handoverNote}
-                            onChange={e => handleNoteChange(item.equipmentId, e.target.value)}
-                            placeholder="Ghi chú tình trạng..."
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-
-                {/* Dòng cuối giống mẫu giấy: Vật dụng khác | Số điện (L/R) | Số nước (L/R) */}
-                <tr>
-                  <td style={{ textAlign: 'center' }}>{equipItems.length + 1}</td>
-                  <td>
-                    <div style={{ fontWeight: 700, marginBottom: 4 }}>Vật dụng khác:</div>
-                    <input
-                      type="text"
-                      className="fpt-equip-note-input"
-                      placeholder="Nhập các vật dụng bàn giao thêm (nếu có)..."
-                      value={otherItems}
-                      onChange={e => setOtherItems(e.target.value)}
-                    />
-                  </td>
-                  <td style={{ padding: '4px 10px' }}>
-                    <div style={{ textAlign: 'center', fontWeight: 700, fontStyle: 'italic' }}>Số điện</div>
-                    <div className="fpt-meter-split">
-                      <div className="fpt-meter-cell">
-                        <span>L:</span>
-                        <input
-                          type="text"
-                          className="fpt-meter-input"
-                          placeholder="0"
-                          value={electricityL}
-                          onChange={e => setElectricityL(e.target.value)}
-                        />
-                      </div>
-                      <div className="fpt-meter-cell">
-                        <span>R:</span>
-                        <input
-                          type="text"
-                          className="fpt-meter-input"
-                          placeholder="0"
-                          value={electricityR}
-                          onChange={e => setElectricityR(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                  </td>
-                  <td style={{ padding: '4px 10px' }}>
-                    <div style={{ textAlign: 'center', fontWeight: 700, fontStyle: 'italic' }}>Số nước</div>
-                    <div className="fpt-meter-split">
-                      <div className="fpt-meter-cell">
-                        <span>L:</span>
-                        <input
-                          type="text"
-                          className="fpt-meter-input"
-                          placeholder="0"
-                          value={waterL}
-                          onChange={e => setWaterL(e.target.value)}
-                        />
-                      </div>
-                      <div className="fpt-meter-cell">
-                        <span>R:</span>
-                        <input
-                          type="text"
-                          className="fpt-meter-input"
-                          placeholder="0"
-                          value={waterR}
-                          onChange={e => setWaterR(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-
-            {/* Chân trang chữ ký */}
-            <div className="fpt-paper-footer">
-              <div className="fpt-date-line">
-                Hòa Lạc, ngày {String(now.getDate()).padStart(2, '0')} tháng{' '}
-                {String(now.getMonth() + 1).padStart(2, '0')} năm {now.getFullYear()}
-              </div>
-              <div className="fpt-signatures-grid">
-                <div>
-                  <div>Người nhận bàn giao</div>
-                  <div style={{ fontWeight: 400, fontSize: 12, fontStyle: 'italic' }}>
-                    (Sinh viên kiểm tra & ký xác nhận)
-                  </div>
-                  <div className="fpt-sig-name">{selectedStudent.studentName}</div>
-                </div>
-                <div>
-                  <div>Người bàn giao</div>
-                  <div style={{ fontWeight: 400, fontSize: 12, fontStyle: 'italic' }}>
-                    (Cán bộ Bảo vệ lập biên bản)
-                  </div>
-                  <div className="fpt-sig-name">{currentUser?.fullName || 'Cán bộ Bảo vệ'}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="checkin-actions-bar no-print">
-            <button type="button" className="btn-secondary" onClick={() => window.print()}>
-              In phôi biên bản
-            </button>
-            <button type="submit" className="btn-submit" disabled={submitting}>
-              {submitting ? 'Đang lưu & kích hoạt phòng...' : 'Hoàn tất Check-in'}
-            </button>
-          </div>
-        </form>
       )}
 
       {/* CHẾ ĐỘ 2: LỊCH SỬ BIÊN BẢN ĐÃ CHECK-IN */}
@@ -756,7 +844,7 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
                     <th>Mã BB</th>
                     <th>MSSV</th>
                     <th>Họ tên sinh viên</th>
-                    <th>Tòa / Phòng / Giường</th>
+                    <th>Block / Phòng / Giường</th>
                     <th>Bảo vệ bàn giao</th>
                     <th>Ngày Check-in</th>
                     <th>Tình trạng TS</th>
@@ -813,16 +901,38 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
           </div>
 
           {viewingHandover && (
-            <div>
-              <div className="checkin-actions-bar no-print" style={{ marginBottom: 16 }}>
-                <button type="button" className="btn-secondary" onClick={() => setViewingHandover(null)}>
-                  Đóng xem chi tiết
-                </button>
-                <button type="button" className="btn-submit" onClick={() => window.print()}>
-                  In biên bản bàn giao (A4)
-                </button>
+            <div className="checkin-modal-overlay" onClick={() => setViewingHandover(null)}>
+              <div className="checkin-modal-content" onClick={e => e.stopPropagation()}>
+                <div className="checkin-modal-header no-print">
+                  <div>
+                    <h2 className="checkin-modal-title">
+                      Biên bản bàn giao #BB-{String(viewingHandover.id).padStart(4, '0')}
+                    </h2>
+                    <p className="checkin-modal-subtitle">
+                      Sinh viên: {viewingHandover.studentName} ({viewingHandover.studentCode}) · {viewingHandover.blockCode} · Phòng {viewingHandover.roomNumber} - Giường {viewingHandover.bedCode}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="checkin-modal-close"
+                    onClick={() => setViewingHandover(null)}
+                    aria-label="Đóng"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="checkin-modal-body">
+                  {renderPrintablePaper(viewingHandover)}
+                </div>
+                <div className="checkin-modal-footer no-print">
+                  <button type="button" className="btn-secondary" onClick={() => setViewingHandover(null)}>
+                    Đóng
+                  </button>
+                  <button type="button" className="btn-submit" onClick={() => window.print()}>
+                    In biên bản bàn giao (A4)
+                  </button>
+                </div>
               </div>
-              {renderPrintablePaper(viewingHandover)}
             </div>
           )}
         </div>

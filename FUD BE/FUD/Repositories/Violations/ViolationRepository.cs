@@ -1,3 +1,4 @@
+using FUD.DTOs.Violations;
 using FUD.Models;
 using FUD.Repositories.Interfaces.Violations;
 using Microsoft.EntityFrameworkCore;
@@ -28,16 +29,20 @@ namespace FUD.Repositories.Violations
                 .Include(r => r.Student)
                     .ThenInclude(s => s.User)
                 .Include(r => r.Bed)
-                .Where(r => r.Bed.RoomId == roomId && r.Status == "Active")
+                .Where(r => r.Bed != null && r.Bed.RoomId == roomId && (r.Status == "Active" || r.Status == "Reserved" || r.Status == "CheckedIn"))
                 .ToListAsync();
         }
 
         public async Task<Student?> GetStudentByCodeAsync(string studentCode)
         {
+            var codeLower = studentCode.Trim().ToLower();
             return await _context.Students
                 .AsNoTracking()
                 .Include(s => s.User)
-                .FirstOrDefaultAsync(s => s.User.Code == studentCode || s.User.Email.StartsWith(studentCode + "@"));
+                .FirstOrDefaultAsync(s => (s.User != null && s.User.Code != null && s.User.Code.ToLower() == codeLower)
+                                       || (s.User != null && s.User.Email != null && s.User.Email.ToLower().StartsWith(codeLower + "@"))
+                                       || (s.User != null && s.User.Code != null && s.User.Code.ToLower().Contains(codeLower))
+                                       || (s.User != null && s.User.Email != null && s.User.Email.ToLower().Contains(codeLower)));
         }
 
         public async Task<Residency?> GetCurrentResidencyByStudentIdAsync(int studentId)
@@ -48,7 +53,7 @@ namespace FUD.Repositories.Violations
                     .ThenInclude(b => b.Room)
                         .ThenInclude(rm => rm.Block)
                 .Include(r => r.Term)
-                .FirstOrDefaultAsync(r => r.StudentId == studentId && r.Status == "Active");
+                .FirstOrDefaultAsync(r => r.StudentId == studentId && (r.Status == "Active" || r.Status == "Reserved" || r.Status == "CheckedIn"));
         }
 
         public async Task<bool> RoomExistsAsync(int roomId)
@@ -135,8 +140,18 @@ namespace FUD.Repositories.Violations
 
         public async Task UpdateViolationAsync(Violation violation)
         {
-            _context.Violations.Update(violation);
-            await _context.SaveChangesAsync();
+            // Dùng ExecuteUpdateAsync để tránh xung đột EF tracking khi entity đến từ AsNoTracking
+            await _context.Violations
+                .Where(v => v.Id == violation.Id)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(v => v.Status, violation.Status)
+                    .SetProperty(v => v.FinalLevel, violation.FinalLevel)
+                    .SetProperty(v => v.FinalizedTime, violation.FinalizedTime)
+                    .SetProperty(v => v.InitialLevel, violation.InitialLevel)
+                    .SetProperty(v => v.RequestDeadline, violation.RequestDeadline)
+                    .SetProperty(v => v.EvaluatedById, violation.EvaluatedById)
+                    .SetProperty(v => v.ManagerNote, violation.ManagerNote)
+                );
         }
 
         public async Task<User?> GetUserByIdAsync(int userId)
@@ -154,6 +169,28 @@ namespace FUD.Repositories.Violations
         {
             return await _context.Violations
                 .CountAsync(v => v.StudentId == studentId && v.Id != currentViolationId && v.Status == "Finalized");
+        }
+
+        public async Task<List<BlockForViolationDto>> GetBlocksByGuardDormAsync(int guardUserId)
+        {
+            var guard = await _context.Guards
+                .Include(g => g.Dorm)
+                    .ThenInclude(d => d.Blocks)
+                .FirstOrDefaultAsync(g => g.UserId == guardUserId);
+
+            if (guard == null) return new List<BlockForViolationDto>();
+
+            return guard.Dorm.Blocks
+                .Where(b => b.Status == "Active")
+                .OrderBy(b => b.Name)
+                .Select(b => new BlockForViolationDto
+                {
+                    Id = b.Id,
+                    Name = b.Name,
+                    Code = b.Code,
+                    DormId = guard.DormId,
+                    DormName = guard.Dorm.Name
+                }).ToList();
         }
     }
 }
