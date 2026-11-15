@@ -428,6 +428,112 @@ export const StudentRequestListPage: React.FC<StudentRequestListPageProps> = ({ 
               </div>
             )}
 
+            {/* Thông tin chuyển giường nếu là đơn BedTransfer */}
+            {selectedRequest.bedTransfer && (() => {
+              const bt = selectedRequest.bedTransfer;
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                  <div style={{ backgroundColor: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '8px', padding: '12px', fontSize: '12px', lineHeight: 1.7 }}>
+                    <div style={{ fontWeight: 700, color: '#1D4ED8', marginBottom: 4 }}>Thông tin yêu cầu chuyển giường:</div>
+                    <div>
+                      <strong>Từ giường:</strong> {bt.fromDormName} — {bt.fromBlockName} — P.{bt.fromRoomNumber} (Giường <strong>{bt.fromBedCode}</strong>)
+                    </div>
+                    <div>
+                      <strong>Chuyển đến:</strong> {bt.toDormName} — {bt.toBlockName} — P.{bt.toRoomNumber} (Giường <strong>{bt.toBedCode}</strong> — {bt.toRoomTypeName})
+                    </div>
+                    {bt.transferDate && (
+                      <div>
+                        <strong>Ngày chuyển dự kiến:</strong> {new Date(bt.transferDate).toLocaleDateString('vi-VN')}
+                      </div>
+                    )}
+                    {bt.assignedGuardName && (
+                      <div>
+                        <strong>Bảo vệ phụ trách kiểm tra:</strong> {bt.assignedGuardName} ({bt.assignedGuardCode})
+                      </div>
+                    )}
+                    {bt.priceDifference != null && (
+                      <div>
+                        <strong>Chênh lệch phí giường (Prorate):</strong>{' '}
+                        <span style={{ fontWeight: 700, color: bt.priceDifference > 0 ? '#B91C1C' : '#047857' }}>
+                          {bt.priceDifference.toLocaleString('vi-VN')} đ
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedRequest.status === 'Approved' && !bt.handover && (
+                    <div style={{ backgroundColor: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: '8px', padding: '10px 12px', fontSize: 12, color: '#92400E' }}>
+                      Đơn đã được duyệt Bước 1. Vui lòng phối hợp cùng Bảo vệ <strong>{bt.assignedGuardName || ''}</strong> và bạn cùng phòng kiểm tra phòng cũ &amp; chốt chỉ số điện nước.
+                    </div>
+                  )}
+
+                  {bt.handover && (
+                    <div style={{ backgroundColor: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: '8px', padding: '12px', fontSize: 12, lineHeight: 1.6 }}>
+                      <div style={{ fontWeight: 700, color: '#047857', marginBottom: 4 }}>
+                        Biên bản Kiểm tra phòng cũ ({bt.handover.handoverCode})
+                      </div>
+                      <div><strong>Bảo vệ lập biên bản:</strong> {bt.handover.inspectorName}</div>
+                      {bt.meterReadings && bt.meterReadings.length > 0 && (
+                        <div style={{ marginTop: 6 }}>
+                          <strong>Điện &amp; Nước chốt phòng cũ:</strong>
+                          {bt.meterReadings.map((mr) => (
+                            <div key={mr.id} style={{ marginTop: 2 }}>
+                              • {mr.meterType === 'Electricity' ? 'Điện' : 'Nước'}: {mr.previousValue} → <strong>{mr.currentValue}</strong> (Dùng {mr.consumption}, chia {mr.residentCount} SV:{' '}
+                              <strong>{mr.studentShareCost.toLocaleString('vi-VN')} đ</strong>)
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div><strong>Bồi thường thiết bị:</strong> {(bt.equipmentCompensationAmount ?? bt.handover.totalCompensation).toLocaleString('vi-VN')} đ</div>
+                      {bt.totalOutstandingAmount != null && (
+                        <div style={{ marginTop: 4, color: '#991B1B', fontWeight: 700 }}>
+                          Tổng chi phí phát sinh chuyển giường: {bt.totalOutstandingAmount.toLocaleString('vi-VN')} đ
+                        </div>
+                      )}
+                      {bt.refundDueAmount != null && bt.refundDueAmount > 0 && (
+                        <div style={{ color: '#047857', fontWeight: 600 }}>
+                          Chênh lệch giảm phí phòng (đối soát hoàn/cấn trừ): {bt.refundDueAmount.toLocaleString('vi-VN')} đ
+                        </div>
+                      )}
+
+                      {onGoToSubmit && (
+                        <div style={{ marginTop: 8 }}>
+                          <button
+                            type="button"
+                            onClick={onGoToSubmit}
+                            style={{
+                              padding: '5px 10px',
+                              borderRadius: 6,
+                              border: '1px solid #F59E0B',
+                              background: '#FFFBEB',
+                              color: '#B45309',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Gửi đơn Khiếu nại nếu có thắc mắc biên bản
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {bt.invoices && bt.invoices.length > 0 && (
+                    <div style={{ backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '10px 12px', fontSize: 12 }}>
+                      <strong style={{ display: 'block', marginBottom: 4, color: '#0F172A' }}>Hóa đơn phát sinh:</strong>
+                      {bt.invoices.map((inv) => (
+                        <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+                          <span><strong>{inv.invoiceNumber}</strong> ({inv.invoiceType}) — Hạn: {inv.dueDate || '—'}</span>
+                          <span><strong>{inv.totalAmount.toLocaleString('vi-VN')} đ</strong> ({inv.status})</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Nội dung đơn sinh viên viết */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>Lý do / Nội dung bạn đã gửi:</div>

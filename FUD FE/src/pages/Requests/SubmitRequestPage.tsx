@@ -1,5 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { violationApi, requestApi, type ViolationItem } from '../../services/api';
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  violationApi,
+  requestApi,
+  type ViolationItem,
+  type BedTransferContextDto,
+} from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatDateTime, formatDate } from '../../utils/dateUtils';
 import '../../styles/violation.css';
@@ -46,14 +51,91 @@ interface SubmitRequestPageProps {
 export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitted }) => {
   const { currentUser } = useAuth();
   const isSuspended = currentUser?.accountStatus === 'Suspended';
-  const [requestType, setRequestType] = useState<DBRequestType>('BedTransfer');
+  const [requestType, setRequestType] = useState<DBRequestType>(() => isSuspended ? 'Complaint' : 'BedTransfer');
   const [violations, setViolations] = useState<ViolationItem[]>([]);
   const [selectedViolationId, setSelectedViolationId] = useState<number | ''>('');
+  const [transferContext, setTransferContext] = useState<BedTransferContextDto | null>(null);
+  const [loadingTransferContext, setLoadingTransferContext] = useState(false);
+  const [selectedDormFilter, setSelectedDormFilter] = useState<string>('');
+  const [selectedBlockFilter, setSelectedBlockFilter] = useState<string>('');
+  const [selectedToBedId, setSelectedToBedId] = useState<number | ''>('');
+  const [transferDate, setTransferDate] = useState<string>('');
   const [content, setContent] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  useEffect(() => {
+    if (requestType === 'BedTransfer' && !isSuspended) {
+      loadBedTransferContext();
+    }
+  }, [requestType, isSuspended]);
+
+  const loadBedTransferContext = async () => {
+    setLoadingTransferContext(true);
+    try {
+      const ctx = await requestApi.getBedTransferContext();
+      setTransferContext(ctx);
+      setSelectedDormFilter('');
+      setSelectedBlockFilter('');
+      if (ctx.eligible && ctx.availableBeds.length > 0) {
+        setSelectedToBedId(ctx.availableBeds[0].bedId);
+      } else {
+        setSelectedToBedId('');
+      }
+    } catch (err: any) {
+      setTransferContext({
+        eligible: false,
+        ineligibleReason: err.message || 'Không thể tải thông tin chuyển giường.',
+        availableBeds: [],
+      });
+      setSelectedToBedId('');
+    } finally {
+      setLoadingTransferContext(false);
+    }
+  };
+
+  const dormOptions = useMemo(() => {
+    if (!transferContext?.availableBeds) return [];
+    const map = new Map<string, string>();
+    transferContext.availableBeds.forEach(b => map.set(b.dormCode, b.dormName));
+    return Array.from(map.entries()).map(([code, name]) => ({ code, name }));
+  }, [transferContext]);
+
+  const blockOptions = useMemo(() => {
+    if (!transferContext?.availableBeds) return [];
+    const map = new Map<string, string>();
+    transferContext.availableBeds
+      .filter(b => !selectedDormFilter || b.dormCode === selectedDormFilter)
+      .forEach(b => map.set(b.blockCode, b.blockName));
+    return Array.from(map.entries()).map(([code, name]) => ({ code, name }));
+  }, [transferContext, selectedDormFilter]);
+
+  const filteredAvailableBeds = useMemo(() => {
+    if (!transferContext?.availableBeds) return [];
+    return transferContext.availableBeds.filter(b => {
+      if (selectedDormFilter && b.dormCode !== selectedDormFilter) return false;
+      if (selectedBlockFilter && b.blockCode !== selectedBlockFilter) return false;
+      return true;
+    });
+  }, [transferContext, selectedDormFilter, selectedBlockFilter]);
+
+  useEffect(() => {
+    if (requestType !== 'BedTransfer') return;
+    if (filteredAvailableBeds.length === 0) {
+      setSelectedToBedId('');
+      return;
+    }
+    if (!filteredAvailableBeds.some(b => b.bedId === selectedToBedId)) {
+      setSelectedToBedId(filteredAvailableBeds[0].bedId);
+    }
+  }, [filteredAvailableBeds, requestType, selectedToBedId]);
+
+  const selectedTargetBed = useMemo(
+    () => transferContext?.availableBeds.find(b => b.bedId === selectedToBedId),
+    [transferContext, selectedToBedId]
+  );
 
   // Cập nhật tự động loại bỏ biên bản hết hạn mỗi giây
   useEffect(() => {
@@ -161,6 +243,44 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
       } finally {
         setSubmitting(false);
       }
+    } else if (requestType === 'BedTransfer') {
+      if (!transferContext?.eligible) {
+        setErrorMsg(transferContext?.ineligibleReason || 'Bạn chưa đủ điều kiện gửi đơn chuyển giường.');
+        return;
+      }
+      if (!selectedToBedId) {
+        setErrorMsg('Vui lòng chọn giường đích muốn chuyển đến.');
+        return;
+      }
+      if (!content.trim()) {
+        setErrorMsg('Vui lòng nhập lý do chuyển giường.');
+        return;
+      }
+
+      setSubmitting(true);
+      try {
+        const formData = new FormData();
+        formData.append('requestType', 'BedTransfer');
+        formData.append('toBedId', selectedToBedId.toString());
+        if (transferDate) {
+          formData.append('transferDate', transferDate);
+        }
+        formData.append('reason', content.trim());
+
+        await requestApi.create(formData);
+        setSuccessMsg(`Đã gửi đơn chuyển giường thành công với trạng thái: ${REQUEST_STATUS_LABELS['Pending']}!`);
+        setContent('');
+        setTransferDate('');
+        setFiles([]);
+        loadBedTransferContext();
+        if (onSubmitted) {
+          setTimeout(() => onSubmitted(), 1200);
+        }
+      } catch (err: any) {
+        setErrorMsg(err.message || 'Lỗi khi gửi đơn chuyển giường');
+      } finally {
+        setSubmitting(false);
+      }
     } else {
       setSubmitting(true);
       try {
@@ -255,6 +375,143 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
                   ))}
               </select>
             </div>
+
+            {/* Nếu chọn loại BedTransfer: Hiển thị chỗ ở hiện tại & chọn giường trống đích */}
+            {requestType === 'BedTransfer' && (
+              <div style={{ marginBottom: 18 }}>
+                {loadingTransferContext ? (
+                  <div style={{ padding: '14px', backgroundColor: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0', fontSize: '13px', color: '#64748B' }}>
+                    Đang kiểm tra điều kiện cư trú và tải danh sách giường trống...
+                  </div>
+                ) : (
+                  <>
+                    {transferContext?.currentResidency && (
+                      <div style={{ padding: '14px', backgroundColor: '#F8FAFC', borderRadius: '8px', border: '1px solid #CBD5E1', marginBottom: 14, fontSize: '13px', lineHeight: 1.7 }}>
+                        <div style={{ fontWeight: 700, color: '#0F172A', marginBottom: 4 }}>
+                          Chỗ ở hiện tại ({transferContext.currentResidency.termName} {transferContext.currentResidency.academicYear})
+                        </div>
+                        <div>
+                          <strong>Vị trí:</strong> {transferContext.currentResidency.dormName} — {transferContext.currentResidency.blockName} — P.{transferContext.currentResidency.roomNumber} — Giường <strong>{transferContext.currentResidency.bedCode}</strong>
+                          {transferContext.currentResidency.positionInRoom ? ` (${transferContext.currentResidency.positionInRoom})` : ''}
+                        </div>
+                        <div>
+                          <strong>Loại phòng:</strong> {transferContext.currentResidency.roomTypeName}
+                          {transferContext.currentResidency.currentTermPrice != null && (
+                            <span style={{ marginLeft: 12 }}>
+                              <strong>Đơn giá kỳ:</strong> {transferContext.currentResidency.currentTermPrice.toLocaleString('vi-VN')} đ
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {!transferContext?.eligible ? (
+                      <div style={{ padding: '14px', backgroundColor: '#FEF2F2', borderRadius: '8px', border: '1px solid #FECACA', fontSize: '13px', color: '#991B1B' }}>
+                        <strong>Không thể gửi đơn chuyển giường:</strong> {transferContext?.ineligibleReason || 'Chưa đủ điều kiện chuyển giường.'}
+                      </div>
+                    ) : transferContext.availableBeds.length === 0 ? (
+                      <div style={{ padding: '14px', backgroundColor: '#FFFBEB', borderRadius: '8px', border: '1px solid #FDE68A', fontSize: '13px', color: '#92400E' }}>
+                        Hiện không còn giường trống phù hợp giới tính trong ký túc xá để chuyển.
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: 12 }}>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: 4, color: '#475569' }}>
+                              Lọc theo Tòa (Dorm)
+                            </label>
+                            <select
+                              value={selectedDormFilter}
+                              onChange={e => {
+                                setSelectedDormFilter(e.target.value);
+                                setSelectedBlockFilter('');
+                              }}
+                              style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#FFF' }}
+                            >
+                              <option value="">Tất cả tòa nhà</option>
+                              {dormOptions.map(d => (
+                                <option key={d.code} value={d.code}>{d.name}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: 4, color: '#475569' }}>
+                              Lọc theo Khu (Block)
+                            </label>
+                            <select
+                              value={selectedBlockFilter}
+                              onChange={e => setSelectedBlockFilter(e.target.value)}
+                              style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#FFF' }}
+                            >
+                              <option value="">Tất cả khu</option>
+                              {blockOptions.map(bl => (
+                                <option key={bl.code} value={bl.code}>{bl.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        <div style={{ marginBottom: 12 }}>
+                          <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, marginBottom: 6, color: '#1E293B' }}>
+                            Chọn giường trống muốn chuyển đến <span style={{ color: '#DC2626' }}>*</span>
+                          </label>
+                          <select
+                            value={selectedToBedId}
+                            onChange={e => setSelectedToBedId(Number(e.target.value))}
+                            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#FFF' }}
+                            required
+                          >
+                            {filteredAvailableBeds.map(b => (
+                              <option key={b.bedId} value={b.bedId}>
+                                {b.dormName} - {b.blockCode} - P.{b.roomNumber} - Giường {b.bedCode}
+                                {b.positionInRoom ? ` (${b.positionInRoom})` : ''} — {b.roomTypeName}
+                                {b.termPrice != null ? ` (${b.termPrice.toLocaleString('vi-VN')} đ/kỳ)` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {selectedTargetBed && (
+                          <div style={{ padding: '12px', backgroundColor: '#ECFDF5', borderRadius: '8px', border: '1px solid #A7F3D0', fontSize: '12px', lineHeight: 1.6, marginBottom: 12, color: '#065F46' }}>
+                            <div><strong>Giường đích đã chọn:</strong> {selectedTargetBed.dormName} — {selectedTargetBed.blockName} — P.{selectedTargetBed.roomNumber} — Giường <strong>{selectedTargetBed.bedCode}</strong></div>
+                            <div>
+                              <strong>Loại phòng:</strong> {selectedTargetBed.roomTypeName}
+                              {selectedTargetBed.termPrice != null && (
+                                <span style={{ marginLeft: 12 }}>
+                                  <strong>Đơn giá kỳ:</strong> {selectedTargetBed.termPrice.toLocaleString('vi-VN')} đ
+                                </span>
+                              )}
+                            </div>
+                            {selectedTargetBed.termPrice != null && transferContext.currentResidency?.currentTermPrice != null && (
+                              <div>
+                                <strong>Chênh lệch đơn giá kỳ tham khảo:</strong>{' '}
+                                {(selectedTargetBed.termPrice - transferContext.currentResidency.currentTermPrice).toLocaleString('vi-VN')} đ
+                                {' '}(Mức chênh lệch thực tế sẽ được Ban Quản lý tính theo số ngày ở thực tế khi duyệt đơn)
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, marginBottom: 6, color: '#1E293B' }}>
+                            Ngày dự kiến chuyển (tùy chọn)
+                          </label>
+                          <input
+                            type="date"
+                            value={transferDate}
+                            min={new Date().toISOString().split('T')[0]}
+                            max={transferContext.currentResidency?.termEndDate}
+                            onChange={e => setTransferDate(e.target.value)}
+                            style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#FFF' }}
+                          />
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Nếu chọn loại Complaint: Chọn biên bản vi phạm hoặc khiếu nại riêng */}
             {requestType === 'Complaint' && (
@@ -375,7 +632,11 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button
                 type="submit"
-                disabled={submitting || (requestType === 'Complaint' && violations.length === 0)}
+                disabled={
+                  submitting
+                  || (requestType === 'Complaint' && violations.length === 0)
+                  || (requestType === 'BedTransfer' && (loadingTransferContext || !transferContext?.eligible || !selectedToBedId))
+                }
                 style={{
                   padding: '10px 24px',
                   backgroundColor: '#EA580C',
@@ -384,8 +645,16 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
                   borderRadius: '6px',
                   fontWeight: 600,
                   fontSize: '13px',
-                  cursor: (submitting || (requestType === 'Complaint' && violations.length === 0)) ? 'not-allowed' : 'pointer',
-                  opacity: (submitting || (requestType === 'Complaint' && violations.length === 0)) ? 0.6 : 1,
+                  cursor: (
+                    submitting
+                    || (requestType === 'Complaint' && violations.length === 0)
+                    || (requestType === 'BedTransfer' && (loadingTransferContext || !transferContext?.eligible || !selectedToBedId))
+                  ) ? 'not-allowed' : 'pointer',
+                  opacity: (
+                    submitting
+                    || (requestType === 'Complaint' && violations.length === 0)
+                    || (requestType === 'BedTransfer' && (loadingTransferContext || !transferContext?.eligible || !selectedToBedId))
+                  ) ? 0.6 : 1,
                 }}
               >
                 {submitting ? 'Đang gửi đơn...' : 'Gửi đơn yêu cầu'}

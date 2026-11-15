@@ -33,7 +33,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
   useEffect(() => {
     if (!isOpen || role !== 'student') return;
 
-    const clientId = "465802234542-gktp27sds4gc8l6snvrmt8e1168gif37.apps.googleusercontent.com";
+    const clientId = "574869794473-o8hm38oe9p614e6n9snsblmp2vg9hh1f.apps.googleusercontent.com";
 
     const initGoogle = () => {
       if (window.google?.accounts?.id) {
@@ -157,10 +157,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
               {loggedInUser?.primaryRole === 'Admin'
                 ? 'Quản trị viên'
                 : loggedInUser?.primaryRole === 'Guard'
-                ? 'Đội Bảo vệ'
-                : loggedInUser?.primaryRole === 'Manager'
-                ? 'Ban Quản lý'
-                : 'Sinh viên'}
+                  ? 'Đội Bảo vệ'
+                  : loggedInUser?.primaryRole === 'Manager'
+                    ? 'Ban Quản lý'
+                    : 'Sinh viên'}
               ) đã quay trở lại hệ thống KTX.
             </p>
           </div>

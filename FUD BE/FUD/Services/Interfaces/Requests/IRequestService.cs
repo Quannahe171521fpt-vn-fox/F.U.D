@@ -8,7 +8,11 @@ namespace FUD.Services.Interfaces.Requests
     {
         Task<List<RequestItemDto>> GetAllRequestsAsync(string? requestType = null, string? status = null);
         Task<List<RequestItemDto>> GetStudentRequestsAsync(int studentId);
+        Task<BedTransferContextDto> GetBedTransferContextAsync(int studentId);
         Task<RequestItemDto> CreateRequestAsync(int studentId, CreateRequestDto dto);
         Task<RequestItemDto> ProcessRequestAsync(int requestId, int managerId, ProcessRequestDto dto);
+        Task<List<GuardLookupDto>> GetGuardsAsync(int? dormId = null);
+        Task<List<TransferInspectionTaskDto>> GetGuardTransferInspectionsAsync(int guardUserId);
+        Task<TransferInspectionTaskDto> SubmitTransferInspectionAsync(int requestId, int guardUserId, SubmitTransferInspectionDto dto);
     }
 }

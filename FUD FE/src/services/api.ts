@@ -967,6 +967,198 @@ export const roomApi = {
 
 
 // ── Requests API (Booking, BedTransfer, Checkout, Complaint, Others) ───────────
+export interface BedTransferHandoverItemDto {
+  id: number;
+  equipmentId: number;
+  equipmentCode: string;
+  equipmentName: string;
+  category: string;
+  itemCondition: 'Good' | 'Damaged' | 'Missing' | string;
+  description?: string;
+  compensationAmount: number;
+}
+
+export interface BedTransferHandoverInfoDto {
+  id: number;
+  handoverCode: string;
+  status: string;
+  inspectorName: string;
+  inspectionNote?: string;
+  totalCompensation: number;
+  studentAcceptedFlag: boolean;
+  studentAcceptedTime?: string;
+  completedTime?: string;
+  items: BedTransferHandoverItemDto[];
+}
+
+export interface BedTransferMeterReadingDto {
+  id: number;
+  meterType: 'Electricity' | 'Water' | string;
+  previousValue: number;
+  currentValue: number;
+  consumption: number;
+  unitPrice: number;
+  totalCost: number;
+  studentShareCost: number;
+  residentCount: number;
+  recordedTime: string;
+  note?: string;
+}
+
+export interface BedTransferInvoiceSummaryDto {
+  id: number;
+  invoiceNumber: string;
+  invoiceType: string;
+  status: string;
+  totalAmount: number;
+  issueDate: string;
+  dueDate?: string;
+  description?: string;
+}
+
+export interface GuardLookupDto {
+  userId: number;
+  fullName: string;
+  guardCode: string;
+  phoneNumber?: string;
+  assignedDormId: number;
+  assignedDormName: string;
+}
+
+export interface TransferInspectionTaskDto {
+  requestId: number;
+  requestCode: string;
+  status: string;
+  studentId: number;
+  studentName: string;
+  studentCode: string;
+  studentPhone?: string;
+  fromResidencyId: number;
+  fromDormName: string;
+  fromBlockName: string;
+  fromRoomId: number;
+  fromRoomNumber: string;
+  fromBedId: number;
+  fromBedCode: string;
+  toDormName: string;
+  toBlockName: string;
+  toRoomNumber: string;
+  toBedCode: string;
+  transferDate?: string;
+  transferReason: string;
+  assignedGuardId?: number;
+  assignedGuardName?: string;
+  previousElectricityReading: number;
+  previousWaterReading: number;
+  electricityUnitPrice: number;
+  waterUnitPrice: number;
+  activeResidentCount: number;
+  handoverCompleted: boolean;
+  handover?: BedTransferHandoverInfoDto;
+  meterReadings: BedTransferMeterReadingDto[];
+}
+
+export interface SubmitTransferInspectionPayload {
+  currentElectricityReading: number;
+  currentWaterReading: number;
+  note?: string;
+  items: Array<{
+    equipmentId: number;
+    itemCondition: 'Good' | 'Damaged' | 'Missing';
+    description?: string;
+    compensationAmount: number;
+  }>;
+}
+
+export interface BedTransferDetailDto {
+  fromResidencyId: number;
+  fromBedId: number;
+  fromRoomId: number;
+  fromDormId: number;
+  fromBedCode: string;
+  fromRoomNumber: string;
+  fromBlockCode: string;
+  fromBlockName: string;
+  fromDormName: string;
+  toBedId: number;
+  toBedCode: string;
+  toRoomNumber: string;
+  toBlockCode: string;
+  toBlockName: string;
+  toDormName: string;
+  toRoomTypeName: string;
+  transferReason: string;
+  transferDate?: string;
+  oldBedDailyRate?: number;
+  newBedDailyRate?: number;
+  daysStayed?: number;
+  daysRemaining?: number;
+  oldBedAmount?: number;
+  newBedAmount?: number;
+  amountAlreadyPaid?: number;
+  totalAmount?: number;
+  priceDifference?: number;
+  assignedGuardId?: number;
+  assignedGuardName?: string;
+  assignedGuardCode?: string;
+  reviewedById?: number;
+  reviewedTime?: string;
+  newResidencyId?: number;
+  handover?: BedTransferHandoverInfoDto;
+  meterReadings?: BedTransferMeterReadingDto[];
+  utilityShareAmount?: number;
+  equipmentCompensationAmount?: number;
+  totalOutstandingAmount?: number;
+  refundDueAmount?: number;
+  invoices?: BedTransferInvoiceSummaryDto[];
+}
+
+export interface CurrentResidencyTransferDto {
+  residencyId: number;
+  termId: number;
+  termName: string;
+  academicYear: string;
+  termStartDate: string;
+  termEndDate: string;
+  dormName: string;
+  blockCode: string;
+  blockName: string;
+  roomId: number;
+  roomNumber: string;
+  roomTypeName: string;
+  bedId: number;
+  bedCode: string;
+  positionInRoom?: string;
+  checkInDate?: string;
+  currentTermPrice?: number;
+}
+
+export interface AvailableTransferBedDto {
+  bedId: number;
+  bedCode: string;
+  positionInRoom?: string;
+  roomId: number;
+  roomNumber: string;
+  floorLevel?: number;
+  roomTypeId: number;
+  roomTypeName: string;
+  bedCapacity: number;
+  blockId: number;
+  blockCode: string;
+  blockName: string;
+  dormId: number;
+  dormCode: string;
+  dormName: string;
+  termPrice?: number;
+}
+
+export interface BedTransferContextDto {
+  eligible: boolean;
+  ineligibleReason?: string;
+  currentResidency?: CurrentResidencyTransferDto;
+  availableBeds: AvailableTransferBedDto[];
+}
+
 export interface RequestItemDto {
   id: number;
   requestCode: string;
@@ -995,6 +1187,7 @@ export interface RequestItemDto {
     resolutionNote?: string;
     evidences: string[];
   };
+  bedTransfer?: BedTransferDetailDto;
 }
 
 export const requestApi = {
@@ -1015,6 +1208,13 @@ export const requestApi = {
     return Array.isArray(json) ? json : json?.data || [];
   },
 
+  getBedTransferContext: async (): Promise<BedTransferContextDto> => {
+    const res = await authFetch(`${BASE_URL}/requests/bed-transfer/context`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(json?.message || 'Không thể tải thông tin chuyển giường');
+    return json?.data || json;
+  },
+
   create: async (formData: FormData): Promise<RequestItemDto> => {
     const res = await authFetch(`${BASE_URL}/requests`, {
       method: 'POST',
@@ -1025,7 +1225,45 @@ export const requestApi = {
     return json?.data || json;
   },
 
-  process: async (id: number, payload: { decision: string; note?: string; adjustedLevel?: string }): Promise<RequestItemDto> => {
+  getGuards: async (dormId?: number): Promise<GuardLookupDto[]> => {
+    const query = dormId ? `?dormId=${dormId}` : '';
+    const res = await authFetch(`${BASE_URL}/requests/guards${query}`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(json?.message || 'Không thể tải danh sách Bảo vệ');
+    return Array.isArray(json) ? json : json?.data || [];
+  },
+
+  getGuardTransferTasks: async (): Promise<TransferInspectionTaskDto[]> => {
+    const res = await authFetch(`${BASE_URL}/requests/bed-transfer/guard-tasks`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(json?.message || 'Không thể tải nhiệm vụ kiểm tra chuyển giường');
+    return Array.isArray(json) ? json : json?.data || [];
+  },
+
+  submitTransferInspection: async (
+    requestId: number,
+    payload: SubmitTransferInspectionPayload
+  ): Promise<TransferInspectionTaskDto> => {
+    const res = await authFetch(`${BASE_URL}/requests/${requestId}/transfer-inspection`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(json?.message || 'Không thể gửi biên bản kiểm tra chuyển giường');
+    return json?.data || json;
+  },
+
+  process: async (
+    id: number,
+    payload: {
+      decision: string;
+      note?: string;
+      adjustedLevel?: string;
+      assignedGuardId?: number;
+      transferDate?: string;
+    }
+  ): Promise<RequestItemDto> => {
     const res = await authFetch(`${BASE_URL}/requests/${id}/process`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
