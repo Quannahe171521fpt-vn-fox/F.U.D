@@ -1326,3 +1326,103 @@ export const residencyApi = {
     return json?.data;
   },
 };
+
+
+// ── Admin Account API (Quản lý tài khoản) ──────────────────
+export interface AccountItem {
+  id: number;
+  username: string;
+  fullName: string;
+  email: string;
+  phone?: string | null;
+  gender?: string | null;
+  status: 'Pending' | 'Active' | 'Suspended' | string;
+  suspensionReason?: string | null;
+  suspendedAt?: string | null;
+  suspendedById?: number | null;
+  createdAt: string;
+  updatedAt?: string | null;
+  roles: string[];
+  primaryRole: string;
+}
+
+export interface AccountStatusHistoryItem {
+  id: number;
+  oldStatus: string;
+  newStatus: string;
+  reason?: string | null;
+  notes?: string | null;
+  changedBy: number;
+  changedByName?: string | null;
+  changedAt: string;
+  notificationStatus: string;
+}
+
+export interface RoleChangeHistoryItem {
+  id: number;
+  action: string;
+  oldRoles?: string | null;
+  newRoles?: string | null;
+  changedBy: number;
+  changedByName?: string | null;
+  changedAt: string;
+}
+
+export interface AccountDetail extends AccountItem {
+  statusHistory: AccountStatusHistoryItem[];
+  roleHistory: RoleChangeHistoryItem[];
+}
+
+export interface CreateAccountPayload {
+  username: string;
+  fullName: string;
+  email: string;
+  password: string;
+  phone?: string;
+  gender?: string;
+  roles: string[];
+}
+
+async function adminAccountRequest<T>(url: string, init: RequestInit | undefined, defaultError: string): Promise<T> {
+  const res = await authFetch(url, init);
+  const json = await safeParseResponse<T>(res, defaultError);
+  if (!res.ok || !json.success) {
+    const detail = json.errors && json.errors.length > 0 ? json.errors.join('; ') : '';
+    throw new Error(detail || json.message || defaultError);
+  }
+  return json.data;
+}
+
+const jsonInit = (method: string, body: unknown): RequestInit => ({
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+});
+
+export const accountApi = {
+  getAll: (params?: { search?: string; status?: string; role?: string; page?: number; pageSize?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.search) query.append('search', params.search);
+    if (params?.status) query.append('status', params.status);
+    if (params?.role) query.append('role', params.role);
+    if (params?.page) query.append('page', params.page.toString());
+    if (params?.pageSize) query.append('pageSize', params.pageSize.toString());
+    return adminAccountRequest<PagedResult<AccountItem>>(
+      `${BASE_URL}/admin/users?${query.toString()}`, undefined, 'Không thể tải danh sách tài khoản');
+  },
+
+  getById: (id: number) =>
+    adminAccountRequest<AccountDetail>(`${BASE_URL}/admin/users/${id}`, undefined, 'Không thể tải chi tiết tài khoản'),
+
+  create: (payload: CreateAccountPayload) =>
+    adminAccountRequest<AccountItem>(`${BASE_URL}/admin/users`, jsonInit('POST', payload), 'Lỗi khi tạo tài khoản'),
+
+  assignRoles: (id: number, roles: string[]) =>
+    adminAccountRequest<AccountItem>(`${BASE_URL}/admin/users/${id}/roles`, jsonInit('PUT', { roles }), 'Lỗi khi cập nhật vai trò'),
+
+  suspend: (id: number, payload: { reason: string; notes?: string }) =>
+    adminAccountRequest<AccountItem>(`${BASE_URL}/admin/users/${id}/suspend`, jsonInit('POST', payload), 'Lỗi khi tạm ngưng tài khoản'),
+
+  restore: (id: number, payload: { reason?: string }) =>
+    adminAccountRequest<AccountItem>(`${BASE_URL}/admin/users/${id}/restore`, jsonInit('POST', payload), 'Lỗi khi khôi phục tài khoản'),
+};
