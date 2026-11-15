@@ -1,4 +1,4 @@
-﻿using FUD.Common;
+using FUD.Common;
 using FUD.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -40,22 +40,19 @@ namespace FUD.Controllers.Facilities
         [HttpGet("room-types")]
         public async Task<IActionResult> GetRoomTypes()
         {
-            // Lấy học kỳ hiện tại (term đang diễn ra hoặc gần nhất)
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
-            var currentTerm = await _context.Terms
+            // Lấy học kỳ mới nhất được tạo trong hệ thống có thiết lập bảng giá (Price_Items)
+            var latestTermWithPrice = await _context.Terms
                 .Include(t => t.PriceList)
                     .ThenInclude(pl => pl!.PriceItems)
-                .OrderByDescending(t => t.StartDate)
-                .FirstOrDefaultAsync(t => t.StartDate <= today);
+                .Where(t => t.PriceList != null && t.PriceList.PriceItems.Any())
+                .OrderByDescending(t => t.Id)
+                .FirstOrDefaultAsync();
 
-            // Build map: RoomTypeId -> giá nhỏ nhất trong các Dom
+            // Build map: RoomTypeId -> đơn giá từ Price_Items của kỳ mới nhất (min nếu có nhiều dorm)
             var priceMap = new Dictionary<int, decimal>();
-                        // SỬA LỖI NGHIỆP VỤ:
-            // Chỉ hiển thị giá phòng lên trang chủ cho sinh viên khi bảng giá đã ở trạng thái "Published".
-            // Tránh trường hợp Manager đang soạn thảo bảng giá nháp (Draft) mà giá chưa chính thức đã bị hiển thị ra ngoài.
-            if (currentTerm?.PriceList != null && currentTerm.PriceList.Status == "Published")
+            if (latestTermWithPrice?.PriceList?.PriceItems != null && latestTermWithPrice.PriceList.PriceItems.Any())
             {
-                priceMap = currentTerm.PriceList.PriceItems
+                priceMap = latestTermWithPrice.PriceList.PriceItems
                     .GroupBy(pi => pi.RoomTypeId)
                     .ToDictionary(
                         g => g.Key,
@@ -63,155 +60,54 @@ namespace FUD.Controllers.Facilities
                     );
             }
 
-            // Load room types kèm theo danh sách thiết bị tiêu chuẩn từ DB
+            // Load toàn bộ loại phòng trực tiếp từ Database kèm danh sách thiết bị
             var roomTypes = await _context.RoomTypes
                 .Include(rt => rt.RoomTypeEquipments)
                     .ThenInclude(rte => rte.Catalog)
                 .OrderBy(rt => rt.BedCapacity)
                 .ToListAsync();
 
-            // Nhóm theo loại: phòng ≤4 giường và >4 giường
-            var room4List = roomTypes.Where(rt => rt.BedCapacity <= 4).ToList();
-            var room6List = roomTypes.Where(rt => rt.BedCapacity > 4).ToList();
-
-            var result = new List<object>();
-
-            // Helper: build features list từ DB (RoomTypeEquipments) hoặc fallback
-            List<string> BuildFeatures(List<RoomType> group)
+            var result = roomTypes.Select(rt =>
             {
-                // Gom features từ tất cả RoomType trong nhóm (unique theo catalog name)
-                var features = group
-                    .SelectMany(rt => rt.RoomTypeEquipments)
+                // Giá từ Database (Price_Items của kỳ mới nhất)
+                string priceText;
+                if (priceMap.TryGetValue(rt.Id, out decimal dbPrice) && dbPrice > 0)
+                {
+                    priceText = dbPrice.ToString("N0", new System.Globalization.CultureInfo("vi-VN")) + " VNĐ / kỳ";
+                }
+                else
+                {
+                    priceText = "Liên hệ";
+                }
+
+                // Danh sách trang thiết bị từ RoomTypeEquipments trong Database
+                var features = rt.RoomTypeEquipments
                     .Where(rte => rte.Catalog != null)
-                    .GroupBy(rte => rte.CatalogId)
-                    .Select(g =>
-                    {
-                        var rte = g.First();
-                        return rte.StandardQuantity > 1
-                            ? $"{rte.StandardQuantity} {rte.Catalog.Name}"
-                            : rte.Catalog.Name;
-                    })
+                    .Select(rte => rte.StandardQuantity > 1
+                        ? $"{rte.StandardQuantity} {rte.Catalog.Name}"
+                        : rte.Catalog.Name)
                     .ToList();
 
-                return features;
-            }
-
-            // Helper: tính giá min của nhóm
-            decimal GetGroupPrice(List<RoomType> group, decimal fallback)
-            {
-                var prices = group
-                    .Where(rt => priceMap.ContainsKey(rt.Id))
-                    .Select(rt => priceMap[rt.Id])
-                    .ToList();
-                return prices.Any() ? prices.Min() : fallback;
-            }
-
-            // --- Phòng 4 giường ---
-            if (room4List.Any())
-            {
-                var rt = room4List.First();
-                var price4 = GetGroupPrice(room4List, 4_800_000m);
-                var priceText4 = price4.ToString("N0", new System.Globalization.CultureInfo("vi-VN")) + " VNĐ / kỳ";
-                var features4 = BuildFeatures(room4List);
-                if (!features4.Any())
+                if (!features.Any())
                 {
-                    features4 = new List<string>
-                    {
-                        "2 giường tầng khung thấp sơn tĩnh điện",
-                        "4 cụm bàn học và tủ đồ cá nhân",
-                        "Điều hòa Inverter tiết kiệm điện",
-                        "Bình nóng lạnh & phòng vệ sinh khép kín",
-                        "Wifi băng thông rộng phủ sóng toàn phòng"
-                    };
+                    features.Add($"{rt.BedCapacity / 2} giường tầng khung thép chịu lực");
+                    features.Add($"{rt.BedCapacity} cụm bàn học và tủ đồ cá nhân");
+                    features.Add("Điều hòa Inverter & bình nóng lạnh khép kín");
+                    features.Add("Wifi băng thông rộng phủ sóng toàn phòng");
                 }
 
-                result.Add(new
+                return new
                 {
-                    id = "room-4bed",
+                    id = $"room-{rt.Id}",
                     name = rt.Name,
                     capacity = rt.BedCapacity,
-                    area = "28 m²",
-                    pricePerSemester = priceText4,
-                    features = features4,
-                    description = "Không gian yên tĩnh, tối ưu cho việc học tập chuyên sâu và sinh hoạt nhóm nhỏ thoải mái.",
-                    popular = false
-                });
-            }
-            else
-            {
-                // Fallback nếu DB chưa có dữ liệu
-                result.Add(new
-                {
-                    id = "room-4bed",
-                    name = "Phòng 4 Giường",
-                    capacity = 4,
-                    area = "28 m²",
-                    pricePerSemester = "4.800.000 VNĐ / kỳ",
-                    features = new List<string>
-                    {
-                        "2 giường tầng khung thấp sơn tĩnh điện",
-                        "4 cụm bàn học và tủ đồ cá nhân",
-                        "Điều hòa Inverter tiết kiệm điện",
-                        "Bình nóng lạnh & phòng vệ sinh khép kín",
-                        "Wifi băng thông rộng phủ sóng toàn phòng"
-                    },
-                    description = "Không gian yên tĩnh, tối ưu cho việc học tập chuyên sâu và sinh hoạt nhóm nhỏ thoải mái.",
-                    popular = false
-                });
-            }
-
-            // --- Phòng 6 giường ---
-            if (room6List.Any())
-            {
-                var rt = room6List.First();
-                var price6 = GetGroupPrice(room6List, 3_600_000m);
-                var priceText6 = price6.ToString("N0", new System.Globalization.CultureInfo("vi-VN")) + " VNĐ / kỳ";
-                var features6 = BuildFeatures(room6List);
-                if (!features6.Any())
-                {
-                    features6 = new List<string>
-                    {
-                        "3 giường tầng khung thấp sơn tĩnh điện",
-                        "6 cụm bàn học và tủ đồ cá nhân",
-                        "Điều hòa Inverter tiết kiệm điện",
-                        "Bình nóng lạnh & phòng vệ sinh khép kín",
-                        "Wifi băng thông rộng phủ sóng toàn phòng"
-                    };
-                }
-
-                result.Add(new
-                {
-                    id = "room-6bed",
-                    name = rt.Name,
-                    capacity = rt.BedCapacity,
-                    area = "34 m²",
-                    pricePerSemester = priceText6,
-                    features = features6,
-                    description = "Lựa chọn phổ biến nhất của sinh viên, cân bằng giữa chi phí hợp lý và không gian sống tiện nghi.",
-                    popular = true
-                });
-            }
-            else
-            {
-                result.Add(new
-                {
-                    id = "room-6bed",
-                    name = "Phòng 6 Giường",
-                    capacity = 6,
-                    area = "34 m²",
-                    pricePerSemester = "3.600.000 VNĐ / kỳ",
-                    features = new List<string>
-                    {
-                        "3 giường tầng khung thấp sơn tĩnh điện",
-                        "6 cụm bàn học và tủ đồ cá nhân",
-                        "Điều hòa Inverter tiết kiệm điện",
-                        "Bình nóng lạnh & phòng vệ sinh khép kín",
-                        "Wifi băng thông rộng phủ sóng toàn phòng"
-                    },
-                    description = "Lựa chọn phổ biến nhất của sinh viên, cân bằng giữa chi phí hợp lý và không gian sống tiện nghi.",
-                    popular = true
-                });
-            }
+                    area = $"{rt.BedCapacity * 6 + 4} m²",
+                    pricePerSemester = priceText,
+                    features = features,
+                    description = $"Loại phòng {rt.Name} với sức chứa {rt.BedCapacity} người, đầy đủ tiện nghi, không gian thoáng mát và an ninh đảm bảo.",
+                    popular = rt.BedCapacity == 6 || rt.BedCapacity == 4
+                };
+            }).ToList();
 
             return Ok(ApiResponse<object>.Ok(result));
         }

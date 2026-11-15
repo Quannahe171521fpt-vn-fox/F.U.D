@@ -78,7 +78,7 @@ namespace FUD.Repositories.Violations
             await _context.SaveChangesAsync();
         }
 
-        public async Task<List<Violation>> GetViolationsAsync(int? roomId = null, int? studentId = null, string? status = null)
+        public async Task<List<Violation>> GetViolationsAsync(int? roomId = null, int? studentId = null, string? status = null, int? dormId = null)
         {
             var query = _context.Violations
                 .AsNoTracking()
@@ -107,7 +107,20 @@ namespace FUD.Repositories.Violations
                 query = query.Where(v => v.Status == status);
             }
 
+            if (dormId.HasValue)
+            {
+                query = query.Where(v => v.Room != null && v.Room.Block != null && v.Room.Block.DormId == dormId.Value);
+            }
+
             return await query.OrderByDescending(v => v.OccurrenceTime).ToListAsync();
+        }
+
+        public async Task<int?> GetGuardDormIdAsync(int guardUserId)
+        {
+            var guard = await _context.Guards
+                .AsNoTracking()
+                .FirstOrDefaultAsync(g => g.UserId == guardUserId);
+            return guard?.DormId;
         }
 
         public async Task<Violation?> GetViolationByIdAsync(int id)

@@ -62,6 +62,12 @@ namespace FUD.Services
             var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
             var (isRegistrationStarted, registrationStatus) = DetermineRegistrationStatus(term, today);
 
+            // Tính termStatus theo ngày học kỳ (giống TermService)
+            string termStatus;
+            if (today < term.StartDate) termStatus = "Upcoming";
+            else if (today <= term.EndDate) termStatus = "Ongoing";
+            else termStatus = "Ended";
+
             var items = new List<PricingItemDto>();
 
             foreach (var dorm in dorms)
@@ -96,10 +102,12 @@ namespace FUD.Services
                 TermName = term.Name,
                 AcademicYear = term.AcademicYear,
                 Status = currentPriceList?.Status ?? "Draft",
+                TermStatus = termStatus,
                 IsRegistrationStarted = isRegistrationStarted,
                 RegistrationStatus = registrationStatus,
                 PublishedTime = currentPriceList?.PublishedTime,
-                Items = items
+                Items = items,
+                UtilityPrices = await _pricingRepository.GetUtilityPricesByTermIdAsync(term.Id)
             };
         }
 
@@ -114,6 +122,12 @@ namespace FUD.Services
             var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
             var (isRegistrationStarted, _) = DetermineRegistrationStatus(term, today);
 
+            // Business Rule: Chỉ cho phép cập nhật giá khi đăng ký chưa bắt đầu
+            if (isRegistrationStarted)
+            {
+                throw new InvalidOperationException("TERM_NOT_EDITABLE");
+            }
+
             // Business Rule A1: Giá phải là số lớn hơn 0
             foreach (var item in request.Items)
             {
@@ -123,11 +137,7 @@ namespace FUD.Services
                 }
             }
 
-            // Business Rule A2: Nếu đợt đăng ký đã bắt đầu và client chưa gửi confirm
-            if (isRegistrationStarted && !request.ConfirmApplyToNewBookingsOnly)
-            {
-                throw new InvalidOperationException("REGISTRATION_ALREADY_STARTED");
-            }
+            // (Business Rule A2 đã bị loại bỏ: không còn cho phép confirm khi đăng ký đang mở)
 
             var priceList = await _pricingRepository.GetPriceListByTermIdAsync(request.TermId);
             if (priceList == null)
@@ -157,6 +167,29 @@ namespace FUD.Services
             }).ToList();
 
             await _pricingRepository.UpdatePriceItemsAsync(priceList.Id, priceItems);
+
+            return await GetPricingByTermAsync(request.TermId);
+        }
+
+        public async Task<TermPricingResponseDto> SaveUtilityPricesAsync(int managerUserId, SaveUtilityPricesRequestDto request)
+        {
+            var term = await _pricingRepository.GetTermByIdAsync(request.TermId);
+            if (term == null) throw new KeyNotFoundException($"Không tìm thấy học kỳ với mã {request.TermId}");
+
+            var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+            var (isRegistrationStarted, _) = DetermineRegistrationStatus(term, today);
+            if (isRegistrationStarted)
+                throw new InvalidOperationException("TERM_NOT_EDITABLE");
+
+            foreach (var item in request.Items)
+                if (item.UnitPrice <= 0) throw new ArgumentException($"Giá {item.MeterType} phải lớn hơn 0");
+
+            await _pricingRepository.SaveUtilityPricesAsync(request.TermId, request.Items.Select(i => new UtilityPrice
+            {
+                TermId = request.TermId,
+                MeterType = i.MeterType,
+                UnitPrice = i.UnitPrice
+            }).ToList());
 
             return await GetPricingByTermAsync(request.TermId);
         }

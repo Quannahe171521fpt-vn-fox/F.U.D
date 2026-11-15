@@ -104,13 +104,20 @@ namespace FUD.Controllers.Violations
         }
 
         /// <summary>
-        /// Lấy danh sách hồ sơ vi phạm (Manager & Guard xem toàn bộ hoặc lọc)
+        /// Lấy danh sách hồ sơ vi phạm (Manager xem toàn bộ, Guard chỉ xem vi phạm thuộc Dorm của mình)
         /// </summary>
         [HttpGet]
         [Authorize]
         public async Task<IActionResult> GetViolations([FromQuery] int? roomId = null, [FromQuery] int? studentId = null, [FromQuery] string? status = null)
         {
-            var list = await _violationService.GetViolationsAsync(roomId, studentId, status);
+            var isGuard = User.IsInRole("Guard");
+            int? guardUserId = null;
+            if (isGuard)
+            {
+                guardUserId = GetCurrentUserId();
+            }
+
+            var list = await _violationService.GetViolationsAsync(roomId, studentId, status, guardUserId);
             return Ok(ApiResponse<List<ViolationItemDto>>.Ok(list));
         }
 

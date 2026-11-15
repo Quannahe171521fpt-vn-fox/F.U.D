@@ -12,7 +12,8 @@ namespace FUD.Repositories.Interfaces.Violations
         Task<bool> RoomExistsAsync(int roomId);
         Task<string> GenerateViolationCodeAsync();
         Task AddViolationsAsync(IEnumerable<Violation> violations);
-        Task<List<Violation>> GetViolationsAsync(int? roomId = null, int? studentId = null, string? status = null);
+        Task<List<Violation>> GetViolationsAsync(int? roomId = null, int? studentId = null, string? status = null, int? dormId = null);
+        Task<int?> GetGuardDormIdAsync(int guardUserId);
         Task<Violation?> GetViolationByIdAsync(int id);
         Task<Violation?> GetViolationByCodeAsync(string code);
         Task UpdateViolationAsync(Violation violation);

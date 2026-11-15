@@ -7,6 +7,7 @@ namespace FUD.Services.Interfaces
         Task<List<TermLookupDto>> GetTermsLookupAsync();
         Task<TermPricingResponseDto> GetPricingByTermAsync(int termId);
         Task<TermPricingResponseDto> SavePricingAsync(int managerUserId, SavePricingRequestDto request);
+        Task<TermPricingResponseDto> SaveUtilityPricesAsync(int managerUserId, SaveUtilityPricesRequestDto request);
     }
 }
 

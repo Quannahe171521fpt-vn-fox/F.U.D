@@ -65,15 +65,33 @@ namespace FUD.Controllers
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
             }
-            catch (InvalidOperationException ex) when (ex.Message == "REGISTRATION_ALREADY_STARTED")
+            catch (InvalidOperationException ex) when (ex.Message == "TERM_NOT_EDITABLE")
             {
-                // Trả về mã đặc biệt để Frontend kích hoạt Dialog Warning (2.3.2)
-                return StatusCode(StatusCodes.Status409Conflict, ApiResponse.Fail("Đã bắt đầu đăng ký: Cần xác nhận áp dụng bảng giá mới chỉ cho đợt phòng mới."));
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail("Không thể chỉnh sửa giá: Học kỳ đang mở đăng ký hoặc đã kết thúc."));
             }
             catch (KeyNotFoundException ex)
             {
                 return NotFound(ApiResponse.Fail(ex.Message));
             }
+        }
+        [HttpPost("save-utility")]
+        public async Task<IActionResult> SaveUtilityPrices([FromBody] SaveUtilityPricesRequestDto request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ApiResponse.Fail("Dữ liệu không hợp lệ"));
+
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (!int.TryParse(userIdClaim, out int managerUserId)) managerUserId = 2;
+
+            try
+            {
+                var result = await _pricingService.SaveUtilityPricesAsync(managerUserId, request);
+                return Ok(ApiResponse<TermPricingResponseDto>.Ok(result, "Lưu giá điện/nước thành công"));
+            }
+            catch (ArgumentException ex) { return BadRequest(ApiResponse.Fail(ex.Message)); }
+            catch (InvalidOperationException ex) when (ex.Message == "TERM_NOT_EDITABLE")
+            { return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail("Học kỳ đang mở hoặc đã kết thúc, không thể chỉnh sửa.")); }
+            catch (KeyNotFoundException ex) { return NotFound(ApiResponse.Fail(ex.Message)); }
         }
     }
 }

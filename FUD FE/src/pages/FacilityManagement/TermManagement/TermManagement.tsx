@@ -140,13 +140,13 @@ export const TermManagement: React.FC<TermManagementProps> = ({ onGoToPricing })
 
     switch (period.statusText) {
       case 'Đang mở':
-        return <span className="period-badge badge-active">🟢 Đang mở</span>;
+        return <span className="period-badge badge-active">Đang mở</span>;
       case 'Chưa bắt đầu':
-        return <span className="period-badge badge-pending">🔵 Chưa bắt đầu</span>;
+        return <span className="period-badge badge-pending">Chưa bắt đầu</span>;
       case 'Đã kết thúc':
-        return <span className="period-badge badge-closed">⚪ Đã kết thúc</span>;
+        return <span className="period-badge badge-closed">Đã kết thúc</span>;
       case 'Đã tắt':
-        return <span className="period-badge badge-off">🔴 Đã tắt</span>;
+        return <span className="period-badge badge-off">Đã tắt</span>;
       default:
         return <span className="period-badge badge-none">Chưa cấu hình</span>;
     }
@@ -191,7 +191,7 @@ export const TermManagement: React.FC<TermManagementProps> = ({ onGoToPricing })
       {/* KPI Stat Cards */}
       <div className="term-kpi-grid">
         <div className="kpi-card card-blue">
-          <div className="kpi-icon-wrap">🎓</div>
+          <div className="kpi-icon-wrap"></div>
           <div className="kpi-content">
             <span className="kpi-label">Học kỳ đang diễn ra</span>
             <div className="kpi-value">
@@ -206,17 +206,17 @@ export const TermManagement: React.FC<TermManagementProps> = ({ onGoToPricing })
         </div>
 
         <div className="kpi-card card-emerald">
-          <div className="kpi-icon-wrap">⚡</div>
+          <div className="kpi-icon-wrap"></div>
           <div className="kpi-content">
             <span className="kpi-label">Đợt đăng ký phòng hiện tại</span>
             <div className="kpi-value">
               {activeRegistration ? (
                 activeRegistration.keepingPeriod?.statusText === 'Đang mở' &&
-                activeRegistration.bookingPeriod?.statusText === 'Đang mở'
+                  activeRegistration.bookingPeriod?.statusText === 'Đang mở'
                   ? `Cả 2 đợt: ${activeRegistration.displayName}`
                   : activeRegistration.keepingPeriod?.statusText === 'Đang mở'
-                  ? `Giữ phòng: ${activeRegistration.displayName}`
-                  : `Đăng ký mới: ${activeRegistration.displayName}`
+                    ? `Giữ phòng: ${activeRegistration.displayName}`
+                    : `Đăng ký mới: ${activeRegistration.displayName}`
               ) : (
                 'Không có đợt nào mở'
               )}
@@ -230,7 +230,7 @@ export const TermManagement: React.FC<TermManagementProps> = ({ onGoToPricing })
         </div>
 
         <div className="kpi-card card-purple">
-          <div className="kpi-icon-wrap">📚</div>
+          <div className="kpi-icon-wrap"></div>
           <div className="kpi-content">
             <span className="kpi-label">Tổng số học kỳ</span>
             <div className="kpi-value">{terms.length} học kỳ</div>
@@ -242,7 +242,7 @@ export const TermManagement: React.FC<TermManagementProps> = ({ onGoToPricing })
       {/* Filters and search */}
       <div className="term-controls-bar">
         <div className="search-input-wrap">
-          <span className="search-icon">🔍</span>
+          <span className="search-icon"></span>
           <input
             type="text"
             className="search-input-field"
@@ -281,7 +281,7 @@ export const TermManagement: React.FC<TermManagementProps> = ({ onGoToPricing })
             className={`filter-tab-btn ${statusFilter === 'Upcoming' ? 'active' : ''}`}
             onClick={() => setStatusFilter('Upcoming')}
           >
-            Sắp tới ({terms.filter((t) => t.termStatus === 'Upcoming').length})
+            Sắp diễn ra ({terms.filter((t) => t.termStatus === 'Upcoming').length})
           </button>
           <button
             type="button"
@@ -301,7 +301,7 @@ export const TermManagement: React.FC<TermManagementProps> = ({ onGoToPricing })
         </div>
       ) : error ? (
         <div className="term-error-box">
-          <span className="error-icon">❌</span>
+          <span className="error-icon"></span>
           <p>{error}</p>
           <button type="button" className="btn-retry" onClick={loadTerms}>
             Thử lại
@@ -309,7 +309,7 @@ export const TermManagement: React.FC<TermManagementProps> = ({ onGoToPricing })
         </div>
       ) : filteredTerms.length === 0 ? (
         <div className="term-empty-state">
-          <div className="empty-icon">📂</div>
+          <div className="empty-icon"></div>
           <h3>Không tìm thấy học kỳ nào</h3>
           <p>
             {searchQuery || statusFilter !== 'All'
@@ -335,11 +335,10 @@ export const TermManagement: React.FC<TermManagementProps> = ({ onGoToPricing })
           <table className="term-custom-table">
             <thead>
               <tr>
-                <th style={{ width: '22%' }}>Học kỳ & Năm học</th>
-                <th style={{ width: '18%' }}>Thời gian học kỳ</th>
-                <th style={{ width: '16%' }}>Bảng giá phòng</th>
-                <th style={{ width: '18%' }}>Giai đoạn 1: Giữ phòng cũ</th>
-                <th style={{ width: '18%' }}>Giai đoạn 2: Đăng ký mới</th>
+                <th style={{ width: '25%' }}>Học kỳ & Năm học</th>
+                <th style={{ width: '23%' }}>Thời gian học kỳ</th>
+                <th style={{ width: '22%' }}>Giai đoạn 1: Giữ phòng cũ</th>
+                <th style={{ width: '22%' }}>Giai đoạn 2: Đăng ký mới</th>
                 <th style={{ width: '8%', textAlign: 'center' }}>Thao tác</th>
               </tr>
             </thead>
@@ -365,33 +364,7 @@ export const TermManagement: React.FC<TermManagementProps> = ({ onGoToPricing })
                     </div>
                   </td>
 
-                  {/* Cột 3: Bảng giá phòng */}
-                  <td>
-                    <div className="price-status-group">
-                      {term.priceListStatus === 'Published' ? (
-                        <span className="price-tag-published" title="Bảng giá đã công bố và có thể mở đăng ký">
-                          ✓ Đã công bố
-                        </span>
-                      ) : (
-                        <div className="price-tag-draft-group">
-                          <span className="price-tag-draft">
-                            {term.priceListStatus === 'Draft' ? 'Bản nháp' : 'Chưa tạo'}
-                          </span>
-                          {onGoToPricing && (
-                            <button
-                              type="button"
-                              className="link-btn-pricing"
-                              onClick={() => onGoToPricing(term.id)}
-                            >
-                              Cấu hình giá →
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </td>
-
-                  {/* Cột 4: Đợt Giữ phòng cũ */}
+                  {/* Cột 3: Đợt Giữ phòng cũ */}
                   <td>
                     <div
                       className="period-cell-content"
@@ -433,7 +406,7 @@ export const TermManagement: React.FC<TermManagementProps> = ({ onGoToPricing })
                     </div>
                   </td>
 
-                  {/* Cột 6: Thao tác (Đã gộp ⏱️ và ✏️ thành 1 nút Chỉnh sửa duy nhất) */}
+                  {/* Cột 6: Thao tác (Đã gộp ⏱ và  thành 1 nút Chỉnh sửa duy nhất) */}
                   <td>
                     <div className="term-row-actions">
                       <button

@@ -138,9 +138,20 @@ namespace FUD.Services.Violations
             return violationsToCreate.Select(MapToDto).ToList();
         }
 
-        public async Task<List<ViolationItemDto>> GetViolationsAsync(int? roomId = null, int? studentId = null, string? status = null)
+        public async Task<List<ViolationItemDto>> GetViolationsAsync(int? roomId = null, int? studentId = null, string? status = null, int? guardUserId = null)
         {
-            var violations = await _violationRepo.GetViolationsAsync(roomId, studentId, status);
+            int? dormId = null;
+            if (guardUserId.HasValue)
+            {
+                dormId = await _violationRepo.GetGuardDormIdAsync(guardUserId.Value);
+                if (!dormId.HasValue)
+                {
+                    // Nếu là Guard nhưng không có dorm gán thì không xem được biên bản nào
+                    return new List<ViolationItemDto>();
+                }
+            }
+
+            var violations = await _violationRepo.GetViolationsAsync(roomId, studentId, status, dormId);
             var now = DateTime.UtcNow;
 
             // Tự động Finalize các biên bản đã được định mức (có InitialLevel) nhưng SV không gửi request trong hạn 24h

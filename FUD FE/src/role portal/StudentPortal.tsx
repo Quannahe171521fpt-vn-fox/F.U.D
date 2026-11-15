@@ -501,7 +501,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
                     gap: 8,
                   }}
                 >
-                  <span>⚡💧</span> Xem Điện nước & Phí phụ trội
+                  <span></span> Xem Điện nước & Phí phụ trội
                 </button>
               </div>
 

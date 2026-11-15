@@ -532,7 +532,7 @@ export const GuardBedTransferPage: React.FC = () => {
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16 }}>
                     <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10, padding: 14 }}>
                       <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, color: '#0F172A' }}>
-                        ⚡ Chốt chỉ số Điện (P.{selectedTask.fromRoomNumber})
+                        Chốt chỉ số Điện (P.{selectedTask.fromRoomNumber})
                       </div>
                       <div style={{ fontSize: 12, color: '#64748B', marginBottom: 8 }}>
                         Chỉ số gần nhất: <strong>{selectedTask.previousElectricityReading} kWh</strong> · Đơn giá: <strong>{formatVnd(selectedTask.electricityUnitPrice)}/kWh</strong>
@@ -556,7 +556,7 @@ export const GuardBedTransferPage: React.FC = () => {
 
                     <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10, padding: 14 }}>
                       <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, color: '#0F172A' }}>
-                        💧 Chốt chỉ số Nước (P.{selectedTask.fromRoomNumber})
+                        Chốt chỉ số Nước (P.{selectedTask.fromRoomNumber})
                       </div>
                       <div style={{ fontSize: 12, color: '#64748B', marginBottom: 8 }}>
                         Chỉ số gần nhất: <strong>{selectedTask.previousWaterReading} m³</strong> · Đơn giá: <strong>{formatVnd(selectedTask.waterUnitPrice)}/m³</strong>

@@ -23,12 +23,20 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
   const [selectedTermId, setSelectedTermId] = useState<number | null>(null);
 
   // State: Current Pricing Data & Form values
-  const [termStatus, setTermStatus] = useState<string>('Chưa bắt đầu');
-  const [isRegistrationStarted, setIsRegistrationStarted] = useState<boolean>(false);
+  // termStatus: trạng thái thực của học kỳ (Upcoming/Ongoing/Ended)
+  const [termStatus, setTermStatus] = useState<string>('Upcoming');
   const [priceItems, setPriceItems] = useState<PricingItem[]>([]);
-  // editedPrices: roomTypeId -> giá đang nhập
   const [editedPrices, setEditedPrices] = useState<Record<number, number | string>>({});
   const [errors, setErrors] = useState<Record<number, string>>({});
+
+  // Utility prices (điện/nước)
+  const [elecPrice, setElecPrice] = useState<number | string>('');
+  const [waterPrice, setWaterPrice] = useState<number | string>('');
+  const [utilityError, setUtilityError] = useState<string | null>(null);
+  const [savingUtility, setSavingUtility] = useState(false);
+
+  // State: Tabs 'rooms' | 'utilities'
+  const [activePricingTab, setActivePricingTab] = useState<'rooms' | 'utilities'>('rooms');
 
   // Loading & notification states
   const [loading, setLoading] = useState<boolean>(false);
@@ -87,8 +95,7 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
       setErrors({});
       const data = await pricingApi.getPricingByTerm(termId);
 
-      setTermStatus(data.registrationStatus || 'Chưa bắt đầu');
-      setIsRegistrationStarted(data.isRegistrationStarted || false);
+      setTermStatus(data.termStatus || 'Upcoming');
       setPriceItems(data.items || []);
 
       // Build editedPrices: roomTypeId -> giá nhỏ nhất hiện tại của nhóm
@@ -98,6 +105,11 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
         initialMap[g.roomTypeId] = g.currentPrice;
       });
       setEditedPrices(initialMap);
+
+      // Load utility prices
+      const utilityList: { meterType: string; unitPrice: number }[] = data.utilityPrices || [];
+      setElecPrice(utilityList.find(u => u.meterType === 'Electricity')?.unitPrice ?? '');
+      setWaterPrice(utilityList.find(u => u.meterType === 'Water')?.unitPrice ?? '');
     } catch (err: any) {
       console.warn('Lỗi khi tải bảng giá:', err);
       setPageError(err.message || 'Lỗi khi tải bảng giá');
@@ -139,7 +151,7 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
   };
 
   const roomTypeGroups = groupByRoomType(priceItems);
-  const isEditableTerm = termStatus === 'Đang mở đăng ký';
+  const isEditableTerm = termStatus === 'Upcoming';
 
   // Check whether form has unsaved modifications
   const hasUnsavedChanges = (): boolean => {
@@ -190,14 +202,10 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
   const handleSaveClick = async () => {
     if (roomTypeGroups.length === 0) return;
     if (!isEditableTerm) {
-      setPageError('Chỉ được thiết lập giá phòng cho học kỳ đang mở đăng ký. Các kỳ khác chỉ ở chế độ xem giá.');
+      setPageError('Chỉ được thiết lập giá phòng cho học kỳ sắp diễn ra (Upcoming). Các kỳ đang diễn ra hoặc đã kết thúc chỉ ở chế độ xem.');
       return;
     }
     if (!validate()) return;
-    if (isRegistrationStarted) {
-      setShowWarningModal(true);
-      return;
-    }
     await executeSave(false);
   };
 
@@ -399,234 +407,325 @@ export const PricingManagement: React.FC<PricingManagementProps> = ({ targetTerm
               borderRadius: '20px',
               fontSize: '0.85rem',
               fontWeight: 600,
-              background:
-                termStatus === 'Đang mở đăng ký'
-                  ? '#fef3c7'
-                  : termStatus === 'Đã kết thúc'
-                    ? '#fee2e2'
-                    : '#e0f2fe',
-              color:
-                termStatus === 'Đang mở đăng ký'
-                  ? '#b45309'
-                  : termStatus === 'Đã kết thúc'
-                    ? '#b91c1c'
-                    : '#0369a1',
-              border: `1px solid ${termStatus === 'Đang mở đăng ký'
-                ? '#fde68a'
-                : termStatus === 'Đã kết thúc'
-                  ? '#fecaca'
-                  : '#bae6fd'
-                }`,
+              background: termStatus === 'Upcoming' ? '#f0fdf4' : termStatus === 'Ongoing' ? '#fef3c7' : '#fee2e2',
+              color: termStatus === 'Upcoming' ? '#15803d' : termStatus === 'Ongoing' ? '#b45309' : '#b91c1c',
+              border: `1px solid ${termStatus === 'Upcoming' ? '#bbf7d0' : termStatus === 'Ongoing' ? '#fde68a' : '#fecaca'}`,
             }}
           >
-            {termStatus}
+            {termStatus === 'Upcoming' ? 'Sắp diễn ra' : termStatus === 'Ongoing' ? 'Đang diễn ra' : 'Đã kết thúc'}
           </span>
         </div>
       </div>
 
-      {/* 4. Price Table — gom theo loại phòng */}
-      <div
-        style={{
-          background: '#ffffff',
-          borderRadius: '10px',
-          border: '1px solid #e2e8f0',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-          overflow: 'hidden',
-          marginBottom: '1.5rem',
-        }}
-      >
-        <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
-          <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600, color: '#1e293b' }}>
-            Bảng giá theo loại phòng
-          </h3>
-          <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
-            Giá áp dụng đồng nhất cho tất cả Block. Đơn vị: VNĐ / học kỳ.
-          </span>
-        </div>
+      {/* Tabs Navigation: Thiết lập giá phòng vs Thiết lập giá điện/nước */}
+      <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem' }}>
+        <button
+          type="button"
+          onClick={() => setActivePricingTab('rooms')}
+          style={{
+            padding: '0.65rem 1.25rem',
+            borderRadius: '8px',
+            fontSize: '0.95rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+            border: activePricingTab === 'rooms' ? '2px solid #2563eb' : '1px solid #cbd5e1',
+            background: activePricingTab === 'rooms' ? '#eff6ff' : '#ffffff',
+            color: activePricingTab === 'rooms' ? '#1d4ed8' : '#475569',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <span></span> Thiết lập giá phòng
+        </button>
+        <button
+          type="button"
+          onClick={() => setActivePricingTab('utilities')}
+          style={{
+            padding: '0.65rem 1.25rem',
+            borderRadius: '8px',
+            fontSize: '0.95rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+            border: activePricingTab === 'utilities' ? '2px solid #0284c7' : '1px solid #cbd5e1',
+            background: activePricingTab === 'utilities' ? '#f0f9ff' : '#ffffff',
+            color: activePricingTab === 'utilities' ? '#0369a1' : '#475569',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <span></span> Thiết lập giá điện / nước
+        </button>
+      </div>
 
-        {loading ? (
-          <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
-            <p>Đang tải thông tin bảng giá...</p>
-          </div>
-        ) : roomTypeGroups.length === 0 ? (
-          <div style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
-            <p>Chưa có dữ liệu loại phòng cho học kỳ này.</p>
-          </div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-              <thead>
-                <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1' }}>
-                  <th style={{ padding: '0.85rem 1.25rem', fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
-                    Loại phòng
-                  </th>
-                  <th style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
-                    Sức chứa
-                  </th>
-                  <th style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
-                    Giá học kỳ trước
-                  </th>
-                  <th style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', fontWeight: 600, color: '#475569', width: '280px' }}>
-                    Giá học kỳ này (VNĐ) <span style={{ color: '#ef4444' }}>*</span>
-                  </th>
-                  <th style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
-                    Đơn vị
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {roomTypeGroups.map((group) => {
-                  const hasError = Boolean(errors[group.roomTypeId]);
-                  return (
-                    <tr
-                      key={group.roomTypeId}
-                      style={{
-                        borderBottom: '1px solid #e2e8f0',
-                        background: hasError ? '#fef2f2' : 'transparent',
-                        transition: 'background 0.2s',
-                      }}
-                    >
-                      <td style={{ padding: '1rem 1.25rem', fontWeight: 700, color: '#1e293b', fontSize: '1rem' }}>
-                        {group.roomTypeName}
-                      </td>
-                      <td style={{ padding: '1rem', color: '#475569' }}>
-                        {group.bedCapacity} người / phòng
-                      </td>
-                      <td style={{ padding: '1rem', color: '#64748b', fontStyle: group.previousSemesterPrice ? 'normal' : 'italic' }}>
-                        {formatVND(group.previousSemesterPrice)}
-                      </td>
-                      <td style={{ padding: '1rem' }}>
-                        {isEditableTerm ? (
-                          <>
-                            <input
-                              type="number"
-                              min="1"
-                              step="100000"
-                              value={editedPrices[group.roomTypeId] ?? ''}
-                              onChange={(e) => handlePriceChange(group.roomTypeId, e.target.value)}
-                              placeholder="Nhập đơn giá..."
-                              style={{
-                                width: '100%',
-                                padding: '0.55rem 0.85rem',
-                                borderRadius: '6px',
-                                border: `1px solid ${hasError ? '#ef4444' : '#cbd5e1'}`,
-                                background: hasError ? '#fff5f5' : '#ffffff',
-                                color: '#1e293b',
-                                fontWeight: 600,
-                                fontSize: '0.95rem',
-                                outline: 'none',
-                              }}
-                            />
-                            {hasError && (
-                              <div style={{ color: '#dc2626', fontSize: '0.8rem', marginTop: '0.35rem', fontWeight: 500 }}>
-                                {errors[group.roomTypeId]}
+      {/* Bảng 1: Bảng giá phòng */}
+      {activePricingTab === 'rooms' && (
+        <>
+          <div
+            style={{
+              background: '#ffffff',
+              borderRadius: '10px',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+              overflow: 'hidden',
+              marginBottom: '1.5rem',
+            }}
+          >
+            <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600, color: '#1e293b' }}>
+                Bảng giá theo loại phòng
+              </h3>
+              <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                Giá áp dụng đồng nhất cho tất cả Block. Đơn vị: VNĐ / học kỳ.
+              </span>
+            </div>
+
+            {loading ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
+                <p>Đang tải thông tin bảng giá...</p>
+              </div>
+            ) : roomTypeGroups.length === 0 ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
+                <p>Chưa có dữ liệu loại phòng cho học kỳ này.</p>
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1' }}>
+                      <th style={{ padding: '0.85rem 1.25rem', fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
+                        Loại phòng
+                      </th>
+                      <th style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
+                        Sức chứa
+                      </th>
+                      <th style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
+                        Giá học kỳ trước
+                      </th>
+                      <th style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', fontWeight: 600, color: '#475569', width: '280px' }}>
+                        Giá học kỳ này (VNĐ) <span style={{ color: '#ef4444' }}>*</span>
+                      </th>
+                      <th style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
+                        Đơn vị
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {roomTypeGroups.map((group) => {
+                      const hasError = Boolean(errors[group.roomTypeId]);
+                      return (
+                        <tr
+                          key={group.roomTypeId}
+                          style={{
+                            borderBottom: '1px solid #e2e8f0',
+                            background: hasError ? '#fef2f2' : 'transparent',
+                            transition: 'background 0.2s',
+                          }}
+                        >
+                          <td style={{ padding: '1rem 1.25rem', fontWeight: 700, color: '#1e293b', fontSize: '1rem' }}>
+                            {group.roomTypeName}
+                          </td>
+                          <td style={{ padding: '1rem', color: '#475569' }}>
+                            {group.bedCapacity} người / phòng
+                          </td>
+                          <td style={{ padding: '1rem', color: '#64748b', fontStyle: group.previousSemesterPrice ? 'normal' : 'italic' }}>
+                            {formatVND(group.previousSemesterPrice)}
+                          </td>
+                          <td style={{ padding: '1rem' }}>
+                            {isEditableTerm ? (
+                              <>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  step="100000"
+                                  value={editedPrices[group.roomTypeId] ?? ''}
+                                  onChange={(e) => handlePriceChange(group.roomTypeId, e.target.value)}
+                                  placeholder="Nhập đơn giá..."
+                                  style={{
+                                    width: '100%',
+                                    padding: '0.55rem 0.85rem',
+                                    borderRadius: '6px',
+                                    border: `1px solid ${hasError ? '#ef4444' : '#cbd5e1'}`,
+                                    background: hasError ? '#fff5f5' : '#ffffff',
+                                    color: '#1e293b',
+                                    fontWeight: 600,
+                                    fontSize: '0.95rem',
+                                    outline: 'none',
+                                  }}
+                                />
+                                {hasError && (
+                                  <div style={{ color: '#dc2626', fontSize: '0.8rem', marginTop: '0.35rem', fontWeight: 500 }}>
+                                    {errors[group.roomTypeId]}
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '1rem' }}>
+                                {formatVND(group.currentPrice)}
+                                <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 500, marginLeft: 6 }}>
+                                  {termStatus === 'Ended' ? '(Kỳ đã kết thúc)' : termStatus === 'Ongoing' ? '(Đang diễn ra — không sửa)' : '(Chỉ xem)'}
+                                </span>
                               </div>
                             )}
-                          </>
-                        ) : (
-                          <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '1rem' }}>
-                            {formatVND(group.currentPrice)}
-                            <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginLeft: 6 }}>
-                              (Chỉ xem)
-                            </span>
-                          </div>
-                        )}
-                      </td>
-                      <td style={{ padding: '1rem', color: '#64748b', fontSize: '0.9rem' }}>
-                        {group.unit}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+                          </td>
+                          <td style={{ padding: '1rem', color: '#64748b', fontSize: '0.9rem' }}>
+                            {group.unit}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
-        {/* 5. Action Buttons */}
-        {isEditableTerm ? (
+            {/* Action Buttons */}
+            {isEditableTerm ? (
+              <div
+                style={{
+                  padding: '1.25rem',
+                  background: '#f8fafc',
+                  borderTop: '1px solid #e2e8f0',
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  gap: '1rem',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={handleCancelClick}
+                  disabled={saving || loading || roomTypeGroups.length === 0}
+                  style={{
+                    padding: '0.65rem 1.5rem',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    color: '#475569',
+                    fontWeight: 600,
+                    fontSize: '0.95rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveClick}
+                  disabled={saving || loading || roomTypeGroups.length === 0}
+                  style={{
+                    padding: '0.65rem 1.75rem',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: '#2563eb',
+                    color: '#ffffff',
+                    fontWeight: 600,
+                    fontSize: '0.95rem',
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    boxShadow: '0 2px 4px rgba(37, 99, 235, 0.25)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  {saving ? 'Đang lưu...' : 'Lưu giá phòng'}
+                </button>
+              </div>
+            ) : (
+              <div
+                style={{
+                  padding: '1rem 1.25rem',
+                  background: '#f8fafc',
+                  borderTop: '1px solid #e2e8f0',
+                  color: '#64748b',
+                  fontSize: '0.9rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <span>Học kỳ <strong>{termStatus === 'Ended' ? 'đã kết thúc' : termStatus === 'Ongoing' ? 'đang diễn ra' : 'này'}</strong> — không thể chỉnh sửa giá. Chỉ cho phép cập nhật giá ở kỳ <strong>sắp diễn ra</strong> (Upcoming).</span>
+              </div>
+            )}
+          </div>
+
           <div
             style={{
-              padding: '1.25rem',
-              background: '#f8fafc',
-              borderTop: '1px solid #e2e8f0',
-              display: 'flex',
-              justifyContent: 'flex-end',
-              gap: '1rem',
+              padding: '0.85rem 1.1rem',
+              background: '#f0f9ff',
+              border: '1px solid #bae6fd',
+              borderRadius: '8px',
+              color: '#0369a1',
+              fontSize: '0.875rem',
+              lineHeight: '1.5',
             }}
           >
-            <button
-              type="button"
-              onClick={handleCancelClick}
-              disabled={saving || loading || roomTypeGroups.length === 0}
-              style={{
-                padding: '0.65rem 1.5rem',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                background: '#ffffff',
-                color: '#475569',
-                fontWeight: 600,
-                fontSize: '0.95rem',
-                cursor: 'pointer',
-              }}
-            >
-              Hủy
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveClick}
-              disabled={saving || loading || roomTypeGroups.length === 0}
-              style={{
-                padding: '0.65rem 1.75rem',
-                borderRadius: '6px',
-                border: 'none',
-                background: '#2563eb',
-                color: '#ffffff',
-                fontWeight: 600,
-                fontSize: '0.95rem',
-                cursor: saving ? 'not-allowed' : 'pointer',
-                boxShadow: '0 2px 4px rgba(37, 99, 235, 0.25)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
-              {saving ? 'Đang lưu...' : 'Lưu bảng giá'}
-            </button>
+            <strong>Lưu ý:</strong> Giá được nhập sẽ áp dụng đồng nhất cho tất cả các Block (Dom A đến Dom K)
+            có cùng loại phòng. Giá mới sẽ đồng bộ ngay lên trang chủ sau khi lưu.
           </div>
-        ) : (
-          <div
-            style={{
-              padding: '1rem 1.25rem',
-              background: '#f8fafc',
-              borderTop: '1px solid #e2e8f0',
-              color: '#64748b',
-              fontSize: '0.9rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <span>Học kỳ này không trong trạng thái <strong>Đang mở đăng ký</strong>. Chỉ được xem giá lịch sử, không thể chỉnh sửa.</span>
-          </div>
-        )}
-      </div>
+        </>
+      )}
 
-      {/* Note */}
-      <div
-        style={{
-          padding: '0.85rem 1.1rem',
-          background: '#f0f9ff',
-          border: '1px solid #bae6fd',
-          borderRadius: '8px',
-          color: '#0369a1',
-          fontSize: '0.875rem',
-          lineHeight: '1.5',
-        }}
-      >
-        <strong>Lưu ý:</strong> Giá được nhập sẽ áp dụng đồng nhất cho tất cả các Block (Dom A đến Dom K)
-        có cùng loại phòng. Giá mới sẽ đồng bộ ngay lên trang chủ sau khi lưu.
-      </div>
+      {/* Bảng 2: Bảng giá điện / nước */}
+      {activePricingTab === 'utilities' && (
+        <div style={{ background: '#fff', borderRadius: '10px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+          <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+            <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600, color: '#1e293b' }}> Giá điện &  Giá nước</h3>
+            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Đơn giá theo số (kWh / m³) áp dụng cho học kỳ này.</span>
+          </div>
+          {utilityError && (
+            <div style={{ padding: '0.75rem 1.25rem', background: '#fef2f2', color: '#dc2626', fontSize: '0.875rem', borderBottom: '1px solid #fecaca' }}>{utilityError}</div>
+          )}
+          <div style={{ padding: '1.5rem', display: 'flex', gap: '2rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            {[
+              { label: 'Giá điện (đ/kWh)', key: 'Electricity', value: elecPrice, setter: setElecPrice },
+              { label: 'Giá nước (đ/m³)', key: 'Water', value: waterPrice, setter: setWaterPrice },
+            ].map(({ label, key, value, setter }) => (
+              <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', minWidth: '220px' }}>
+                <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#374151' }}>{label} <span style={{ color: '#ef4444' }}>*</span></label>
+                {isEditableTerm ? (
+                  <input
+                    type="number" min="1" step="100"
+                    value={value}
+                    onChange={e => setter(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="Nhập đơn giá..."
+                    style={{ padding: '0.6rem 0.85rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.95rem', fontWeight: 600, color: '#1e293b', outline: 'none', width: '200px' }}
+                  />
+                ) : (
+                  <span style={{ fontWeight: 700, color: '#1e293b', fontSize: '1.05rem', padding: '0.6rem 0' }}>
+                    {value !== '' ? Number(value).toLocaleString('vi-VN') + ' đ' : '—'}
+                    <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 400, marginLeft: 6 }}>(Chỉ xem)</span>
+                  </span>
+                )}
+              </div>
+            ))}
+            {isEditableTerm && (
+              <button
+                type="button"
+                disabled={savingUtility}
+                onClick={async () => {
+                  if (!selectedTermId) return;
+                  const e = Number(elecPrice), w = Number(waterPrice);
+                  if (!e || e <= 0 || !w || w <= 0) { setUtilityError('Giá điện và nước phải là số lớn hơn 0'); return; }
+                  setUtilityError(null);
+                  try {
+                    setSavingUtility(true);
+                    await pricingApi.saveUtilityPrices({ termId: selectedTermId, items: [{ meterType: 'Electricity', unitPrice: e }, { meterType: 'Water', unitPrice: w }] });
+                    setSuccessToast('Đã lưu giá điện/nước!');
+                    setTimeout(() => setSuccessToast(null), 3000);
+                  } catch (err: any) { setUtilityError(err.message || 'Lỗi khi lưu'); }
+                  finally { setSavingUtility(false); }
+                }}
+                style={{ padding: '0.65rem 1.75rem', borderRadius: '6px', border: 'none', background: '#0284c7', color: '#fff', fontWeight: 600, fontSize: '0.95rem', cursor: savingUtility ? 'not-allowed' : 'pointer', alignSelf: 'flex-end', boxShadow: '0 2px 4px rgba(2, 132, 199, 0.25)' }}
+              >
+                {savingUtility ? 'Đang lưu...' : 'Lưu giá điện/nước'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Warning Dialog: Registration already started ── */}
       {showWarningModal && (
