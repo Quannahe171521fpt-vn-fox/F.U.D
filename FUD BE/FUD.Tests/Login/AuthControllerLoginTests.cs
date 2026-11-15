@@ -60,7 +60,7 @@ public class AuthControllerLoginTests
         const string rawRefreshToken = "test_raw_refresh_token";
 
         _authServiceMock.Setup(s => s.LoginWithCredentialsAsync(dto, "127.0.0.1"))
-                        .ReturnsAsync((authResponse, rawRefreshToken));
+                        .ReturnsAsync((authResponse, rawRefreshToken, DateTime.UtcNow.AddMinutes(30)));
 
         // Act
         var result = await _controller.Login(dto);

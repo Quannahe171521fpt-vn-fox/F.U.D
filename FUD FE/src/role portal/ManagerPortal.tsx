@@ -15,6 +15,7 @@ import { SharedSidebar, type SidebarSection } from './SharedSidebar';
 import type { NewsItem, EquipmentRecord, EquipmentCatalogItem } from '../types/management';
 import { equipmentApi, newsApi, violationApi, requestApi, bookingApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { useIdleAwarePolling } from '../utils/useIdleAwarePolling';
 
 export const ManagerPortal: React.FC = () => {
   const { currentUser, logout } = useAuth();
@@ -43,51 +44,52 @@ export const ManagerPortal: React.FC = () => {
   const [hasPendingRequests, setHasPendingRequests] = useState(false);
   const [hasPendingBookings, setHasPendingBookings] = useState(false);
 
+  const currentUserId = currentUser?.id;
+
   // Polling thời gian thực kiểm tra biên bản vi phạm, đơn từ và đơn đặt phòng cần xử lý
-  useEffect(() => {
-    const checkPendingManagement = async () => {
-      try {
-        const [viols, reqs, bookings] = await Promise.all([
-          violationApi.getViolations().catch(() => []),
-          requestApi.getAll({ status: 'Pending' }).catch(() => []),
-          bookingApi.getManagerRequests('Pending').catch(() => []),
-        ]);
-        const lastSeenViolationsTime = Number(localStorage.getItem(`lastSeenManagerViols_${currentUser?.id || 'mgr'}`) || 0);
-        const lastSeenRequestsTime = Number(localStorage.getItem(`lastSeenManagerReqs_${currentUser?.id || 'mgr'}`) || 0);
-        const lastSeenBookingsTime = Number(localStorage.getItem(`lastSeenManagerBookings_${currentUser?.id || 'mgr'}`) || 0);
+  const checkPendingManagement = useCallback(async () => {
+    try {
+      const [viols, reqs, bookings] = await Promise.all([
+        violationApi.getViolations().catch(() => []),
+        requestApi.getAll({ status: 'Pending' }).catch(() => []),
+        bookingApi.getManagerRequests('Pending').catch(() => []),
+      ]);
+      const lastSeenViolationsTime = Number(localStorage.getItem(`lastSeenManagerViols_${currentUserId || 'mgr'}`) || 0);
+      const lastSeenRequestsTime = Number(localStorage.getItem(`lastSeenManagerReqs_${currentUserId || 'mgr'}`) || 0);
+      const lastSeenBookingsTime = Number(localStorage.getItem(`lastSeenManagerBookings_${currentUserId || 'mgr'}`) || 0);
 
-        // Có biên bản vi phạm mới ghi nhận cần định mức/xét duyệt VÀ mới hơn lần xem cuối
-        const unhandledViols = viols.filter((v: any) => {
-          if (v.status !== 'Recorded') return false;
-          const time = new Date(v.occurrenceTime || 0).getTime();
-          return !lastSeenViolationsTime || time > lastSeenViolationsTime;
-        });
-        setHasPendingViolations(unhandledViols.length > 0);
+      // Có biên bản vi phạm mới ghi nhận cần định mức/xét duyệt VÀ mới hơn lần xem cuối
+      const unhandledViols = viols.filter((v: any) => {
+        if (v.status !== 'Recorded') return false;
+        const time = new Date(v.occurrenceTime || 0).getTime();
+        return !lastSeenViolationsTime || time > lastSeenViolationsTime;
+      });
+      setHasPendingViolations(unhandledViols.length > 0);
 
-        // Có đơn yêu cầu đang chờ duyệt VÀ mới hơn lần xem cuối
-        const pendingReqs = Array.isArray(reqs) ? reqs.filter((r: any) => {
-          if (r.status !== 'Pending') return false;
-          const time = new Date(r.createdTime || 0).getTime();
-          return !lastSeenRequestsTime || time > lastSeenRequestsTime;
-        }) : [];
-        setHasPendingRequests(pendingReqs.length > 0);
+      // Có đơn yêu cầu đang chờ duyệt VÀ mới hơn lần xem cuối
+      const pendingReqs = Array.isArray(reqs) ? reqs.filter((r: any) => {
+        if (r.status !== 'Pending') return false;
+        const time = new Date(r.createdTime || 0).getTime();
+        return !lastSeenRequestsTime || time > lastSeenRequestsTime;
+      }) : [];
+      setHasPendingRequests(pendingReqs.length > 0);
 
-        // Có đơn đặt phòng đang chờ duyệt VÀ mới hơn lần xem cuối
-        const pendingBookings = Array.isArray(bookings) ? bookings.filter((b: any) => {
-          if (b.Status !== 'Pending') return false;
-          const time = new Date(b.CreatedTime || 0).getTime();
-          return !lastSeenBookingsTime || time > lastSeenBookingsTime;
-        }) : [];
-        setHasPendingBookings(pendingBookings.length > 0);
-      } catch (err) {
-        console.error('Lỗi khi kiểm tra thông báo vi phạm/đơn từ/đặt phòng:', err);
-      }
-    };
+      // Có đơn đặt phòng đang chờ duyệt VÀ mới hơn lần xem cuối
+      const pendingBookings = Array.isArray(bookings) ? bookings.filter((b: any) => {
+        if (b.Status !== 'Pending') return false;
+        const time = new Date(b.CreatedTime || 0).getTime();
+        return !lastSeenBookingsTime || time > lastSeenBookingsTime;
+      }) : [];
+      setHasPendingBookings(pendingBookings.length > 0);
+    } catch (err) {
+      console.error('Lỗi khi kiểm tra thông báo vi phạm/đơn từ/đặt phòng:', err);
+    }
+  }, [currentUserId]);
 
-    checkPendingManagement();
-    const interval = setInterval(checkPendingManagement, 5000);
-    return () => clearInterval(interval);
-  }, [currentUser?.id]);
+  useIdleAwarePolling(checkPendingManagement, 5000, {
+    enabled: Boolean(currentUser?.id),
+    immediate: true,
+  });
 
   const handleSelectTab = (id: string) => {
     setActiveTab(id as any);

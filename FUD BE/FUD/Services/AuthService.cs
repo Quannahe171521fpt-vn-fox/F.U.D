@@ -8,10 +8,12 @@ using FUD.Models;
 using FUD.Repositories;
 using FUD.Repositories.Interfaces;
 using FUD.Services.Interfaces;
+using FUD.Settings.pattern;
 using Google.Apis.Auth;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace FUD.Services;
 
@@ -24,6 +26,11 @@ public class AuthService : IAuthService
     private readonly IConfiguration _config;
     private readonly IMemoryCache _cache;
     private readonly ILogger<AuthService> _logger;
+    private readonly JwtSettings _jwtSettings;
+
+    private int AccessTokenMinutes => _jwtSettings.AccessTokenExpirationMinutes > 0 ? _jwtSettings.AccessTokenExpirationMinutes : 15;
+    private int IdleTimeoutMinutes => _jwtSettings.IdleTimeoutMinutes > 0 ? _jwtSettings.IdleTimeoutMinutes : 30;
+    private int AbsoluteSessionHours => _jwtSettings.AbsoluteSessionHours > 0 ? _jwtSettings.AbsoluteSessionHours : 24;
 
     public AuthService(
         IUserRepository userRepo,
@@ -32,7 +39,8 @@ public class AuthService : IAuthService
         IJwtTokenGenerator jwtGen,
         IConfiguration config,
         IMemoryCache cache,
-        ILogger<AuthService> logger)
+        ILogger<AuthService> logger,
+        IOptions<JwtSettings> jwtOptions)
     {
         _userRepo = userRepo;
         _refreshRepo = refreshRepo;
@@ -41,9 +49,10 @@ public class AuthService : IAuthService
         _config = config;
         _cache = cache;
         _logger = logger;
+        _jwtSettings = jwtOptions.Value ?? throw new ArgumentNullException(nameof(jwtOptions));
     }
 
-    public async Task<(AuthResponseDto Response, string RawRefreshToken)> LoginWithCredentialsAsync(LoginRequestDto dto, string clientIp)
+    public async Task<(AuthResponseDto Response, string RawRefreshToken, DateTime CookieExpiresAt)> LoginWithCredentialsAsync(LoginRequestDto dto, string clientIp)
     {
         var user = await _userRepo.GetByAccountAsync(dto.Account);
 
@@ -76,7 +85,7 @@ public class AuthService : IAuthService
         return await GenerateAuthResultAsync(user, clientIp);
     }
 
-    public async Task<(AuthResponseDto Response, string RawRefreshToken)> LoginWithGoogleAsync(GoogleLoginRequestDto dto, string clientIp)
+    public async Task<(AuthResponseDto Response, string RawRefreshToken, DateTime CookieExpiresAt)> LoginWithGoogleAsync(GoogleLoginRequestDto dto, string clientIp)
     {
         GoogleJsonWebSignature.Payload payload;
         try
@@ -122,7 +131,7 @@ public class AuthService : IAuthService
         return await GenerateAuthResultAsync(user, clientIp);
     }
 
-    public async Task<(string AccessToken, string RawRefreshToken)> RotateRefreshTokenAsync(string rawRefreshToken, string clientIp)
+    public async Task<(RefreshResponseDto Response, string? RawRefreshToken, DateTime? CookieExpiresAt)> RotateRefreshTokenAsync(string rawRefreshToken, string clientIp)
     {
         var tokenHash = _jwtGen.HashToken(rawRefreshToken);
         var existingToken = await _refreshRepo.GetByTokenHashAsync(tokenHash);
@@ -130,20 +139,15 @@ public class AuthService : IAuthService
         if (existingToken == null)
             throw new UnauthorizedAccessException("Phiên truy cập không tồn tại hoặc không hợp lệ.");
 
+        var now = DateTime.UtcNow;
+
         // Xử lý Token đã bị thu hồi
         if (existingToken.RevokedAt.HasValue)
         {
-            // Grace Period: 30 giây kể từ khi token bị rotate
-            var elapsedSinceRevoke = DateTime.UtcNow - existingToken.RevokedAt.Value;
-            if (elapsedSinceRevoke <= TimeSpan.FromSeconds(30) && !string.IsNullOrEmpty(existingToken.ReplacedByTokenHash))
+            var graceResponse = await TryBuildGracePeriodResponseAsync(existingToken, now);
+            if (graceResponse != null)
             {
-                var replacedToken = await _refreshRepo.GetByTokenHashAsync(existingToken.ReplacedByTokenHash);
-                if (replacedToken != null && replacedToken.User.AccountStatus == "Active")
-                {
-                    var roles = replacedToken.User.UserRoleUsers.Select(ur => ur.Role.RoleName);
-                    var newAccToken = _jwtGen.GenerateAccessToken(replacedToken.User, roles);
-                    return (newAccToken, rawRefreshToken);
-                }
+                return (graceResponse, null, null);
             }
 
             // Quá Grace Period -> Phát hiện Reuse Attack -> Thu hồi toàn bộ chuỗi token!
@@ -153,7 +157,7 @@ public class AuthService : IAuthService
         }
 
         // Kiểm tra Hạn mức (ExpiresAt & AbsoluteExpiresAt)
-        if (DateTime.UtcNow > existingToken.ExpiresAt || DateTime.UtcNow > existingToken.AbsoluteExpiresAt)
+        if (now > existingToken.ExpiresAt || now > existingToken.AbsoluteExpiresAt)
         {
             throw new UnauthorizedAccessException("Phiên đăng nhập đã hết hạn tối đa. Vui lòng đăng nhập lại.");
         }
@@ -165,25 +169,47 @@ public class AuthService : IAuthService
             throw new UnauthorizedAccessException("Tài khoản đã bị khóa hoặc không còn tồn tại.");
         }
 
-        // Sinh token mới và đánh dấu thu hồi token cũ
-        var (newRaw, newTokenHash) = _jwtGen.GenerateRefreshToken();
-        await _refreshRepo.RevokeAsync(existingToken, clientIp, newTokenHash);
+        // Sinh token mới và thực hiện rotation nguyên tử (capped ở AbsoluteExpiresAt)
+        var absoluteExpiresAt = DateTime.SpecifyKind(existingToken.AbsoluteExpiresAt, DateTimeKind.Utc);
+        var idleExpiresAt = DateTime.SpecifyKind(now.AddMinutes(IdleTimeoutMinutes), DateTimeKind.Utc);
+        var newExpiresAt = idleExpiresAt < absoluteExpiresAt ? idleExpiresAt : absoluteExpiresAt;
 
+        var (newRaw, newTokenHash) = _jwtGen.GenerateRefreshToken();
         var newRefreshToken = new RefreshToken
         {
             UserId = user.Id,
             TokenHash = newTokenHash,
-            CreatedAt = DateTime.UtcNow,
-            ExpiresAt = DateTime.UtcNow.AddDays(7),
-            AbsoluteExpiresAt = existingToken.AbsoluteExpiresAt, // Giữ nguyên Absolute thời điểm đầu
+            CreatedAt = now,
+            ExpiresAt = newExpiresAt,
+            AbsoluteExpiresAt = absoluteExpiresAt,
             CreatedByIp = clientIp
         };
-        await _refreshRepo.CreateAsync(newRefreshToken);
+
+        var rotated = await _refreshRepo.TryRotateAsync(existingToken, newRefreshToken, clientIp);
+        if (!rotated)
+        {
+            var freshToken = await _refreshRepo.GetByTokenHashNoTrackingAsync(tokenHash);
+            if (freshToken != null && freshToken.RevokedAt.HasValue)
+            {
+                var graceResponse = await TryBuildGracePeriodResponseAsync(freshToken, DateTime.UtcNow);
+                if (graceResponse != null)
+                {
+                    return (graceResponse, null, null);
+                }
+            }
+            throw new UnauthorizedAccessException("Phiên truy cập không hợp lệ hoặc đang được làm mới đồng thời. Vui lòng thử lại.");
+        }
 
         var userRoles = user.UserRoleUsers.Select(ur => ur.Role.RoleName);
         var accessToken = _jwtGen.GenerateAccessToken(user, userRoles);
 
-        return (accessToken, newRaw);
+        return (new RefreshResponseDto
+        {
+            AccessToken = accessToken,
+            ExpiresIn = AccessTokenMinutes * 60,
+            IdleTimeoutMinutes = IdleTimeoutMinutes,
+            AbsoluteExpiresAt = absoluteExpiresAt
+        }, newRaw, newExpiresAt);
     }
 
     public async Task RevokeRefreshTokenAsync(string rawRefreshToken, string clientIp)
@@ -229,19 +255,55 @@ public class AuthService : IAuthService
         };
     }
 
-    private async Task<(AuthResponseDto Response, string RawRefreshToken)> GenerateAuthResultAsync(User user, string clientIp)
+    private async Task<RefreshResponseDto?> TryBuildGracePeriodResponseAsync(RefreshToken revokedToken, DateTime now)
+    {
+        if (!revokedToken.RevokedAt.HasValue
+            || (now - revokedToken.RevokedAt.Value) > TimeSpan.FromSeconds(30)
+            || string.IsNullOrEmpty(revokedToken.ReplacedByTokenHash))
+        {
+            return null;
+        }
+
+        var replacedToken = await _refreshRepo.GetByTokenHashNoTrackingAsync(revokedToken.ReplacedByTokenHash);
+        if (replacedToken == null
+            || replacedToken.RevokedAt != null
+            || now > replacedToken.ExpiresAt
+            || now > replacedToken.AbsoluteExpiresAt
+            || replacedToken.User.AccountStatus != "Active"
+            || replacedToken.User.DeletedAt != null)
+        {
+            return null;
+        }
+
+        var roles = replacedToken.User.UserRoleUsers.Select(ur => ur.Role.RoleName);
+        var newAccToken = _jwtGen.GenerateAccessToken(replacedToken.User, roles);
+        return new RefreshResponseDto
+        {
+            AccessToken = newAccToken,
+            ExpiresIn = AccessTokenMinutes * 60,
+            IdleTimeoutMinutes = IdleTimeoutMinutes,
+            AbsoluteExpiresAt = DateTime.SpecifyKind(replacedToken.AbsoluteExpiresAt, DateTimeKind.Utc)
+        };
+    }
+
+    private async Task<(AuthResponseDto Response, string RawRefreshToken, DateTime CookieExpiresAt)> GenerateAuthResultAsync(User user, string clientIp)
     {
         var roles = user.UserRoleUsers.Select(ur => ur.Role.RoleName).ToList();
         var accessToken = _jwtGen.GenerateAccessToken(user, roles);
         var (rawRefresh, refreshHash) = _jwtGen.GenerateRefreshToken();
 
+        var now = DateTime.UtcNow;
+        var absoluteExpiresAt = DateTime.SpecifyKind(now.AddHours(AbsoluteSessionHours), DateTimeKind.Utc);
+        var idleExpiresAt = DateTime.SpecifyKind(now.AddMinutes(IdleTimeoutMinutes), DateTimeKind.Utc);
+        var refreshExpiresAt = idleExpiresAt < absoluteExpiresAt ? idleExpiresAt : absoluteExpiresAt;
+
         var refreshToken = new RefreshToken
         {
             UserId = user.Id,
             TokenHash = refreshHash,
-            CreatedAt = DateTime.UtcNow,
-            ExpiresAt = DateTime.UtcNow.AddDays(7),
-            AbsoluteExpiresAt = DateTime.UtcNow.AddDays(30),
+            CreatedAt = now,
+            ExpiresAt = refreshExpiresAt,
+            AbsoluteExpiresAt = absoluteExpiresAt,
             CreatedByIp = clientIp
         };
         await _refreshRepo.CreateAsync(refreshToken);
@@ -259,7 +321,9 @@ public class AuthService : IAuthService
         {
             AccessToken = accessToken,
             TokenType = "Bearer",
-            ExpiresIn = 900,
+            ExpiresIn = AccessTokenMinutes * 60,
+            IdleTimeoutMinutes = IdleTimeoutMinutes,
+            AbsoluteExpiresAt = absoluteExpiresAt,
             User = new UserInfoDto
             {
                 Id = user.Id,
@@ -276,7 +340,7 @@ public class AuthService : IAuthService
             }
         };
 
-        return (response, rawRefresh);
+        return (response, rawRefresh, refreshExpiresAt);
     }
 }
 

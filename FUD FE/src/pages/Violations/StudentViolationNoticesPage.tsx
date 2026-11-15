@@ -3,6 +3,7 @@ import { violationApi, type ViolationItem } from '../../services/api';
 import { Pagination } from '../../components/Pagination';
 import { formatDateTime, formatDate } from '../../utils/dateUtils';
 import { removeVietnameseTones } from '../../utils/textUtils';
+import { useIdleAwarePolling } from '../../utils/useIdleAwarePolling';
 import '../../styles/violation.css';
 
 const PAGE_SIZE = 10;
@@ -31,17 +32,6 @@ export const StudentViolationNoticesPage: React.FC<StudentViolationNoticesPagePr
   const [selectedNotice, setSelectedNotice] = useState<ViolationItem | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
 
-  useEffect(() => {
-    loadNotices(true);
-
-    // Tự động polling cập nhật thông báo vi phạm theo thời gian thực (mỗi 5 giây)
-    const intervalId = setInterval(() => {
-      loadNotices(false);
-    }, 5000);
-
-    return () => clearInterval(intervalId);
-  }, []);
-
   const loadNotices = async (showLoadingIndicator = true) => {
     if (showLoadingIndicator) {
       setLoading(true);
@@ -64,6 +54,15 @@ export const StudentViolationNoticesPage: React.FC<StudentViolationNoticesPagePr
       }
     }
   };
+
+  useEffect(() => {
+    loadNotices(true);
+  }, []);
+
+  // Tự động polling cập nhật thông báo vi phạm theo thời gian thực (tạm dừng khi ẩn tab hoặc idle)
+  useIdleAwarePolling(() => {
+    void loadNotices(false);
+  }, 5000, { immediate: false });
 
   const handleOpenNotice = (notice: ViolationItem) => {
     setSelectedNotice(notice);

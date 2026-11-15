@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
 import { StudentViolationNoticesPage } from '../pages/Violations/StudentViolationNoticesPage';
 import { StudentViolationHistoryPage } from '../pages/Violations/StudentViolationHistoryPage';
@@ -12,6 +12,7 @@ import { BookingPage } from '../pages/Booking/BookingPage';
 import { StudentEwUsagePage } from '../pages/Student/StudentEwUsagePage';
 import type { NewsItem } from '../types/management';
 import { useAuth } from '../contexts/AuthContext';
+import { useIdleAwarePolling } from '../utils/useIdleAwarePolling';
 import '../styles/management.css';
 
 interface StudentPortalProps {
@@ -29,19 +30,19 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
   const [isBookingOpen, setIsBookingOpen] = useState<boolean>(false);
 
   // Kiểm tra thời gian mở cổng đặt phòng (Booking)
-  useEffect(() => {
-    const checkBooking = async () => {
-      try {
-        const elig = await bookingApi.getEligibility();
-        setIsBookingOpen(elig.isBookingPeriodOpen);
-      } catch {
-        setIsBookingOpen(false);
-      }
-    };
-    checkBooking();
-    const interval = setInterval(checkBooking, 15000);
-    return () => clearInterval(interval);
-  }, [currentUser?.id]);
+  const checkBooking = useCallback(async () => {
+    try {
+      const elig = await bookingApi.getEligibility();
+      setIsBookingOpen(elig.isBookingPeriodOpen);
+    } catch {
+      setIsBookingOpen(false);
+    }
+  }, []);
+
+  useIdleAwarePolling(checkBooking, 15000, {
+    enabled: Boolean(currentUser?.id),
+    immediate: true,
+  });
 
   // Tải danh sách thông báo tin tức KTX
   useEffect(() => {
@@ -69,43 +70,44 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
     loadNews();
   }, [currentUser?.id]);
 
+  const currentUserId = currentUser?.id;
+
   // Kiểm tra thông báo vi phạm mới và cập nhật đơn từ
-  useEffect(() => {
-    const checkBadges = async () => {
-      try {
-        const [notices, requests] = await Promise.all([
-          violationApi.getStudentNotices().catch(() => []),
-          requestApi.getMyRequests().catch(() => []),
-        ]);
+  const checkBadges = useCallback(async () => {
+    try {
+      const [notices, requests] = await Promise.all([
+        violationApi.getStudentNotices().catch(() => []),
+        requestApi.getMyRequests().catch(() => []),
+      ]);
 
-        // Thông báo vi phạm: Có biên bản vi phạm mới (Recorded) và chưa đọc
-        const lastSeenNoticeTime = localStorage.getItem(`lastSeenNotice_${currentUser?.id || 'guest'}`);
-        const unhandledNotices = notices.filter((n: any) => {
-          if (n.status !== 'Recorded') return false;
-          const time = new Date(n.occurrenceTime || 0).getTime();
-          return !lastSeenNoticeTime || time > Number(lastSeenNoticeTime);
-        });
-        setHasNewViolationNotice(unhandledNotices.length > 0);
+      // Thông báo vi phạm: Có biên bản vi phạm mới (Recorded) và chưa đọc
+      const lastSeenNoticeTime = localStorage.getItem(`lastSeenNotice_${currentUserId || 'guest'}`);
+      const unhandledNotices = notices.filter((n: any) => {
+        if (n.status !== 'Recorded') return false;
+        const time = new Date(n.occurrenceTime || 0).getTime();
+        return !lastSeenNoticeTime || time > Number(lastSeenNoticeTime);
+      });
+      setHasNewViolationNotice(unhandledNotices.length > 0);
 
-        // Đơn từ: Có đơn được duyệt / từ chối gần đây hoặc đang có phản hồi
-        const lastSeenReqTime = localStorage.getItem(`lastSeenReq_${currentUser?.id || 'guest'}`);
-        const recentlyProcessed = requests.find((r: any) => {
-          if (r.status === 'Approved' || r.status === 'Rejected') {
-            const time = new Date(r.processedTime || r.createdTime).getTime();
-            return !lastSeenReqTime || time > Number(lastSeenReqTime);
-          }
-          return false;
-        });
-        setHasNewRequestUpdate(!!recentlyProcessed);
-      } catch (err) {
-        console.error('Lỗi khi kiểm tra thông báo sidebar:', err);
-      }
-    };
+      // Đơn từ: Có đơn được duyệt / từ chối gần đây hoặc đang có phản hồi
+      const lastSeenReqTime = localStorage.getItem(`lastSeenReq_${currentUserId || 'guest'}`);
+      const recentlyProcessed = requests.find((r: any) => {
+        if (r.status === 'Approved' || r.status === 'Rejected') {
+          const time = new Date(r.processedTime || r.createdTime).getTime();
+          return !lastSeenReqTime || time > Number(lastSeenReqTime);
+        }
+        return false;
+      });
+      setHasNewRequestUpdate(!!recentlyProcessed);
+    } catch (err) {
+      console.error('Lỗi khi kiểm tra thông báo sidebar:', err);
+    }
+  }, [currentUserId]);
 
-    checkBadges();
-    const interval = setInterval(checkBadges, 10000);
-    return () => clearInterval(interval);
-  }, [currentUser?.id]);
+  useIdleAwarePolling(checkBadges, 10000, {
+    enabled: Boolean(currentUser?.id),
+    immediate: true,
+  });
 
   const handleTabSelect = (tabId: string) => {
     setActiveTab(tabId);

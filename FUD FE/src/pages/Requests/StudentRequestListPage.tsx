@@ -3,6 +3,7 @@ import { requestApi, type RequestItemDto } from '../../services/api';
 import { REQUEST_STATUS_LABELS, REQUEST_STATUS_COLORS, REQUEST_TYPE_LABELS, type DBRequestStatus } from './SubmitRequestPage';
 import { Pagination } from '../../components/Pagination';
 import { removeVietnameseTones } from '../../utils/textUtils';
+import { useIdleAwarePolling } from '../../utils/useIdleAwarePolling';
 import '../../styles/violation.css';
 
 const PAGE_SIZE = 10;
@@ -21,17 +22,6 @@ export const StudentRequestListPage: React.FC<StudentRequestListPageProps> = ({ 
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedRequest, setSelectedRequest] = useState<RequestItemDto | null>(null);
-
-  useEffect(() => {
-    loadMyRequests(true);
-
-    // Tự động polling cập nhật danh sách đơn theo thời gian thực (mỗi 5 giây)
-    const intervalId = setInterval(() => {
-      loadMyRequests(false);
-    }, 5000);
-
-    return () => clearInterval(intervalId);
-  }, []);
 
   const loadMyRequests = async (showLoadingIndicator = true) => {
     if (showLoadingIndicator) {
@@ -55,6 +45,14 @@ export const StudentRequestListPage: React.FC<StudentRequestListPageProps> = ({ 
       }
     }
   };
+
+  useEffect(() => {
+    loadMyRequests(true);
+  }, []);
+
+  useIdleAwarePolling(() => {
+    void loadMyRequests(false);
+  }, 5000);
 
   const filteredRequests = requests.filter(r => {
     if (filterType && r.requestType !== filterType) return false;

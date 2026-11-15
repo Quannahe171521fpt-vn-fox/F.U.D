@@ -3,6 +3,7 @@ import { requestApi, violationApi, type GuardLookupDto, type RequestItemDto } fr
 import { Pagination } from '../../components/Pagination';
 import { formatDateTime } from '../../utils/dateUtils';
 import { removeVietnameseTones } from '../../utils/textUtils';
+import { useIdleAwarePolling } from '../../utils/useIdleAwarePolling';
 import {
   type DBRequestType,
   type DBRequestStatus,
@@ -40,17 +41,6 @@ export const ManagerRequestManagement: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [unsuspending, setUnsuspending] = useState(false);
 
-  useEffect(() => {
-    loadRequests(true);
-
-    // Tự động polling cập nhật danh sách yêu cầu/khiếu nại theo thời gian thực (mỗi 5 giây)
-    const intervalId = setInterval(() => {
-      loadRequests(false);
-    }, 5000);
-
-    return () => clearInterval(intervalId);
-  }, [filterStatus, filterType]);
-
   const loadRequests = async (showLoadingIndicator = true) => {
     if (showLoadingIndicator) {
       setLoading(true);
@@ -73,6 +63,14 @@ export const ManagerRequestManagement: React.FC = () => {
       }
     }
   };
+
+  useEffect(() => {
+    loadRequests(true);
+  }, [filterStatus, filterType]);
+
+  useIdleAwarePolling(() => {
+    void loadRequests(false);
+  }, 5000);
 
   const handleOpenProcess = async (req: RequestItemDto) => {
     setSelectedRequest(req);

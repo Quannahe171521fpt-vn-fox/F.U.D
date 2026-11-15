@@ -1,6 +1,24 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { fetchCurrentUser, logoutApi } from '../services/authApi';
-import { getAccessToken, setAccessToken } from '../services/apiClient';
+import {
+  getAccessToken,
+  refreshAccessToken,
+  setAccessToken as setApiClientAccessToken,
+} from '../services/apiClient';
+import {
+  DEFAULT_IDLE_TIMEOUT_MINUTES,
+  LAST_ACTIVITY_KEY,
+  USER_KEY,
+  type SessionExpirationReason,
+  type SessionMeta,
+  broadcastAuthEvent,
+  clearSessionStorage,
+  getSessionExpirationReason,
+  getSessionMeta,
+  recordUserActivity,
+  saveSessionMeta,
+  subscribeCrossTabAuth,
+} from '../services/sessionManager';
 
 export interface UserInfo {
   id: number;
@@ -20,121 +38,297 @@ interface AuthContextType {
   currentUser: UserInfo | null;
   accessToken: string | null;
   isLoading: boolean;
-  loginSuccess: (token: string, user: UserInfo) => void;
+  sessionMessage: string | null;
+  clearSessionMessage: () => void;
+  loginSuccess: (token: string, user: UserInfo, meta?: Partial<SessionMeta>) => void;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const USER_KEY = 'fud_currentUser';
+function getExpirationMessage(reason: SessionExpirationReason): string {
+  if (reason === 'idle') {
+    const minutes = getSessionMeta()?.idleTimeoutMinutes ?? DEFAULT_IDLE_TIMEOUT_MINUTES;
+    return `Phiên đăng nhập đã tự động kết thúc do không thao tác trong ${minutes} phút.`;
+  }
+  if (reason === 'absolute') {
+    return 'Phiên đăng nhập đã đạt giới hạn tối đa. Vui lòng đăng nhập lại.';
+  }
+  return 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
+}
+
+function persistCurrentUser(user: UserInfo | null): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    if (user) {
+      localStorage.setItem(USER_KEY, JSON.stringify(user));
+    } else {
+      localStorage.removeItem(USER_KEY);
+    }
+  } catch {
+    // storage unavailable
+  }
+}
+
+function hasStoredUserKey(): boolean {
+  try {
+    return typeof localStorage !== 'undefined' && Boolean(localStorage.getItem(USER_KEY));
+  } catch {
+    return false;
+  }
+}
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<UserInfo | null>(() => {
     try {
-      const saved = localStorage.getItem(USER_KEY);
+      const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(USER_KEY) : null;
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
     }
   });
+  const [accessToken, setAccessTokenState] = useState<string | null>(() => getAccessToken());
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const loggedInRef = React.useRef(false);
+  const [sessionMessage, setSessionMessage] = useState<string | null>(null);
+
+  const authSeqRef = useRef(0);
+  const isLoggingOutRef = useRef(false);
+
+  const clearSessionMessage = useCallback(() => {
+    setSessionMessage(null);
+  }, []);
+
+  const expireSession = useCallback(async (reason: SessionExpirationReason) => {
+    if (isLoggingOutRef.current) return;
+    isLoggingOutRef.current = true;
+    authSeqRef.current += 1;
+
+    try {
+      broadcastAuthEvent({ type: 'EXPIRED', reason, at: Date.now() });
+      setApiClientAccessToken(null);
+      clearSessionStorage();
+      setAccessTokenState(null);
+      setCurrentUser(null);
+      setSessionMessage(getExpirationMessage(reason));
+
+      if (reason !== 'server') {
+        try {
+          await logoutApi();
+        } catch {
+          // best-effort backend cookie/token revocation
+        }
+      }
+    } finally {
+      isLoggingOutRef.current = false;
+    }
+  }, []);
 
   useEffect(() => {
-    let isMounted = true;
+    let cancelled = false;
 
     async function initAuth() {
-      const token = getAccessToken();
-      // Nếu hoàn toàn không có token, chuyển thẳng sang trạng thái sẵn sàng (guest), không gọi /me gây 401
-      if (!token) {
-        if (isMounted) {
-          if (!loggedInRef.current) {
-            setCurrentUser(null);
-            try {
-              localStorage.removeItem(USER_KEY);
-            } catch {}
-          }
+      const seq = authSeqRef.current;
+      const hasStoredUser = hasStoredUserKey();
+      let token = getAccessToken();
+
+      if (!hasStoredUser && !token) {
+        if (!cancelled && seq === authSeqRef.current) {
+          setCurrentUser(null);
+          setAccessTokenState(null);
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      const expiredReason = getSessionExpirationReason();
+      if (expiredReason !== null) {
+        await expireSession(expiredReason);
+        if (!cancelled && seq === authSeqRef.current) {
           setIsLoading(false);
         }
         return;
       }
 
       try {
-        const user = await fetchCurrentUser();
-        if (isMounted) {
-          if (loggedInRef.current) return;
+        if (!token && hasStoredUser) {
+          token = await refreshAccessToken();
+          if (cancelled || seq !== authSeqRef.current) return;
 
-          if (user) {
-            setCurrentUser(user);
-            try {
-              localStorage.setItem(USER_KEY, JSON.stringify(user));
-            } catch {}
-          } else {
+          if (!token) {
+            setApiClientAccessToken(null);
+            clearSessionStorage();
             setCurrentUser(null);
-            try {
-              localStorage.removeItem(USER_KEY);
-            } catch {}
+            setAccessTokenState(null);
+            return;
           }
         }
-      } catch {
-        if (isMounted && !loggedInRef.current) {
-          setCurrentUser(null);
+
+        const user = await fetchCurrentUser();
+        if (cancelled || seq !== authSeqRef.current) return;
+
+        if (user) {
+          setCurrentUser(user);
+          setAccessTokenState(getAccessToken());
+          persistCurrentUser(user);
           try {
-            localStorage.removeItem(USER_KEY);
-          } catch {}
+            if (typeof localStorage !== 'undefined' && !localStorage.getItem(LAST_ACTIVITY_KEY)) {
+              recordUserActivity(true);
+            }
+          } catch {
+            // storage unavailable
+          }
+        } else {
+          setApiClientAccessToken(null);
+          clearSessionStorage();
+          setCurrentUser(null);
+          setAccessTokenState(null);
+        }
+      } catch {
+        if (!cancelled && seq === authSeqRef.current) {
+          setApiClientAccessToken(null);
+          clearSessionStorage();
+          setCurrentUser(null);
+          setAccessTokenState(null);
         }
       } finally {
-        if (isMounted) setIsLoading(false);
+        if (!cancelled && seq === authSeqRef.current) {
+          setIsLoading(false);
+        }
       }
     }
 
-    initAuth();
+    void initAuth();
 
-    const handleExpired = () => {
-      if (isMounted && !loggedInRef.current) {
-        setCurrentUser(null);
-        try {
-          localStorage.removeItem(USER_KEY);
-        } catch {}
-      }
+    const handleExpired = (event: Event) => {
+      if (cancelled) return;
+      const reason =
+        (event as CustomEvent<{ reason?: SessionExpirationReason }>).detail?.reason ?? 'server';
+      authSeqRef.current += 1;
+      setCurrentUser(null);
+      setAccessTokenState(null);
+      setSessionMessage(getExpirationMessage(reason));
+      setIsLoading(false);
     };
     window.addEventListener('fud:session-expired', handleExpired);
 
+    const unsubscribeCrossTab = subscribeCrossTabAuth((msg) => {
+      if (cancelled) return;
+      if (msg.type === 'EXPIRED') {
+        authSeqRef.current += 1;
+        setApiClientAccessToken(null);
+        clearSessionStorage();
+        setCurrentUser(null);
+        setAccessTokenState(null);
+        setSessionMessage(getExpirationMessage(msg.reason ?? 'server'));
+        setIsLoading(false);
+      } else if (msg.type === 'LOGOUT') {
+        authSeqRef.current += 1;
+        setApiClientAccessToken(null);
+        clearSessionStorage();
+        setCurrentUser(null);
+        setAccessTokenState(null);
+        setSessionMessage(null);
+        setIsLoading(false);
+      } else if (msg.type === 'TOKEN_UPDATED') {
+        setAccessTokenState(getAccessToken());
+      }
+    });
+
     return () => {
-      isMounted = false;
+      cancelled = true;
       window.removeEventListener('fud:session-expired', handleExpired);
+      unsubscribeCrossTab();
     };
+  }, [expireSession]);
+
+  const isLoggedIn = Boolean(currentUser);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    const handleUserActivity = () => {
+      const result = recordUserActivity(false);
+      if (result.expiredReason) {
+        void expireSession(result.expiredReason);
+      }
+    };
+
+    const handleFocusOrVisibility = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      const reason = getSessionExpirationReason();
+      if (reason) {
+        void expireSession(reason);
+      } else {
+        recordUserActivity(false);
+      }
+    };
+
+    const activityEvents: Array<keyof WindowEventMap> = [
+      'pointerdown',
+      'keydown',
+      'mousemove',
+      'scroll',
+      'touchstart',
+    ];
+    for (const evt of activityEvents) {
+      window.addEventListener(evt, handleUserActivity, { passive: true });
+    }
+    document.addEventListener('visibilitychange', handleFocusOrVisibility);
+    window.addEventListener('focus', handleFocusOrVisibility);
+
+    const checkInterval = window.setInterval(() => {
+      const reason = getSessionExpirationReason();
+      if (reason) {
+        void expireSession(reason);
+      }
+    }, 15_000);
+
+    return () => {
+      window.clearInterval(checkInterval);
+      for (const evt of activityEvents) {
+        window.removeEventListener(evt, handleUserActivity);
+      }
+      document.removeEventListener('visibilitychange', handleFocusOrVisibility);
+      window.removeEventListener('focus', handleFocusOrVisibility);
+    };
+  }, [isLoggedIn, expireSession]);
+
+  const loginSuccess = useCallback((token: string, user: UserInfo, meta?: Partial<SessionMeta>) => {
+    authSeqRef.current += 1;
+    setApiClientAccessToken(token);
+    if (meta) {
+      saveSessionMeta(meta);
+    }
+    recordUserActivity(true);
+    setAccessTokenState(token);
+    setCurrentUser(user);
+    persistCurrentUser(user);
+    setSessionMessage(null);
+    setIsLoading(false);
   }, []);
 
-  const loginSuccess = (token: string, user: UserInfo) => {
-    loggedInRef.current = true;
-    setAccessToken(token);
-    setCurrentUser(user);
-    try {
-      localStorage.setItem(USER_KEY, JSON.stringify(user));
-    } catch {}
-    setIsLoading(false);
-  };
-
-  const logout = async () => {
-    loggedInRef.current = false;
+  const logout = useCallback(async () => {
+    authSeqRef.current += 1;
+    broadcastAuthEvent({ type: 'LOGOUT', at: Date.now() });
     try {
       await logoutApi();
     } finally {
-      setAccessToken(null);
+      setApiClientAccessToken(null);
+      clearSessionStorage();
+      setAccessTokenState(null);
       setCurrentUser(null);
-      try {
-        localStorage.removeItem(USER_KEY);
-      } catch {}
+      setSessionMessage(null);
     }
-  };
+  }, []);
 
   return (
     <AuthContext.Provider
       value={{
         currentUser,
-        accessToken: getAccessToken(),
+        accessToken,
         isLoading,
+        sessionMessage,
+        clearSessionMessage,
         loginSuccess,
         logout,
       }}

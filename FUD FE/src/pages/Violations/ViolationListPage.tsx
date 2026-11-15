@@ -3,6 +3,7 @@ import { violationApi, type ViolationItem } from '../../services/api';
 import { Pagination } from '../../components/Pagination';
 import { formatDateTime, formatDate } from '../../utils/dateUtils';
 import { removeVietnameseTones } from '../../utils/textUtils';
+import { useIdleAwarePolling } from '../../utils/useIdleAwarePolling';
 import '../../styles/violation.css';
 
 const PAGE_SIZE = 10;
@@ -26,17 +27,6 @@ export const ViolationListPage: React.FC = () => {
   const [selectedViolation, setSelectedViolation] = useState<ViolationItem | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
 
-  useEffect(() => {
-    loadViolations(true);
-
-    // Tự động polling cập nhật danh sách vi phạm theo thời gian thực (mỗi 5 giây)
-    const intervalId = setInterval(() => {
-      loadViolations(false);
-    }, 5000);
-
-    return () => clearInterval(intervalId);
-  }, []);
-
   const loadViolations = async (showLoadingIndicator = true) => {
     if (showLoadingIndicator) {
       setLoading(true);
@@ -52,6 +42,15 @@ export const ViolationListPage: React.FC = () => {
       }
     }
   };
+
+  useEffect(() => {
+    loadViolations(true);
+  }, []);
+
+  // Tự động polling cập nhật danh sách vi phạm theo thời gian thực (tạm dừng khi ẩn tab hoặc idle)
+  useIdleAwarePolling(() => {
+    void loadViolations(false);
+  }, 5000, { immediate: false });
 
   const filteredViolations = violations
     .filter(v => {
