@@ -1673,6 +1673,7 @@ export interface EwReadingDetailItem {
 
 export interface EwUsageRow {
   id: number;
+  dormName?: string;
   block: string;
   tenBlock?: string;
   blockCode?: string;
@@ -1687,6 +1688,7 @@ export interface EwUsageRow {
   ngayTao: string | null;
   hocKy: string;
   meterNumberDisplay: string;
+  currentMonthConsumption?: number;
   totalConsumption: number;
   donvi?: string;
   readings?: EwReadingDetailItem[];

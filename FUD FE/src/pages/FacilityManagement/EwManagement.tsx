@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import '../../styles/facilities.css';
+import { Pagination } from '../../components/Pagination';
 import {
   ewApi,
   type BillingPeriodLookupDto,
@@ -9,26 +10,22 @@ import {
   type EwReadingDetailItem,
 } from '../../services/api';
 
-// ── Quota constants ─────────────────────────────────────
-const MONTHLY_ELECTRIC_QUOTA = 50;
-const MONTHLY_WATER_QUOTA = 3;
-
-function meterTypeLabel(t: string): string {
-  if (!t) return t;
-  if (t.toLowerCase().includes('electric')) return 'Điện';
-  if (t.toLowerCase().includes('water')) return 'Nước';
-  return t;
-}
-
 // ── Usage table row (computed) ──────────────────────────
 interface UsageTableRow {
   id: number;
+  dormName: string;          // "Dom A"
   block: string;
   blockName: string;
   blockCode: string;
   roomNumber: string;
   monthYear: string;         // "11 - 2026"
   recordDate: string;        // "01/11/2026"
+  ngayTao: string;           // "2026-08-30" (YYYY-MM-DD)
+  hocKy: string;             // "Summer - 2026"
+  meterNumberDisplay: string;// "29721 - 22300"
+  currentMonthConsumption: number; // Tiêu thụ tháng này
+  totalConsumption: number;  // Tổng tiêu thụ cả kỳ
+  donvi: string;             // "kW" | "m³"
   type: string;              // "Electricity" | "Water"
   typeLabel: string;         // "Điện" | "Nước"
   usage: number;
@@ -44,6 +41,7 @@ interface MonthUsageSubgroup {
 }
 
 interface BlockUsageGroup {
+  dormName?: string;
   block: string;
   blockName: string;
   blockCode: string;
@@ -55,18 +53,38 @@ interface BlockUsageGroup {
 
 function buildUsageRows(rawRows: EwUsageRow[]): UsageTableRow[] {
   return rawRows.map((r) => {
-    let month = r.targetMonth || 0;
-    let year = r.targetYear || 0;
-    if ((!month || !year) && r.ngayTao) {
-      const d = new Date(r.ngayTao);
-      month = d.getMonth() + 1;
-      year = d.getFullYear();
+    let ngayTaoFormatted = '—';
+    if (r.ngayTao) {
+      try {
+        const d = new Date(r.ngayTao);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        ngayTaoFormatted = `${yyyy}-${mm}-${dd}`;
+      } catch {
+        ngayTaoFormatted = String(r.ngayTao).substring(0, 10);
+      }
     }
 
-    const quota =
-      r.loaiSuDung.toLowerCase().includes('electric')
-        ? MONTHLY_ELECTRIC_QUOTA
-        : MONTHLY_WATER_QUOTA;
+    const isElec =
+      (r.loaiSuDung || '').toLowerCase().includes('điện') ||
+      (r.loaiSuDung || '').toLowerCase().includes('electric');
+    const typeLabel = isElec ? 'Điện' : 'Nước';
+    const quota = isElec ? 200 : 12; // Định mức kỳ: 200 kWh điện, 12 m3 nước
+
+    // Tên dorm
+    let dormName = r.dormName || '';
+    if (!dormName) {
+      if (r.blockName && r.blockName.includes('Dom')) {
+        dormName = r.blockName.split('-').pop()?.trim() || 'Dom A';
+      } else if (r.blockCode && r.blockCode.toUpperCase().startsWith('A')) {
+        dormName = 'Dom A';
+      } else if (r.blockCode && r.blockCode.toUpperCase().startsWith('B')) {
+        dormName = 'Dom B';
+      } else {
+        dormName = 'Dom A';
+      }
+    }
 
     // Tên block/phòng: ưu tiên block -> tenBlock -> blockCode
     let blockDisplayName = r.block || r.tenBlock || r.blockCode || '—';
@@ -77,18 +95,45 @@ function buildUsageRows(rawRows: EwUsageRow[]): UsageTableRow[] {
       }
     }
 
+    const donvi = r.donvi || (isElec ? 'kW' : 'm³');
+
+    let currentMonthCons = (r as any).currentMonthConsumption ?? (r as any).CurrentMonthConsumption;
+    if (currentMonthCons === undefined || currentMonthCons === null || currentMonthCons === 0) {
+      if (r.readings && r.readings.length > 0) {
+        currentMonthCons = r.readings.reduce(
+          (sum: number, rd: EwReadingDetailItem) => sum + (rd.consumption ?? (rd.currentValue - rd.previousValue)),
+          0
+        );
+      }
+    }
+    if (currentMonthCons === undefined || currentMonthCons === null) {
+      currentMonthCons = 0;
+    }
+
+    let totalCons = r.totalConsumption ?? (r as any).TotalConsumption ?? 0;
+    if (totalCons === 0 && currentMonthCons > 0) {
+      totalCons = currentMonthCons;
+    }
+
     return {
       id: r.id,
+      dormName: dormName,
       block: blockDisplayName,
       blockName: r.blockName || '',
       blockCode: r.blockCode || '',
       roomNumber: r.roomNumber || '',
-      monthYear: month && year ? `${month} - ${year}` : r.hocKy || '—',
-      recordDate: r.ngayTao ? new Date(r.ngayTao).toLocaleDateString('vi-VN') : '—',
+      monthYear: r.hocKy || '—',
+      recordDate: ngayTaoFormatted,
+      ngayTao: ngayTaoFormatted,
+      hocKy: r.hocKy || '—',
+      meterNumberDisplay: r.meterNumberDisplay || '0 - 0',
+      currentMonthConsumption: currentMonthCons,
+      totalConsumption: totalCons,
+      donvi: donvi,
       type: r.loaiSuDung,
-      typeLabel: meterTypeLabel(r.loaiSuDung),
-      usage: r.totalConsumption,
-      overUsage: r.totalConsumption - quota,
+      typeLabel: typeLabel,
+      usage: totalCons,
+      overUsage: totalCons - quota,
       quota,
       readings: r.readings || [],
     };
@@ -125,8 +170,35 @@ export const EwManagement: React.FC = () => {
     year: '',
   });
 
+  // ── Pagination ──
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(10);
+
+  useEffect(() => {
+    setPage(1);
+  }, [usageFilter]);
+
+  const totalCount = usageRows.length;
+  const paginatedUsageRows = React.useMemo(() => {
+    const startIndex = (page - 1) * pageSize;
+    return usageRows.slice(startIndex, startIndex + pageSize);
+  }, [usageRows, page, pageSize]);
+
   // ── Modal Detail ──
   const [detailGroup, setDetailGroup] = useState<BlockUsageGroup | null>(null);
+
+  const openDetailModal = (row: UsageTableRow) => {
+    setDetailGroup({
+      dormName: row.dormName,
+      block: row.block,
+      blockName: row.blockName,
+      blockCode: row.blockCode,
+      roomNumber: row.roomNumber,
+      monthYear: row.hocKy,
+      monthSubgroups: [],
+      rows: [row],
+    });
+  };
 
   // ── Inline Edit Reading in Modal ──
   const [editingReadingId, setEditingReadingId] = useState<number | null>(null);
@@ -178,11 +250,15 @@ export const EwManagement: React.FC = () => {
             }
             return rd;
           });
-          const newTotal = newReadings.reduce((s, x) => s + x.consumption, 0);
+          const diff = val - m.currentValue;
+          const newMonthCons = (r.currentMonthConsumption ?? 0) + diff;
+          const newTotal = (r.totalConsumption ?? r.usage) + diff;
           return {
             ...r,
             readings: newReadings,
             usage: newTotal,
+            currentMonthConsumption: newMonthCons,
+            totalConsumption: newTotal,
             overUsage: newTotal - r.quota,
           };
         });
@@ -238,8 +314,6 @@ export const EwManagement: React.FC = () => {
     if (!usageFilter.termId) return periods;
     return periods.filter((p) => p.termId === Number(usageFilter.termId));
   }, [periods, usageFilter.termId]);
-
-  const isEntireTermView = Boolean(usageFilter.termId && !usageFilter.billingPeriodId);
 
   // ── Auto Preview & File change ──
   const triggerPreview = async (file: File, periodId: number) => {
@@ -402,55 +476,6 @@ export const EwManagement: React.FC = () => {
   useEffect(() => {
     if (activeSection === 'history') loadBatches();
   }, [activeSection, loadBatches]);
-
-  // ── Usage table: group by block -> then monthYear ──
-  const groupedUsage: BlockUsageGroup[] = React.useMemo(() => {
-    const blockMap = new Map<string, UsageTableRow[]>();
-    for (const row of usageRows) {
-      const list = blockMap.get(row.block) || [];
-      list.push(row);
-      blockMap.set(row.block, list);
-    }
-
-    const groups: BlockUsageGroup[] = [];
-    for (const [block, rows] of blockMap.entries()) {
-      const monthMap = new Map<string, UsageTableRow[]>();
-      for (const r of rows) {
-        const mList = monthMap.get(r.monthYear) || [];
-        mList.push(r);
-        monthMap.set(r.monthYear, mList);
-      }
-
-      const monthSubgroups: MonthUsageSubgroup[] = [];
-      for (const [mYear, mRows] of monthMap.entries()) {
-        monthSubgroups.push({
-          monthYear: mYear,
-          recordDate: mRows[0]?.recordDate || '—',
-          rows: mRows,
-        });
-      }
-
-      const firstRow = rows[0];
-      groups.push({
-        block,
-        blockName: firstRow?.blockName || '',
-        blockCode: firstRow?.blockCode || '',
-        roomNumber: firstRow?.roomNumber || '',
-        monthYear: monthSubgroups.map((m) => m.monthYear).join(', '),
-        monthSubgroups,
-        rows,
-      });
-    }
-
-    return groups;
-  }, [usageRows]);
-
-  const totalElectric = usageRows.filter((r) => r.type.toLowerCase().includes('electric'));
-  const totalWater = usageRows.filter((r) => r.type.toLowerCase().includes('water'));
-  const sumElectricUsage = totalElectric.reduce((s, r) => s + r.usage, 0);
-  const sumElectricOver = totalElectric.reduce((s, r) => s + r.overUsage, 0);
-  const sumWaterUsage = totalWater.reduce((s, r) => s + r.usage, 0);
-  const sumWaterOver = totalWater.reduce((s, r) => s + r.overUsage, 0);
 
   return (
     <div className="facilities-container" style={{ padding: '24px 32px' }}>
@@ -637,6 +662,11 @@ export const EwManagement: React.FC = () => {
             )}
           </div>
 
+          {/* Kết quả banner */}
+          <div style={{ fontSize: '18px', fontWeight: 700, color: '#1D4ED8', margin: '4px 0 0 2px' }}>
+            Kết quả: <span style={{ fontWeight: 800 }}>{usageRows.length}</span>
+          </div>
+
           {/* Usage table */}
           <div
             style={{
@@ -660,252 +690,178 @@ export const EwManagement: React.FC = () => {
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
-                  <tr style={{ background: '#F8FAFC' }}>
-                    <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#374151', borderBottom: '2px solid #E2E8F0', width: '22%' }}>
-                      Block / Cụm phòng
+                  <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+                    <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '11%' }}>
+                      Tên Dorm
                     </th>
-                    <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: '#374151', borderBottom: '2px solid #E2E8F0', width: '14%' }}>
-                      Tháng – Năm
+                    <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '9%' }}>
+                      Tên block
                     </th>
-                    <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: '#374151', borderBottom: '2px solid #E2E8F0', width: '14%' }}>
-                      Ngày ghi
+                    <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '10%' }}>
+                      Loại sử dụng
                     </th>
-                    <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: '#374151', borderBottom: '2px solid #E2E8F0', width: '12%' }}>
-                      Loại
+                    <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '11%' }}>
+                      Ngày Tạo
                     </th>
-                    <th style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #E2E8F0', width: '14%' }}>
-                      Tiêu thụ
+                    <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '13%' }}>
+                      Học Kỳ
                     </th>
-                    <th style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #E2E8F0', width: '14%' }}>
-                      Vượt định mức
+                    <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '13%' }}>
+                      Số công tơ (L - R)
                     </th>
-                    <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: '#374151', borderBottom: '2px solid #E2E8F0', width: '10%' }}>
+                    <th style={{ padding: '12px 12px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '11%' }}>
+                      Tiêu thụ tháng
+                    </th>
+                    <th style={{ padding: '12px 12px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '11%' }}>
+                      Tổng tiêu thụ kỳ
+                    </th>
+                    <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '6%' }}>
+                      Đơn vị
+                    </th>
+                    <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '4%' }}>
+                      Reset
+                    </th>
+                    <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '7%' }}>
                       Thao tác
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {groupedUsage.map((blockGroup) => {
-                    let blockRowCounter = 0;
-                    return blockGroup.monthSubgroups.map((monthGroup) => {
-                      return monthGroup.rows.map((row, monthRowIndex) => {
-                        const isFirstBlockRow = blockRowCounter === 0;
-                        blockRowCounter++;
-                        const isFirstMonthRow = monthRowIndex === 0;
-
-                        return (
-                          <tr
-                            key={`${blockGroup.block}-${monthGroup.monthYear}-${row.type}-${monthRowIndex}`}
-                            style={{
-                              borderBottom: '1px solid #F1F5F9',
-                              background: blockRowCounter % 2 === 0 ? '#ffffff' : '#FAFAFA',
-                            }}
-                          >
-                            {/* 1. Block cell — merged across all months of this block */}
-                            {isFirstBlockRow && (
-                              <td
-                                rowSpan={blockGroup.rows.length}
-                                style={{
-                                  padding: '12px 16px',
-                                  verticalAlign: 'middle',
-                                  borderRight: '1px solid #F1F5F9',
-                                  background: '#fff',
-                                }}
-                              >
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <span
-                                    style={{
-                                      display: 'inline-block',
-                                      padding: '4px 10px',
-                                      borderRadius: 6,
-                                      background: '#EFF6FF',
-                                      color: '#1D4ED8',
-                                      fontWeight: 700,
-                                      fontSize: 13,
-                                      cursor: 'pointer',
-                                    }}
-                                    onClick={() => setDetailGroup(blockGroup)}
-                                    title="Bấm để xem chi tiết Block"
-                                  >
-                                    {blockGroup.block}
-                                  </span>
-                                </div>
-                                {blockGroup.blockName && (
-                                  <div style={{ fontSize: 11, color: '#64748B', marginTop: 3 }}>
-                                    {blockGroup.blockName}
-                                  </div>
-                                )}
-                              </td>
-                            )}
-
-                            {/* 2. Month-Year cell — merged across types (Electricity + Water) */}
-                            {isFirstMonthRow && (
-                              <td
-                                rowSpan={monthGroup.rows.length}
-                                style={{
-                                  padding: '12px 16px',
-                                  textAlign: 'center',
-                                  color: '#374151',
-                                  fontWeight: 600,
-                                  verticalAlign: 'middle',
-                                  borderRight: '1px solid #F1F5F9',
-                                  background: '#fff',
-                                }}
-                              >
-                                {monthGroup.monthYear}
-                              </td>
-                            )}
-
-                            {/* 3. Record Date — merged across types of that month */}
-                            {isFirstMonthRow && (
-                              <td
-                                rowSpan={monthGroup.rows.length}
-                                style={{
-                                  padding: '12px 16px',
-                                  textAlign: 'center',
-                                  color: '#475569',
-                                  verticalAlign: 'middle',
-                                  borderRight: '1px solid #F1F5F9',
-                                  background: '#fff',
-                                }}
-                              >
-                                {monthGroup.recordDate}
-                              </td>
-                            )}
-
-                            {/* 4. Meter Type */}
-                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                              <span
-                                style={{
-                                  display: 'inline-block',
-                                  padding: '2px 10px',
-                                  borderRadius: 12,
-                                  fontSize: 12,
-                                  fontWeight: 600,
-                                  background: row.type.toLowerCase().includes('electric') ? '#FFF7ED' : '#EFF6FF',
-                                  color: row.type.toLowerCase().includes('electric') ? '#C2410C' : '#1D4ED8',
-                                }}
-                              >
-                                {row.typeLabel}
-                              </span>
-                            </td>
-
-                            {/* 5. Actual Usage */}
-                            <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#0F172A' }}>
-                              {row.usage.toFixed(2)}{' '}
-                              <span style={{ fontSize: 11, color: '#64748B', fontWeight: 400 }}>
-                                {row.type.toLowerCase().includes('electric') ? 'kWh' : 'm³'}
-                              </span>
-                            </td>
-
-                            {/* 6. Over Usage */}
-                            <td
+                  {paginatedUsageRows.map((row, idx) => {
+                    const isElec = row.typeLabel === 'Điện';
+                    return (
+                      <tr
+                        key={`${row.id}-${row.type}-${idx}`}
+                        style={{
+                          borderBottom: '1px solid #F1F5F9',
+                          background: '#FFFFFF',
+                          transition: 'background 0.15s ease',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = '#F8FAFC')}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = '#FFFFFF')}
+                      >
+                        <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#1E293B' }}>
+                          {row.dormName || 'Dom A'}
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#1E293B' }}>
+                          {row.block}
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                          {isElec ? (
+                            <span
                               style={{
-                                padding: '12px 16px',
-                                textAlign: 'right',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '2px 8px',
+                                borderRadius: 6,
+                                background: '#FFF7ED',
+                                color: '#C2410C',
+                                border: '1px solid #FED7AA',
                                 fontWeight: 700,
-                                color: row.overUsage > 0 ? '#DC2626' : '#15803D',
+                                fontSize: '12px',
                               }}
                             >
-                              {row.overUsage > 0 ? `+${row.overUsage.toFixed(2)}` : row.overUsage.toFixed(2)}
-                            </td>
-
-                            {/* 7. Action Button — merged per block */}
-                            {isFirstBlockRow && (
-                              <td
-                                rowSpan={blockGroup.rows.length}
-                                style={{
-                                  padding: '12px 16px',
-                                  textAlign: 'center',
-                                  verticalAlign: 'middle',
-                                  borderLeft: '1px solid #F1F5F9',
-                                  background: '#fff',
-                                }}
-                              >
-                                <button
-                                  onClick={() => setDetailGroup(blockGroup)}
-                                  style={{
-                                    padding: '6px 12px',
-                                    borderRadius: 6,
-                                    border: '1px solid #CBD5E1',
-                                    background: '#F8FAFC',
-                                    color: '#1E293B',
-                                    fontWeight: 600,
-                                    fontSize: 12,
-                                    cursor: 'pointer',
-                                    transition: 'all 0.15s ease',
-                                    whiteSpace: 'nowrap',
-                                  }}
-                                  onMouseOver={(e) => {
-                                    e.currentTarget.style.background = '#D97026';
-                                    e.currentTarget.style.color = '#fff';
-                                    e.currentTarget.style.borderColor = '#D97026';
-                                  }}
-                                  onMouseOut={(e) => {
-                                    e.currentTarget.style.background = '#F8FAFC';
-                                    e.currentTarget.style.color = '#1E293B';
-                                    e.currentTarget.style.borderColor = '#CBD5E1';
-                                  }}
-                                >
-                                  Xem chi tiết
-                                </button>
-                              </td>
-                            )}
-                          </tr>
-                        );
-                      });
-                    });
+                              Điện
+                            </span>
+                          ) : (
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '2px 8px',
+                                borderRadius: 6,
+                                background: '#EFF6FF',
+                                color: '#1D4ED8',
+                                border: '1px solid #BFDBFE',
+                                fontWeight: 700,
+                                fontSize: '12px',
+                              }}
+                            >
+                              Nước
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center', color: '#475569' }}>
+                          {row.ngayTao}
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center', color: '#475569' }}>
+                          {row.hocKy}
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 500, color: '#1E293B' }}>
+                          {row.meterNumberDisplay}
+                        </td>
+                        <td
+                          style={{
+                            padding: '12px 12px',
+                            textAlign: 'center',
+                            fontWeight: 700,
+                            fontSize: '13px',
+                            color: isElec ? '#C2410C' : '#1D4ED8',
+                          }}
+                        >
+                          {row.currentMonthConsumption}
+                        </td>
+                        <td
+                          style={{
+                            padding: '12px 12px',
+                            textAlign: 'center',
+                            fontWeight: 700,
+                            fontSize: '13px',
+                            color: '#0F172A',
+                          }}
+                        >
+                          {row.totalConsumption}
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center', color: '#64748B' }}>
+                          {row.donvi}
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center', color: '#94A3B8' }}>
+                          —
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                          <button
+                            onClick={() => openDetailModal(row)}
+                            style={{
+                              background: '#EFF6FF',
+                              border: '1px solid #BFDBFE',
+                              borderRadius: 6,
+                              color: '#1D4ED8',
+                              fontWeight: 600,
+                              fontSize: '12px',
+                              cursor: 'pointer',
+                              padding: '4px 12px',
+                              transition: 'all 0.15s ease',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = '#DBEAFE';
+                              e.currentTarget.style.color = '#1E40AF';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = '#EFF6FF';
+                              e.currentTarget.style.color = '#1D4ED8';
+                            }}
+                          >
+                            Chỉnh
+                          </button>
+                        </td>
+                      </tr>
+                    );
                   })}
-
-                  {/* ── Totals rows ── */}
-                  {totalElectric.length > 0 && (
-                    <tr style={{ background: '#FFF7ED', borderTop: '2px solid #FED7AA' }}>
-                      <td colSpan={3} style={{ padding: '12px 16px', fontWeight: 700, color: '#0F172A', textAlign: 'center' }}>
-                        Total electric {isEntireTermView ? '(Định mức kỳ: 200 kWh - 50 kWh/tháng × 4)' : `(Định mức tháng: ${MONTHLY_ELECTRIC_QUOTA} kWh)`}
-                      </td>
-                      <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: '#C2410C' }}>Điện</td>
-                      <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#0F172A' }}>
-                        {sumElectricUsage.toFixed(2)} kWh
-                      </td>
-                      <td
-                        style={{
-                          padding: '12px 16px',
-                          textAlign: 'right',
-                          fontWeight: 700,
-                          color: sumElectricOver > 0 ? '#DC2626' : '#15803D',
-                        }}
-                      >
-                        {sumElectricOver > 0 ? `+${sumElectricOver.toFixed(2)}` : sumElectricOver.toFixed(2)}
-                      </td>
-                      <td style={{ background: '#FFF7ED' }}></td>
-                    </tr>
-                  )}
-                  {totalWater.length > 0 && (
-                    <tr style={{ background: '#EFF6FF', borderTop: '1px solid #BFDBFE' }}>
-                      <td colSpan={3} style={{ padding: '12px 16px', fontWeight: 700, color: '#0F172A', textAlign: 'center' }}>
-                        Total water {isEntireTermView ? '(Định mức kỳ: 12 m³ - 3 m³/tháng × 4)' : `(Định mức tháng: ${MONTHLY_WATER_QUOTA} m³)`}
-                      </td>
-                      <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: '#1D4ED8' }}>Nước</td>
-                      <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#0F172A' }}>
-                        {sumWaterUsage.toFixed(2)} m³
-                      </td>
-                      <td
-                        style={{
-                          padding: '12px 16px',
-                          textAlign: 'right',
-                          fontWeight: 700,
-                          color: sumWaterOver > 0 ? '#DC2626' : '#15803D',
-                        }}
-                      >
-                        {sumWaterOver > 0 ? `+${sumWaterOver.toFixed(2)}` : sumWaterOver.toFixed(2)}
-                      </td>
-                      <td style={{ background: '#EFF6FF' }}></td>
-                    </tr>
-                  )}
                 </tbody>
               </table>
             )}
           </div>
+
+          {/* Pagination */}
+          <Pagination
+            currentPage={page}
+            totalItems={totalCount}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            itemName="bản ghi"
+          />
 
           {/* Quota notes */}
           {usageRows.length > 0 && (
@@ -1432,7 +1388,7 @@ export const EwManagement: React.FC = () => {
                   HỒ SƠ CHI TIẾT CHỈ SỐ
                 </span>
                 <h2 style={{ fontSize: 20, fontWeight: 700, color: '#0F172A', margin: '4px 0' }}>
-                  Block {detailGroup.block} {detailGroup.blockName ? `(${detailGroup.blockName})` : ''}
+                  Block {detailGroup.block} ({detailGroup.block} - {detailGroup.dormName || 'Dom A'})
                 </h2>
                 <div style={{ fontSize: 13, color: '#64748B' }}>
                   Kỳ tính phí: <strong style={{ color: '#0F172A' }}>{detailGroup.monthYear}</strong>
@@ -1459,9 +1415,10 @@ export const EwManagement: React.FC = () => {
             </div>
 
             {/* Quick Summary Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 24 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 24 }}>
               {detailGroup.rows.map((r, ri) => {
-                const isElec = r.type.toLowerCase().includes('electric');
+                const isElec = r.typeLabel === 'Điện' || r.type.toLowerCase().includes('electric') || r.type.toLowerCase().includes('điện');
+                const unitStr = isElec ? 'kWh' : 'm³';
                 const isOver = r.overUsage > 0;
                 return (
                   <div
@@ -1470,19 +1427,19 @@ export const EwManagement: React.FC = () => {
                       background: isElec ? '#FFF7ED' : '#EFF6FF',
                       border: `1px solid ${isElec ? '#FED7AA' : '#BFDBFE'}`,
                       borderRadius: 12,
-                      padding: 16,
+                      padding: 18,
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: isElec ? '#C2410C' : '#1D4ED8' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: isElec ? '#C2410C' : '#1D4ED8' }}>
                         Đồng hồ {r.typeLabel} ({r.monthYear})
                       </span>
                       <span
                         style={{
                           fontSize: 11,
                           fontWeight: 700,
-                          padding: '2px 8px',
-                          borderRadius: 10,
+                          padding: '3px 10px',
+                          borderRadius: 12,
                           background: isOver ? '#FEE2E2' : '#DCFCE7',
                           color: isOver ? '#DC2626' : '#15803D',
                         }}
@@ -1491,20 +1448,41 @@ export const EwManagement: React.FC = () => {
                       </span>
                     </div>
 
-                    <div style={{ fontSize: 24, fontWeight: 800, color: '#0F172A', marginBottom: 6 }}>
-                      {r.usage.toFixed(2)}{' '}
-                      <span style={{ fontSize: 13, fontWeight: 500, color: '#64748B' }}>
-                        {isElec ? 'kWh' : 'm³'}
-                      </span>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                      <div style={{ background: '#FFFFFF', padding: '10px 14px', borderRadius: 8, border: '1px solid #E2E8F0' }}>
+                        <div style={{ fontSize: 11, color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>
+                          Tiêu thụ tháng này
+                        </div>
+                        <div style={{ fontSize: 20, fontWeight: 800, color: isElec ? '#C2410C' : '#1D4ED8', marginTop: 4 }}>
+                          {(r.currentMonthConsumption ?? 0).toFixed(2)}{' '}
+                          <span style={{ fontSize: 12, fontWeight: 500, color: '#64748B' }}>{unitStr}</span>
+                        </div>
+                        <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 2 }}>
+                          (Tổng công tơ mới nhất)
+                        </div>
+                      </div>
+
+                      <div style={{ background: '#FFFFFF', padding: '10px 14px', borderRadius: 8, border: '1px solid #E2E8F0' }}>
+                        <div style={{ fontSize: 11, color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>
+                          Tổng tiêu thụ cả kỳ
+                        </div>
+                        <div style={{ fontSize: 20, fontWeight: 800, color: '#0F172A', marginTop: 4 }}>
+                          {r.totalConsumption.toFixed(2)}{' '}
+                          <span style={{ fontSize: 12, fontWeight: 500, color: '#64748B' }}>{unitStr}</span>
+                        </div>
+                        <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 2 }}>
+                          (Cộng dồn tất cả tháng)
+                        </div>
+                      </div>
                     </div>
 
                     <div style={{ fontSize: 12, color: '#475569', display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed #CBD5E1', paddingTop: 8 }}>
                       <span>Định mức miễn phí:</span>
-                      <strong>{r.quota} {isElec ? 'kWh' : 'm³'}</strong>
+                      <strong>{r.quota} {unitStr}</strong>
                     </div>
                     <div style={{ fontSize: 12, color: isOver ? '#DC2626' : '#15803D', display: 'flex', justifyContent: 'space-between', marginTop: 4, fontWeight: 700 }}>
                       <span>Chênh lệch:</span>
-                      <span>{isOver ? `+${r.overUsage.toFixed(2)}` : r.overUsage.toFixed(2)} {isElec ? 'kWh' : 'm³'}</span>
+                      <span>{isOver ? `+${r.overUsage.toFixed(2)}` : r.overUsage.toFixed(2)} {unitStr}</span>
                     </div>
                   </div>
                 );
@@ -1515,10 +1493,10 @@ export const EwManagement: React.FC = () => {
             <div style={{ marginBottom: 20 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <h4 style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', margin: 0 }}>
-                  Chỉ số công tơ chi tiết từng phòng (Phòng Trái & Phải)
+                  Chỉ số công tơ mới nhất từng phòng (Phòng Trái & Phải)
                 </h4>
                 <span style={{ fontSize: 12, color: '#64748B' }}>
-                  Có thể bấm <strong>"Sửa"</strong> để cập nhật lại chỉ số công tơ
+                  Chỉ hiển thị và cho phép <strong>"Sửa"</strong> chỉ số công tơ mới nhất đã nhập
                 </span>
               </div>
 
@@ -1540,14 +1518,32 @@ export const EwManagement: React.FC = () => {
               )}
 
               {(() => {
-                const allReadings = detailGroup.rows.flatMap((r) => r.readings);
-                if (allReadings.length === 0) {
+                const rawReadings = detailGroup.rows.flatMap((r) => r.readings || []);
+                if (rawReadings.length === 0) {
                   return (
                     <div style={{ padding: 16, background: '#F8FAFC', borderRadius: 8, textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>
                       Không có bản ghi công tơ chi tiết riêng rẽ cho block này.
                     </div>
                   );
                 }
+
+                // Chỉ hiển thị chỉ số mới nhất (lần ghi cuối cùng) của từng phòng
+                const roomLatestMap = new Map<string, EwReadingDetailItem>();
+                const sorted = [...rawReadings].sort((a, b) => {
+                  const tA = a.recordedTime ? new Date(a.recordedTime).getTime() : 0;
+                  const tB = b.recordedTime ? new Date(b.recordedTime).getTime() : 0;
+                  if (tA !== tB) return tA - tB;
+                  return a.readingId - b.readingId;
+                });
+
+                for (const item of sorted) {
+                  const key = `${item.roomId || item.roomNumber}-${item.meterType}`;
+                  roomLatestMap.set(key, item);
+                }
+
+                const latestReadings = Array.from(roomLatestMap.values()).sort((a, b) =>
+                  a.roomNumber.localeCompare(b.roomNumber)
+                );
 
                 return (
                   <div style={{ border: '1px solid #E2E8F0', borderRadius: 8, overflow: 'hidden' }}>
@@ -1566,7 +1562,7 @@ export const EwManagement: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {allReadings.map((m, idx) => {
+                        {latestReadings.map((m, idx) => {
                           const isEditing = editingReadingId === m.readingId;
 
                           return (
@@ -1575,16 +1571,19 @@ export const EwManagement: React.FC = () => {
                               <td style={{ padding: '8px 10px', textAlign: 'center' }}>
                                 <span
                                   style={{
-                                    display: 'inline-block',
-                                    padding: '1px 6px',
-                                    borderRadius: 4,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 3,
+                                    padding: '2px 8px',
+                                    borderRadius: 6,
                                     fontSize: 11,
-                                    fontWeight: 600,
-                                    background: m.meterType.toLowerCase().includes('electric') ? '#FFF7ED' : '#EFF6FF',
-                                    color: m.meterType.toLowerCase().includes('electric') ? '#C2410C' : '#1D4ED8',
+                                    fontWeight: 700,
+                                    background: (m.meterType || '').toLowerCase().includes('electric') || (m.meterType || '').toLowerCase().includes('điện') ? '#FFF7ED' : '#EFF6FF',
+                                    color: (m.meterType || '').toLowerCase().includes('electric') || (m.meterType || '').toLowerCase().includes('điện') ? '#C2410C' : '#1D4ED8',
+                                    border: (m.meterType || '').toLowerCase().includes('electric') || (m.meterType || '').toLowerCase().includes('điện') ? '1px solid #FED7AA' : '1px solid #BFDBFE',
                                   }}
                                 >
-                                  {meterTypeLabel(m.meterType)}
+                                  {(m.meterType || '').toLowerCase().includes('electric') || (m.meterType || '').toLowerCase().includes('điện') ? 'Điện' : 'Nước'}
                                 </span>
                               </td>
                               <td style={{ padding: '8px 10px', textAlign: 'right', color: '#64748B' }}>{m.previousValue.toFixed(2)}</td>
@@ -1617,7 +1616,14 @@ export const EwManagement: React.FC = () => {
                                 )}
                               </td>
 
-                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#D97026' }}>
+                              <td
+                                style={{
+                                  padding: '8px 10px',
+                                  textAlign: 'right',
+                                  fontWeight: 800,
+                                  color: (m.meterType || '').toLowerCase().includes('electric') || (m.meterType || '').toLowerCase().includes('điện') ? '#C2410C' : '#1D4ED8',
+                                }}
+                              >
                                 {isEditing && !isNaN(parseFloat(editReadingValue))
                                   ? (parseFloat(editReadingValue) - m.previousValue).toFixed(2)
                                   : m.consumption.toFixed(2)}
