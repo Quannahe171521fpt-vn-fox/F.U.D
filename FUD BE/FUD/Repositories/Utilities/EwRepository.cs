@@ -19,6 +19,8 @@ namespace FUD.Repositories.Utilities
             var query = from mr in _ctx.MeterReadings
                         join r in _ctx.Rooms on mr.RoomId equals r.Id
                         join b in _ctx.Blocks on r.BlockId equals b.Id
+                        join d in _ctx.Dorms on b.DormId equals d.Id into dGroup
+                        from d in dGroup.DefaultIfEmpty()
                         join bp in _ctx.BillingPeriods on mr.BillingPeriodId equals bp.Id
                         join t in _ctx.Terms on bp.TermId equals t.Id
                         join u in _ctx.Users on mr.RecordedById equals u.Id into uGroup
@@ -40,7 +42,11 @@ namespace FUD.Repositories.Utilities
                             BlockId = b.Id,
                             BlockCode = b.Code,
                             BlockName = b.Name,
+                            DormId = b.DormId,
+                            DormName = d != null ? d.Name : "Dom A",
+                            DormCode = d != null ? d.Code : "A",
                             TermId = t.Id,
+                            TermStartDate = t.StartDate,
                             BillingPeriodId = bp.Id,
                             PeriodStatus = bp.Status,
                             bp.TargetMonth,
@@ -94,6 +100,8 @@ namespace FUD.Repositories.Utilities
                     }
 
                     return (
+                        DormName: x.DormName,
+                        DormCode: x.DormCode,
                         BlockId: x.BlockId,
                         BlockCode: x.BlockCode,
                         BlockName: x.BlockName,
@@ -101,16 +109,37 @@ namespace FUD.Repositories.Utilities
                         DisplayBlock: displayBlock,
                         MeterType: x.MeterType,
                         TermId: x.TermId,
-                        BillingPeriodId: x.BillingPeriodId,
-                        TargetMonth: x.TargetMonth,
-                        TargetYear: x.TargetYear,
-                        PeriodStatus: x.PeriodStatus,
+                        TermStartDate: x.TermStartDate,
                         TermName: x.TermName
                     );
                 })
                 .Select(g => {
-                    var maxDate = g.Max(x => x.RecordedTime);
-                    var readings = g.Select(x => new {
+                    var latestMonth = g.OrderByDescending(x => x.TargetYear).ThenByDescending(x => x.TargetMonth).First();
+                    var latestMonthYear = (latestMonth.TargetYear, latestMonth.TargetMonth);
+                    var latestReadings = g.Where(x => x.TargetYear == latestMonthYear.TargetYear && x.TargetMonth == latestMonthYear.TargetMonth).ToList();
+
+                    var roomL = latestReadings.FirstOrDefault(r => (r.RoomNumber ?? "").EndsWith("L", StringComparison.OrdinalIgnoreCase)) ?? latestReadings.FirstOrDefault();
+                    var roomR = latestReadings.FirstOrDefault(r => (r.RoomNumber ?? "").EndsWith("R", StringComparison.OrdinalIgnoreCase)) ?? (latestReadings.Count > 1 ? latestReadings.Last() : null);
+
+                    string meterDisplay;
+                    if (roomL != null && roomR != null && roomL.RoomId != roomR.RoomId)
+                    {
+                        meterDisplay = $"{roomL.CurrentValue} - {roomR.CurrentValue}";
+                    }
+                    else if (roomL != null)
+                    {
+                        meterDisplay = $"{roomL.CurrentValue} - 0";
+                    }
+                    else
+                    {
+                        meterDisplay = "0 - 0";
+                    }
+
+                    var totalCons = g.Sum(x => x.Consumption ?? (x.CurrentValue - x.PreviousValue));
+                    var currentMonthCons = latestReadings.Sum(x => x.Consumption ?? (x.CurrentValue - x.PreviousValue));
+
+                    // Chỉ trả về các bản ghi chỉ số mới nhất (tháng mới nhất) của từng phòng
+                    var latestReadingsDto = latestReadings.Select(x => new {
                         ReadingId = x.Id,
                         RoomId = x.RoomId,
                         RoomNumber = x.RoomNumber,
@@ -123,36 +152,39 @@ namespace FUD.Repositories.Utilities
                         Status = x.Status,
                         Note = x.Note,
                         RecordedTime = x.RecordedTime,
-                        RecordedByName = x.RecordedByName
+                        RecordedByName = x.RecordedByName,
+                        TargetMonth = x.TargetMonth,
+                        TargetYear = x.TargetYear,
+                        BillingPeriodId = x.BillingPeriodId
                     }).ToList();
-
-                    var roomL = readings.FirstOrDefault(r => r.RoomNumber.EndsWith("L", StringComparison.OrdinalIgnoreCase)) ?? readings.FirstOrDefault();
-                    var roomR = readings.FirstOrDefault(r => r.RoomNumber.EndsWith("R", StringComparison.OrdinalIgnoreCase)) ?? (readings.Count > 1 ? readings.Last() : null);
 
                     return new {
                         Id = g.First().Id,
+                        DormName = g.Key.DormName,
+                        DormCode = g.Key.DormCode,
                         Block = g.Key.DisplayBlock,
                         TenBlock = g.Key.DisplayBlock,
                         BlockCode = g.Key.BlockCode,
                         BlockName = g.Key.BlockName,
                         RoomNumber = g.Key.BaseRoom,
                         TermId = g.Key.TermId,
-                        BillingPeriodId = g.Key.BillingPeriodId,
-                        PeriodStatus = g.Key.PeriodStatus,
-                        TargetMonth = g.Key.TargetMonth,
-                        TargetYear = g.Key.TargetYear,
-                        LoaiSuDung = g.Key.MeterType,
-                        NgayTao = (DateTime?)maxDate,
+                        BillingPeriodId = latestMonth.BillingPeriodId,
+                        PeriodStatus = latestMonth.PeriodStatus,
+                        TargetMonth = latestMonth.TargetMonth,
+                        TargetYear = latestMonth.TargetYear,
+                        LoaiSuDung = g.Key.MeterType == "Electricity" ? "Điện" : "Nước",
+                        RawMeterType = g.Key.MeterType,
+                        NgayTao = g.Key.TermStartDate.ToDateTime(TimeOnly.MinValue),
                         HocKy = g.Key.TermName,
-                        MeterNumberDisplay = $"L: {roomL?.CurrentValue.ToString() ?? "0"} | R: {roomR?.CurrentValue.ToString() ?? "0"}",
-                        TotalConsumption = readings.Sum(x => x.Consumption),
-                        DonVi = g.Key.MeterType == "Electricity" ? "kWh" : "m3",
-                        Readings = readings
+                        MeterNumberDisplay = meterDisplay,
+                        CurrentMonthConsumption = currentMonthCons,
+                        TotalConsumption = totalCons,
+                        DonVi = g.Key.MeterType == "Electricity" ? "kW" : "m³",
+                        Readings = latestReadingsDto
                     };
                 })
-                .OrderBy(x => x.Block)
-                .ThenBy(x => x.TargetYear)
-                .ThenBy(x => x.TargetMonth)
+                .OrderBy(x => x.DormName)
+                .ThenBy(x => x.Block)
                 .ThenBy(x => x.LoaiSuDung)
                 .Cast<object>()
                 .ToList();
