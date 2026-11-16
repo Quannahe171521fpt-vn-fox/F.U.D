@@ -31,8 +31,8 @@ export const RegistrationGuideAndForm: React.FC<RegistrationProps> = () => {
         </div>
         <div className="step-card">
           <div className="step-number">Bước 3</div>
-          <h4 className="step-heading">Xét duyệt & Nộp phí</h4>
-          <p className="step-desc">Nhận thông báo xếp phòng từ Ban Quản lý và hoàn tất nộp phí lưu trú qua cổng thanh toán.</p>
+          <h4 className="step-heading">Xét duyệt</h4>
+          <p className="step-desc">Nhận thông báo xếp phòng từ Ban Quản lý.</p>
         </div>
         <div className="step-card">
           <div className="step-number">Bước 4</div>

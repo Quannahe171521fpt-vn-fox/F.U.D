@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Moq;
 using Xunit;
 
-namespace FUD.Tests.FUD.Facilities
+namespace FUD.Tests.Facilities
 {
     public class EquipmentServiceTests : IDisposable
     {
