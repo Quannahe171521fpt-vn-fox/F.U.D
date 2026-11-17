@@ -16,14 +16,31 @@ import type { NewsItem, EquipmentRecord, EquipmentCatalogItem } from '../types/m
 import { equipmentApi, newsApi, violationApi, requestApi, bookingApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useIdleAwarePolling } from '../utils/useIdleAwarePolling';
+import type { ManagerTab } from '../utils/notificationRouting';
 
-export const ManagerPortal: React.FC = () => {
+interface ManagerPortalProps {
+  activeTab?: ManagerTab;
+  onTabChange?: (tab: ManagerTab) => void;
+}
+
+export const ManagerPortal: React.FC<ManagerPortalProps> = ({
+  activeTab: controlledActiveTab,
+  onTabChange,
+}) => {
   const { currentUser, logout } = useAuth();
 
   // Sidebar navigation tabs
-  const [activeTab, setActiveTab] = useState<'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'blocks' | 'rooms' | 'beds' | 'requests' | 'ew' | 'bookings'>(() => {
+  const [internalTab, setInternalTab] = useState<ManagerTab>(() => {
     return (localStorage.getItem('fud_managerTab') as any) || 'terms';
   });
+  const activeTab = controlledActiveTab ?? internalTab;
+  const setActiveTab = (tab: ManagerTab) => {
+    if (onTabChange) {
+      onTabChange(tab);
+    } else {
+      setInternalTab(tab);
+    }
+  };
   const [pricingTargetTermId, setPricingTargetTermId] = useState<number | null>(null);
   const handleGoToPricing = (termId: number) => {
     setPricingTargetTermId(termId);

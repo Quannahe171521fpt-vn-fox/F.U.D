@@ -2150,3 +2150,109 @@ export const bookingApi = {
     return json.data;
   },
 };
+
+// ── In-App Notifications API ─────────────────────────────────
+export interface NotificationItem {
+  id: number;
+  title: string;
+  content?: string | null;
+  referenceType?: string | null;
+  referenceId?: string | null;
+  channel: string;
+  readFlag: boolean;
+  readTime?: string | null;
+  sentTime: string;
+}
+
+export interface NotificationListResponse {
+  items: NotificationItem[];
+  unreadCount: number;
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface UnreadCountResponse {
+  unreadCount: number;
+}
+
+export interface MarkNotificationReadResponse {
+  id: number;
+  readFlag: boolean;
+  readTime?: string | null;
+  unreadCount: number;
+}
+
+export interface MarkAllNotificationsReadResponse {
+  markedCount: number;
+  unreadCount: number;
+}
+
+export type NotificationReadStatusFilter = 'all' | 'unread' | 'read';
+
+export const notificationApi = {
+  getList: async (
+    params?: {
+      unreadOnly?: boolean;
+      readStatus?: NotificationReadStatusFilter;
+      referenceType?: string;
+      search?: string;
+      page?: number;
+      pageSize?: number;
+    },
+    options?: { signal?: AbortSignal }
+  ): Promise<NotificationListResponse> => {
+    const query = new URLSearchParams();
+    if (params?.unreadOnly) query.append('unreadOnly', 'true');
+    if (params?.readStatus && params.readStatus !== 'all') {
+      query.append('readStatus', params.readStatus);
+    }
+    if (params?.referenceType && params.referenceType !== 'all') {
+      query.append('referenceType', params.referenceType);
+    }
+    const trimmedSearch = params?.search?.trim();
+    if (trimmedSearch) {
+      query.append('search', trimmedSearch);
+    }
+    if (params?.page) query.append('page', params.page.toString());
+    if (params?.pageSize) query.append('pageSize', params.pageSize.toString());
+
+    const qs = query.toString();
+    const res = await authFetch(`${BASE_URL}/notifications${qs ? `?${qs}` : ''}`, {
+      signal: options?.signal,
+    });
+    const json = await safeParseResponse<NotificationListResponse>(
+      res,
+      'Không thể tải danh sách thông báo'
+    );
+    if (!res.ok || json.success === false) {
+      throw new Error(json.message || 'Không thể tải danh sách thông báo');
+    }
+    return json.data;
+  },
+
+  getUnreadCount: async (): Promise<number> => {
+    const res = await authFetch(`${BASE_URL}/notifications/unread-count`);
+    const json = await safeParseResponse<UnreadCountResponse>(res, 'Không thể tải số thông báo chưa đọc');
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải số thông báo chưa đọc');
+    return json.data?.unreadCount ?? 0;
+  },
+
+  markAsRead: async (id: number): Promise<MarkNotificationReadResponse> => {
+    const res = await authFetch(`${BASE_URL}/notifications/${id}/read`, {
+      method: 'PATCH',
+    });
+    const json = await safeParseResponse<MarkNotificationReadResponse>(res, 'Không thể đánh dấu đã đọc');
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể đánh dấu đã đọc');
+    return json.data;
+  },
+
+  markAllAsRead: async (): Promise<MarkAllNotificationsReadResponse> => {
+    const res = await authFetch(`${BASE_URL}/notifications/read-all`, {
+      method: 'PATCH',
+    });
+    const json = await safeParseResponse<MarkAllNotificationsReadResponse>(res, 'Không thể đánh dấu tất cả đã đọc');
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể đánh dấu tất cả đã đọc');
+    return json.data;
+  },
+};

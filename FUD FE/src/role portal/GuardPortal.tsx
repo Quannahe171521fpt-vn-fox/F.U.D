@@ -6,14 +6,29 @@ import { GuardCheckinPage } from '../pages/Checkin/GuardCheckinPage';
 import { GuardBedTransferPage } from '../pages/Requests/GuardBedTransferPage';
 import { EwManagement } from '../pages/FacilityManagement/EwManagement';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
+import type { GuardTab } from '../utils/notificationRouting';
 
 interface GuardPortalProps {
   onLogout: () => void;
+  activeTab?: GuardTab;
+  onTabChange?: (tab: GuardTab) => void;
 }
 
-export const GuardPortal: React.FC<GuardPortalProps> = ({ onLogout }) => {
+export const GuardPortal: React.FC<GuardPortalProps> = ({
+  onLogout,
+  activeTab: controlledActiveTab,
+  onTabChange,
+}) => {
   const { currentUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<'checkin' | 'checkin-list' | 'bed-transfer' | 'create' | 'list' | 'ew' | 'overview'>('checkin');
+  const [internalTab, setInternalTab] = useState<GuardTab>('checkin');
+  const activeTab = controlledActiveTab ?? internalTab;
+  const setActiveTab = (tab: GuardTab) => {
+    if (onTabChange) {
+      onTabChange(tab);
+    } else {
+      setInternalTab(tab);
+    }
+  };
 
   const guardSections: SidebarSection[] = [
     {

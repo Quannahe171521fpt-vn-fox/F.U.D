@@ -3,6 +3,7 @@ using FUD.Infrastructure.Email;
 using FUD.Infrastructure.Storage;
 using FUD.Models;
 using FUD.Repositories.Interfaces.Violations;
+using FUD.Services.Interfaces;
 using FUD.Services.Interfaces.Violations;
 
 namespace FUD.Services.Violations
@@ -12,12 +13,18 @@ namespace FUD.Services.Violations
         private readonly IViolationRepository _violationRepo;
         private readonly IFileStorage _fileStorage;
         private readonly IEmailSender _emailSender;
+        private readonly IInAppNotificationService? _inAppNotificationService;
 
-        public ViolationService(IViolationRepository violationRepo, IFileStorage fileStorage, IEmailSender emailSender)
+        public ViolationService(
+            IViolationRepository violationRepo,
+            IFileStorage fileStorage,
+            IEmailSender emailSender,
+            IInAppNotificationService? inAppNotificationService = null)
         {
             _violationRepo = violationRepo;
             _fileStorage = fileStorage;
             _emailSender = emailSender;
+            _inAppNotificationService = inAppNotificationService;
         }
 
         public async Task<List<ViolationTypeDto>> GetViolationTypesAsync()
@@ -135,6 +142,17 @@ namespace FUD.Services.Violations
 
             await _violationRepo.AddViolationsAsync(violationsToCreate);
 
+            if (_inAppNotificationService != null && violationsToCreate.Count > 0)
+            {
+                var codes = string.Join(", ", violationsToCreate.Select(v => v.Code));
+                await _inAppNotificationService.NotifyRolesAsync(
+                    new[] { AccountConstants.Roles.Manager },
+                    "Biên bản vi phạm mới cần thẩm định",
+                    $"Bảo vệ vừa lập {violationsToCreate.Count} biên bản vi phạm ({codes}). Vui lòng kiểm tra và đánh giá mức độ.",
+                    "Violation",
+                    violationsToCreate[0].Id.ToString());
+            }
+
             return violationsToCreate.Select(MapToDto).ToList();
         }
 
@@ -168,6 +186,16 @@ namespace FUD.Services.Violations
                         studentUser.SuspensionReason = $"Bị đình chỉ nội trú theo quyết định kỷ luật biên bản {v.Code} ({v.FinalLevel})";
                         await _violationRepo.UpdateUserAsync(studentUser);
                     }
+                }
+
+                if (_inAppNotificationService != null)
+                {
+                    await _inAppNotificationService.NotifyUserAsync(
+                        v.StudentId,
+                        $"Kết luận chính thức biên bản {v.Code}",
+                        $"Biên bản {v.Code} đã quá hạn khiếu nại 24h và được chốt mức độ: {v.FinalLevel}.",
+                        "Violation",
+                        v.Id.ToString());
                 }
             }
 
@@ -209,6 +237,16 @@ namespace FUD.Services.Violations
                         studentUser.SuspensionReason = $"Bị đình chỉ nội trú theo quyết định kỷ luật biên bản {v.Code} ({v.FinalLevel})";
                         await _violationRepo.UpdateUserAsync(studentUser);
                     }
+                }
+
+                if (_inAppNotificationService != null)
+                {
+                    await _inAppNotificationService.NotifyUserAsync(
+                        v.StudentId,
+                        $"Kết luận chính thức biên bản {v.Code}",
+                        $"Biên bản {v.Code} đã quá hạn khiếu nại 24h và được chốt mức độ: {v.FinalLevel}.",
+                        "Violation",
+                        v.Id.ToString());
                 }
             }
 
@@ -264,6 +302,16 @@ namespace FUD.Services.Violations
                 await _violationRepo.UpdateViolationAsync(violation);
                 var dismissedUpdated = await _violationRepo.GetViolationByIdAsync(violation.Id);
 
+                if (_inAppNotificationService != null)
+                {
+                    await _inAppNotificationService.NotifyUserAsync(
+                        violation.StudentId,
+                        $"Biên bản vi phạm {violation.Code} đã được bác bỏ",
+                        $"Ban Quản lý đã bác bỏ biên bản {violation.Code}. Lý do: {request.ManagerNote}",
+                        "Violation",
+                        violation.Id.ToString());
+                }
+
                 // Gửi email thông báo bác bỏ cho sinh viên
                 var studentEmail = dismissedUpdated?.Student?.User?.Email;
                 if (!string.IsNullOrWhiteSpace(studentEmail))
@@ -294,6 +342,16 @@ namespace FUD.Services.Violations
             // Mức độ ban đầu: đình chỉ thì chưa đình chỉ ngay (chỉ đình chỉ nếu không gửi complaint trong 24h hoặc sau khi complaint bị từ chối)
 
             var updated = await _violationRepo.GetViolationByIdAsync(violation.Id);
+
+            if (_inAppNotificationService != null)
+            {
+                await _inAppNotificationService.NotifyUserAsync(
+                    violation.StudentId,
+                    $"Thông báo xử lý vi phạm {violation.Code}",
+                    $"Hành vi: {updated?.ViolationType?.Name}. Mức độ đánh giá: {request.InitialLevel}. Bạn có 24 giờ để gửi đơn khiếu nại nếu chưa đồng ý.",
+                    "Violation",
+                    violation.Id.ToString());
+            }
 
             // Gửi email thông báo quyết định xử lý vi phạm cho sinh viên
             var email = updated?.Student?.User?.Email;
@@ -331,6 +389,16 @@ namespace FUD.Services.Violations
             studentUser.SuspendedById = null;
             studentUser.SuspensionReason = null;
             await _violationRepo.UpdateUserAsync(studentUser);
+
+            if (_inAppNotificationService != null)
+            {
+                await _inAppNotificationService.NotifyUserAsync(
+                    studentId,
+                    "Tài khoản nội trú đã được mở khóa",
+                    note ?? "Ban Quản lý đã mở khóa quyền nội trú & đặt phòng của bạn.",
+                    "Violation",
+                    studentId.ToString());
+            }
 
             if (!string.IsNullOrWhiteSpace(studentUser.Email))
             {

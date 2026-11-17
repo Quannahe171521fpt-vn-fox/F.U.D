@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using FUD.DTOs.Booking;
 using FUD.Models;
 using FUD.Repositories.Interfaces.Booking;
+using FUD.Services.Interfaces;
 using FUD.Services.Interfaces.Booking;
 
 namespace FUD.Services.Booking;
@@ -12,10 +13,14 @@ namespace FUD.Services.Booking;
 public class BookingService : IBookingService
 {
     private readonly IBookingRepository _bookingRepo;
+    private readonly IInAppNotificationService? _inAppNotificationService;
 
-    public BookingService(IBookingRepository bookingRepo)
+    public BookingService(
+        IBookingRepository bookingRepo,
+        IInAppNotificationService? inAppNotificationService = null)
     {
         _bookingRepo = bookingRepo;
+        _inAppNotificationService = inAppNotificationService;
     }
 
     public async Task<BookingEligibilityResponseDto> CheckEligibilityAsync(int studentId)
@@ -222,6 +227,16 @@ public class BookingService : IBookingService
         var result = MapToBookingResponse(fullBooking!);
         result.TermPrice = price;
 
+        if (_inAppNotificationService != null)
+        {
+            await _inAppNotificationService.NotifyRolesAsync(
+                new[] { AccountConstants.Roles.Manager },
+                $"Đơn đặt phòng mới #{created.Id}",
+                $"Sinh viên {user.FullName} ({user.Code}) vừa gửi đơn đặt giường {fullBooking?.Bed?.BedCode} - P.{fullBooking?.Bed?.Room?.RoomNumber} ({fullBooking?.Term?.Name}).",
+                "Booking",
+                created.Id.ToString());
+        }
+
         return result;
     }
 
@@ -265,6 +280,26 @@ public class BookingService : IBookingService
         var updated = await _bookingRepo.GetBookingRequestByIdAsync(bookingId);
         var price = await _bookingRepo.GetBedPriceAsync(updated!.BedId, updated.TermId);
 
+        if (_inAppNotificationService != null)
+        {
+            await _inAppNotificationService.NotifyUserAsync(
+                updated.StudentId,
+                "Đơn đặt phòng đã được phê duyệt",
+                $"Đơn đặt giường {updated.Bed?.BedCode} - P.{updated.Bed?.Room?.RoomNumber} ({updated.Term?.Name}) đã được Ban Quản lý phê duyệt. Vui lòng chuẩn bị nhận phòng (Check-in).",
+                "Booking",
+                bookingId.ToString());
+
+            if (updated.Bed?.Room?.Block?.DormId is int dormId && dormId > 0)
+            {
+                await _inAppNotificationService.NotifyDormGuardsAsync(
+                    dormId,
+                    "Sinh viên mới chờ nhận phòng (Check-in)",
+                    $"Sinh viên {updated.Student?.User?.FullName} ({updated.Student?.User?.Code}) đã được duyệt vào P.{updated.Bed?.Room?.RoomNumber} - Giường {updated.Bed?.BedCode}.",
+                    "Checkin",
+                    bookingId.ToString());
+            }
+        }
+
         return new BookingRequestManagerDto
         {
             Id = updated.Id,
@@ -298,6 +333,16 @@ public class BookingService : IBookingService
         await _bookingRepo.RejectBookingAsync(bookingId, managerId, reason);
         var updated = await _bookingRepo.GetBookingRequestByIdAsync(bookingId);
         var price = await _bookingRepo.GetBedPriceAsync(updated!.BedId, updated.TermId);
+
+        if (_inAppNotificationService != null)
+        {
+            await _inAppNotificationService.NotifyUserAsync(
+                updated.StudentId,
+                "Đơn đặt phòng bị từ chối",
+                $"Đơn đặt giường {updated.Bed?.BedCode} ({updated.Term?.Name}) đã bị từ chối. Lý do: {reason}",
+                "Booking",
+                bookingId.ToString());
+        }
 
         return new BookingRequestManagerDto
         {

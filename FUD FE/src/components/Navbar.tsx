@@ -1,14 +1,21 @@
 import React, { useState } from 'react';
 import { Logo } from './Icons';
+import { NotificationBell } from './NotificationBell';
 import { useAuth } from '../contexts/AuthContext';
+import type { NotificationItem } from '../services/api';
+import type { AppView } from '../utils/notificationRouting';
 
 interface NavbarProps {
   onOpenLogin: () => void;
   onNavigate: (sectionId: string) => void;
   currentRole?: 'guest' | 'student' | 'manager';
-  currentView: 'home' | 'announcements' | 'management' | 'admin' | 'guard' | 'student';
-  onChangeView: (view: 'home' | 'announcements' | 'management' | 'admin' | 'guard' | 'student') => void;
+  currentView: AppView;
+  onChangeView: (view: AppView) => void;
   onLogout: () => void;
+  onNavigateNotification?: (item: NotificationItem) => void;
+  onOpenAllNotifications?: () => void;
+  notificationSyncKey?: number;
+  onNotificationsChanged?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -17,6 +24,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentView,
   onChangeView,
   onLogout,
+  onNavigateNotification,
+  onOpenAllNotifications,
+  notificationSyncKey,
+  onNotificationsChanged,
 }) => {
   const { currentUser } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -45,6 +56,15 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="navbar-right-minimal">
             <div className="user-action-group">
               <span className="user-role-label">{getRoleDisplayName()}</span>
+              {currentUser.primaryRole !== 'Admin' && (
+                <NotificationBell
+                  key={currentUser.id}
+                  onNavigateTarget={onNavigateNotification}
+                  onOpenAllNotifications={onOpenAllNotifications}
+                  syncKey={notificationSyncKey}
+                  onNotificationsChanged={onNotificationsChanged}
+                />
+              )}
               <button
                 type="button"
                 onClick={onLogout}
