@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Threading.Tasks;
 using FUD.DTOs.Notifications;
+using FUD.Infrastructure.Email;
 using FUD.Models;
 using FUD.Repositories.Interfaces;
 using FUD.Services.Interfaces;
@@ -17,14 +19,26 @@ public class InAppNotificationService : IInAppNotificationService
     private const int MaxReferenceLength = 50;
     private const int MaxSearchLength = 200;
 
+    private static readonly HashSet<string> EmailEnabledReferenceTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Invoice",
+        "Violation",
+        "Account",
+        "Request",
+        "Booking"
+    };
+
     private readonly INotificationRepository _repo;
+    private readonly INotificationService _emailService;
     private readonly ILogger<InAppNotificationService> _logger;
 
     public InAppNotificationService(
         INotificationRepository repo,
+        INotificationService emailService,
         ILogger<InAppNotificationService> logger)
     {
         _repo = repo;
+        _emailService = emailService;
         _logger = logger;
     }
 
@@ -121,19 +135,21 @@ public class InAppNotificationService : IInAppNotificationService
 
     public Task NotifyUserAsync(
         int userId, string title, string? content,
-        string? referenceType = null, string? referenceId = null)
+        string? referenceType = null, string? referenceId = null,
+        bool skipEmail = false)
     {
         if (userId <= 0)
         {
             return Task.CompletedTask;
         }
 
-        return NotifyUsersAsync(new[] { userId }, title, content, referenceType, referenceId);
+        return NotifyUsersAsync(new[] { userId }, title, content, referenceType, referenceId, skipEmail);
     }
 
     public async Task NotifyUsersAsync(
         IEnumerable<int> userIds, string title, string? content,
-        string? referenceType = null, string? referenceId = null)
+        string? referenceType = null, string? referenceId = null,
+        bool skipEmail = false)
     {
         var safeTitle = Truncate(title, MaxTitleLength);
         if (string.IsNullOrEmpty(safeTitle))
@@ -179,6 +195,12 @@ public class InAppNotificationService : IInAppNotificationService
                 "Không thể lưu InApp notification '{Title}' cho {Count} người dùng",
                 safeTitle,
                 targetIds.Count);
+            return;
+        }
+
+        if (!skipEmail && !string.IsNullOrWhiteSpace(safeRefType) && EmailEnabledReferenceTypes.Contains(safeRefType))
+        {
+            await SendNotificationEmailsAsync(targetIds, safeTitle, safeContent);
         }
     }
 
@@ -232,6 +254,44 @@ public class InAppNotificationService : IInAppNotificationService
                 "Không thể truy vấn bảo vệ tòa DormId={DormId} cho thông báo '{Title}'",
                 dormId,
                 title);
+        }
+    }
+
+    private async Task SendNotificationEmailsAsync(IReadOnlyCollection<int> userIds, string title, string? content)
+    {
+        try
+        {
+            var emailsByUser = await _repo.GetEmailsByUserIdsAsync(userIds);
+            if (emailsByUser == null || emailsByUser.Count == 0)
+            {
+                return;
+            }
+
+            var subject = $"[KTX] {title}";
+            var encodedTitle = WebUtility.HtmlEncode(title);
+            var contentHtml = string.IsNullOrWhiteSpace(content)
+                ? string.Empty
+                : $"<p>{WebUtility.HtmlEncode(content)}</p>";
+
+            var body = $@"
+                <div style=""font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2937"">
+                    <h2 style=""color:#1d4ed8;margin-bottom:12px"">{encodedTitle}</h2>
+                    {contentHtml}
+                    <p style=""margin-top:20px;color:#6b7280;font-size:12px"">Trân trọng,<br/>Ban Quản lý Ký túc xá</p>
+                </div>";
+
+            foreach (var email in emailsByUser.Values.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                await _emailService.SendEmailAsync(email, subject, body);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Không thể gửi email thông báo '{Title}' cho {Count} người dùng",
+                title,
+                userIds.Count);
         }
     }
 

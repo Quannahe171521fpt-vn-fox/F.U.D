@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using FluentAssertions;
+using FUD.Infrastructure.Email;
 using FUD.Models;
 using FUD.Repositories.Interfaces;
 using FUD.Services;
@@ -15,9 +16,10 @@ namespace FUD.Tests.Notifications;
 public class InAppNotificationServiceTests
 {
     private readonly Mock<INotificationRepository> _repoMock = new();
+    private readonly Mock<INotificationService> _emailServiceMock = new();
     private readonly Mock<ILogger<InAppNotificationService>> _loggerMock = new();
 
-    private InAppNotificationService CreateSut() => new(_repoMock.Object, _loggerMock.Object);
+    private InAppNotificationService CreateSut() => new(_repoMock.Object, _emailServiceMock.Object, _loggerMock.Object);
 
     [Fact]
     public async Task GetMyNotificationsAsync_NormalizesInvalidPageAndClampsPageSize()
@@ -183,5 +185,80 @@ public class InAppNotificationServiceTests
         await sut.NotifyRolesAsync(new[] { "Manager", "Manager" }, "Title", "Body");
         captured.Should().NotBeNull();
         captured!.Select(n => n.UserId).Should().Equal(2, 5);
+    }
+
+    [Theory]
+    [InlineData("Invoice")]
+    [InlineData("Violation")]
+    [InlineData("Account")]
+    [InlineData("Request")]
+    [InlineData("Booking")]
+    public async Task NotifyUserAsync_WhenReferenceTypeIsEmailEnabled_SendsEmail(string referenceType)
+    {
+        _repoMock.Setup(r => r.AddRangeAsync(It.IsAny<IEnumerable<Notification>>()))
+            .Returns(Task.CompletedTask);
+        _repoMock.Setup(r => r.GetEmailsByUserIdsAsync(It.IsAny<IEnumerable<int>>()))
+            .ReturnsAsync(new Dictionary<int, string> { { 15, "sv15@fpt.edu.vn" } });
+        _emailServiceMock.Setup(e => e.SendEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(true);
+
+        var sut = CreateSut();
+
+        await sut.NotifyUserAsync(15, "Tiêu đề <test>", "Nội dung & chi tiết", referenceType, "123");
+
+        _emailServiceMock.Verify(e => e.SendEmailAsync(
+            "sv15@fpt.edu.vn",
+            "[KTX] Tiêu đề <test>",
+            It.Is<string>(html =>
+                html.Contains("Ti&#xEA;u &#x111;&#x1EC1; &lt;test&gt;", StringComparison.Ordinal) ||
+                html.Contains("&lt;test&gt;", StringComparison.Ordinal) && html.Contains("&amp;", StringComparison.Ordinal))),
+            Times.Once);
+    }
+
+    [Theory]
+    [InlineData("News")]
+    [InlineData("Utility")]
+    [InlineData(null)]
+    public async Task NotifyUserAsync_WhenReferenceTypeIsNotEmailEnabled_DoesNotSendEmail(string? referenceType)
+    {
+        _repoMock.Setup(r => r.AddRangeAsync(It.IsAny<IEnumerable<Notification>>()))
+            .Returns(Task.CompletedTask);
+
+        var sut = CreateSut();
+
+        await sut.NotifyUserAsync(15, "Thông báo chung", "Nội dung", referenceType, "1");
+
+        _repoMock.Verify(r => r.GetEmailsByUserIdsAsync(It.IsAny<IEnumerable<int>>()), Times.Never);
+        _emailServiceMock.Verify(e => e.SendEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task NotifyUserAsync_WhenSkipEmailIsTrue_DoesNotSendEmail()
+    {
+        _repoMock.Setup(r => r.AddRangeAsync(It.IsAny<IEnumerable<Notification>>()))
+            .Returns(Task.CompletedTask);
+
+        var sut = CreateSut();
+
+        await sut.NotifyUserAsync(15, "Khôi phục", "Nội dung", "Account", "15", skipEmail: true);
+
+        _repoMock.Verify(r => r.GetEmailsByUserIdsAsync(It.IsAny<IEnumerable<int>>()), Times.Never);
+        _emailServiceMock.Verify(e => e.SendEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task NotifyUserAsync_WhenEmailServiceThrows_DoesNotPropagateException()
+    {
+        _repoMock.Setup(r => r.AddRangeAsync(It.IsAny<IEnumerable<Notification>>()))
+            .Returns(Task.CompletedTask);
+        _repoMock.Setup(r => r.GetEmailsByUserIdsAsync(It.IsAny<IEnumerable<int>>()))
+            .ReturnsAsync(new Dictionary<int, string> { { 15, "sv15@fpt.edu.vn" } });
+        _emailServiceMock.Setup(e => e.SendEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+            .ThrowsAsync(new InvalidOperationException("SMTP down"));
+
+        var sut = CreateSut();
+
+        var act = async () => await sut.NotifyUserAsync(15, "Hóa đơn mới", "Chi tiết", "Invoice", "99");
+        await act.Should().NotThrowAsync();
     }
 }

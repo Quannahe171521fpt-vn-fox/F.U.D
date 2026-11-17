@@ -295,4 +295,25 @@ public class NotificationRepositoryTests
         managerIds.Should().Equal(1);
         dorm1GuardIds.Should().Equal(4);
     }
+
+    [Fact]
+    public async Task GetEmailsByUserIdsAsync_ReturnsOnlyActiveNonDeletedUsersWithEmail()
+    {
+        await using var context = CreateInMemoryContext();
+        var repo = new NotificationRepository(context);
+
+        var active = CreateUser(1, "U1", "Active");
+        var suspended = CreateUser(2, "U2", "Suspended");
+        var deleted = CreateUser(3, "U3", "Active", DateTime.UtcNow);
+        var noEmail = CreateUser(4, "U4", "Active");
+        noEmail.Email = "   ";
+
+        context.Users.AddRange(active, suspended, deleted, noEmail);
+        await context.SaveChangesAsync();
+
+        var result = await repo.GetEmailsByUserIdsAsync(new[] { 1, 1, 2, 3, 4, 999, 0 });
+
+        result.Should().HaveCount(1);
+        result[1].Should().Be("u1@fpt.edu.vn");
+    }
 }
