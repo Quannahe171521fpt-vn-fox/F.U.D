@@ -15,13 +15,15 @@ namespace FUD.Tests.BedManagement;
 
 /// <summary>
 /// Unit tests cho BedService (Quản lý giường) - Tầng Service.
-/// Tuân thủ nghiêm ngặt quy tắc AAA (Arrange - Act - Assert) và chuẩn kiểm thử chuyên nghiệp.
+/// Tuân thủ nghiêm ngặt quy tắc AAA (Arrange - Act - Assert) và chuẩn kiểm thử khớp 1-1 với Report-5.1_Unit Test.xlsx.
 /// </summary>
 public class BedServiceTests
 {
     private readonly Mock<IBedRepository> _bedRepoMock = new();
 
     private BedService CreateSut() => new(_bedRepoMock.Object);
+
+    #region Helper Methods
 
     private static (Bed Bed, Room Room, Block Block, Dorm Dorm) CreateSampleBedEntity(
         int bedId = 1,
@@ -46,10 +48,15 @@ public class BedServiceTests
         return (bed, room, block, dorm);
     }
 
+    #endregion
+
     #region GetAllAsync Tests
 
+    /// <summary>
+    /// UTC001 - Normal: Lấy danh sách giường khi có dữ liệu -> Trả về PagedResult đã map DTO chính xác.
+    /// </summary>
     [Fact]
-    public async Task GetAllAsync_WhenBedsExist_ReturnsPagedResultWithMappedDtos()
+    public async Task UTC001_GetAllAsync_WhenBedsExist_ReturnsPagedResultWithMappedDtos()
     {
         // Arrange
         var query = new BedQueryDto { Page = 1, PageSize = 10 };
@@ -82,8 +89,11 @@ public class BedServiceTests
         first.Status.Should().Be("Free");
     }
 
+    /// <summary>
+    /// UTC002 - Boundary: Tìm kiếm giường với bộ lọc không khớp dữ liệu nào -> Trả về PagedResult rỗng (TotalCount = 0).
+    /// </summary>
     [Fact]
-    public async Task GetAllAsync_WhenNoBedsMatchFilter_ReturnsEmptyPagedResult()
+    public async Task UTC002_GetAllAsync_WhenNoBedsMatchFilter_ReturnsEmptyPagedResult()
     {
         // Arrange
         var query = new BedQueryDto { BedCode = "NON_EXISTING", Page = 1, PageSize = 10 };
@@ -105,8 +115,11 @@ public class BedServiceTests
 
     #region GetByIdAsync Tests
 
+    /// <summary>
+    /// UTC003 - Normal: Tìm giường theo ID tồn tại -> Trả về BedDto tương ứng.
+    /// </summary>
     [Fact]
-    public async Task GetByIdAsync_WhenBedExists_ReturnsMappedDto()
+    public async Task UTC003_GetByIdAsync_WhenBedExists_ReturnsMappedDto()
     {
         // Arrange
         const int bedId = 5;
@@ -128,8 +141,11 @@ public class BedServiceTests
         result.BlockName.Should().Be("Block 101");
     }
 
+    /// <summary>
+    /// UTC004 - Boundary: Tìm giường theo ID không tồn tại -> Trả về null.
+    /// </summary>
     [Fact]
-    public async Task GetByIdAsync_WhenBedNotFound_ReturnsNull()
+    public async Task UTC004_GetByIdAsync_WhenBedNotFound_ReturnsNull()
     {
         // Arrange
         const int nonExistentBedId = 999;
@@ -142,14 +158,18 @@ public class BedServiceTests
 
         // Assert
         result.Should().BeNull();
+        _bedRepoMock.Verify(r => r.GetByIdAsync(nonExistentBedId), Times.Once);
     }
 
     #endregion
 
     #region CreateAsync Tests
 
+    /// <summary>
+    /// UTC005 - Normal: Tạo giường mới với thông tin hợp lệ -> Lưu thành công với trạng thái "Free" và trả về DTO.
+    /// </summary>
     [Fact]
-    public async Task CreateAsync_WhenValidInput_CreatesBedWithFreeStatusAndReturnsDto()
+    public async Task UTC005_CreateAsync_WhenValidInput_CreatesBedWithFreeStatusAndReturnsDto()
     {
         // Arrange
         var dto = new CreateBedDto
@@ -185,8 +205,11 @@ public class BedServiceTests
         result.Status.Should().Be("Free");
     }
 
+    /// <summary>
+    /// UTC006 - Abnormal: Phòng không tồn tại -> Bắn ra KeyNotFoundException.
+    /// </summary>
     [Fact]
-    public async Task CreateAsync_WhenRoomDoesNotExist_ThrowsKeyNotFoundException()
+    public async Task UTC006_CreateAsync_WhenRoomDoesNotExist_ThrowsKeyNotFoundException()
     {
         // Arrange
         var dto = new CreateBedDto { RoomId = 999, BedCode = "999-B1" };
@@ -203,8 +226,11 @@ public class BedServiceTests
         _bedRepoMock.Verify(r => r.CreateAsync(It.IsAny<Bed>()), Times.Never);
     }
 
+    /// <summary>
+    /// UTC007 - Abnormal: Mã giường đã tồn tại trong cùng phòng -> Bắn ra InvalidOperationException.
+    /// </summary>
     [Fact]
-    public async Task CreateAsync_WhenBedCodeAlreadyExistsInRoom_ThrowsInvalidOperationException()
+    public async Task UTC007_CreateAsync_WhenBedCodeAlreadyExistsInRoom_ThrowsInvalidOperationException()
     {
         // Arrange
         var dto = new CreateBedDto { RoomId = 10, BedCode = "101L-B1" };
@@ -226,8 +252,11 @@ public class BedServiceTests
 
     #region UpdateAsync Tests
 
+    /// <summary>
+    /// UTC008 - Normal: Cập nhật thông tin giường hợp lệ -> Lưu thành công và trả về DTO đã cập nhật.
+    /// </summary>
     [Fact]
-    public async Task UpdateAsync_WhenValidInput_UpdatesBedAndReturnsDto()
+    public async Task UTC008_UpdateAsync_WhenValidInput_UpdatesBedAndReturnsDto()
     {
         // Arrange
         const int bedId = 1;
@@ -260,8 +289,11 @@ public class BedServiceTests
         result.PositionInRoom.Should().Be(dto.PositionInRoom);
     }
 
+    /// <summary>
+    /// UTC009 - Abnormal: Cập nhật giường không tồn tại -> Bắn ra KeyNotFoundException.
+    /// </summary>
     [Fact]
-    public async Task UpdateAsync_WhenBedNotFound_ThrowsKeyNotFoundException()
+    public async Task UTC009_UpdateAsync_WhenBedNotFound_ThrowsKeyNotFoundException()
     {
         // Arrange
         const int nonExistentBedId = 999;
@@ -279,8 +311,11 @@ public class BedServiceTests
         _bedRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Bed>()), Times.Never);
     }
 
+    /// <summary>
+    /// UTC010 - Abnormal: Đổi mã giường trùng với mã giường khác trong cùng phòng -> Bắn ra InvalidOperationException.
+    /// </summary>
     [Fact]
-    public async Task UpdateAsync_WhenNewBedCodeDuplicateInRoom_ThrowsInvalidOperationException()
+    public async Task UTC010_UpdateAsync_WhenNewBedCodeDuplicateInRoom_ThrowsInvalidOperationException()
     {
         // Arrange
         const int bedId = 1;
@@ -305,8 +340,11 @@ public class BedServiceTests
 
     #region UpdateStatusAsync Tests
 
+    /// <summary>
+    /// UTC011 - Normal: Chuyển trạng thái sang Maintenance khi giường không có sinh viên cư trú/giữ chỗ -> Thành công.
+    /// </summary>
     [Fact]
-    public async Task UpdateStatusAsync_WhenChangingToMaintenanceAndNoActiveResidency_UpdatesSuccessfully()
+    public async Task UTC011_UpdateStatusAsync_WhenChangingToMaintenanceAndNoActiveResidency_UpdatesSuccessfully()
     {
         // Arrange
         const int bedId = 1;
@@ -328,8 +366,11 @@ public class BedServiceTests
         result.Status.Should().Be("Maintenance");
     }
 
+    /// <summary>
+    /// UTC012 - Abnormal: Chuyển trạng thái sang Maintenance khi giường đang có người ở/giữ chỗ -> Bắn ra InvalidOperationException.
+    /// </summary>
     [Fact]
-    public async Task UpdateStatusAsync_WhenChangingToMaintenanceAndBedHasActiveResidency_ThrowsInvalidOperationException()
+    public async Task UTC012_UpdateStatusAsync_WhenChangingToMaintenanceAndBedHasActiveResidency_ThrowsInvalidOperationException()
     {
         // Arrange
         const int bedId = 1;
@@ -350,8 +391,11 @@ public class BedServiceTests
         _bedRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Bed>()), Times.Never);
     }
 
+    /// <summary>
+    /// UTC013 - Normal: Chuyển trạng thái sang "Free" từ bảo trì -> Cập nhật thành công mà không cần kiểm tra cư trú.
+    /// </summary>
     [Fact]
-    public async Task UpdateStatusAsync_WhenChangingToFree_UpdatesStatusWithoutResidencyCheck()
+    public async Task UTC013_UpdateStatusAsync_WhenChangingToFree_UpdatesStatusWithoutResidencyCheck()
     {
         // Arrange
         const int bedId = 1;
@@ -372,8 +416,11 @@ public class BedServiceTests
         result.Status.Should().Be("Free");
     }
 
+    /// <summary>
+    /// UTC014 - Abnormal: Cập nhật trạng thái giường không tồn tại -> Bắn ra KeyNotFoundException.
+    /// </summary>
     [Fact]
-    public async Task UpdateStatusAsync_WhenBedNotFound_ThrowsKeyNotFoundException()
+    public async Task UTC014_UpdateStatusAsync_WhenBedNotFound_ThrowsKeyNotFoundException()
     {
         // Arrange
         const int nonExistentBedId = 999;
@@ -393,4 +440,3 @@ public class BedServiceTests
 
     #endregion
 }
-

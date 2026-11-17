@@ -30,7 +30,8 @@ export type ManagerTab =
   | 'beds'
   | 'requests'
   | 'ew'
-  | 'bookings';
+  | 'bookings'
+  | 'impersonate';
 
 export type StudentTab =
   | 'profile'
@@ -73,6 +74,7 @@ const MANAGER_TABS: readonly string[] = [
   'requests',
   'ew',
   'bookings',
+  'impersonate',
 ];
 
 const STUDENT_TABS: readonly string[] = [
