@@ -34,6 +34,7 @@ export type ManagerTab =
 
 export type StudentTab =
   | 'profile'
+  | 'keeping'
   | 'booking'
   | 'residency-history'
   | 'checkin-records'
@@ -76,6 +77,7 @@ const MANAGER_TABS: readonly string[] = [
 
 const STUDENT_TABS: readonly string[] = [
   'profile',
+  'keeping',
   'booking',
   'residency-history',
   'checkin-records',
