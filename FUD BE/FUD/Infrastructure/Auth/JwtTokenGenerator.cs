@@ -72,6 +72,44 @@ public class JwtTokenGenerator : IJwtTokenGenerator
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
+    public string GenerateImpersonationToken(User student, IEnumerable<string> roles, int managerId)
+    {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, student.Id.ToString()),
+            new("sub", student.Id.ToString()),
+            new("nameid", student.Id.ToString()),
+            new("user_code", student.Code),
+            new(ClaimTypes.Email, student.Email),
+            new("email", student.Email),
+            new(ClaimTypes.Name, student.FullName),
+            new("impersonated_by", managerId.ToString()),
+            new("imp", "true")
+        };
+
+        foreach (var role in roles)
+        {
+            claims.Add(new Claim(ClaimTypes.Role, role));
+            claims.Add(new Claim("role", role));
+        }
+
+        var key = new SymmetricSecurityKey(_keyBytes);
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+        var issuer = string.IsNullOrWhiteSpace(_jwtSettings.Issuer) ? "FUD-API" : _jwtSettings.Issuer;
+        var audience = string.IsNullOrWhiteSpace(_jwtSettings.Audience) ? "FUD-Client" : _jwtSettings.Audience;
+
+        var token = new JwtSecurityToken(
+            issuer: issuer,
+            audience: audience,
+            claims: claims,
+            expires: DateTime.UtcNow.AddHours(2),
+            signingCredentials: creds
+        );
+
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
     public (string RawToken, string TokenHash) GenerateRefreshToken()
     {
         var randomBytes = new byte[64];

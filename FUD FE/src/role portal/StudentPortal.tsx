@@ -23,14 +23,17 @@ interface StudentPortalProps {
   onOpenAnnouncements?: () => void;
   activeTab?: StudentTab;
   onTabChange?: (tab: StudentTab) => void;
+  impersonatedUser?: import('../contexts/AuthContext').UserInfo | null;
 }
 
 export const StudentPortal: React.FC<StudentPortalProps> = ({
   onLogout,
   activeTab: controlledActiveTab,
   onTabChange,
+  impersonatedUser,
 }) => {
-  const { currentUser } = useAuth();
+  const { currentUser: authUser } = useAuth();
+  const currentUser = impersonatedUser || authUser;
   const [internalTab, setInternalTab] = useState<StudentTab>('profile');
   const activeTab = controlledActiveTab ?? internalTab;
   const setActiveTab = (tab: StudentTab) => {

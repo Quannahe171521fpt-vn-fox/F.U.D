@@ -4,6 +4,7 @@ import {
   getAccessToken,
   refreshAccessToken,
   setAccessToken as setApiClientAccessToken,
+  setImpersonationToken,
 } from '../services/apiClient';
 import {
   DEFAULT_IDLE_TIMEOUT_MINUTES,
@@ -34,14 +35,25 @@ export interface UserInfo {
   dormName?: string;
 }
 
+export interface ImpersonationSession {
+  student: UserInfo;
+  token: string;
+  expiresAt: number;
+  managerId: number;
+}
+
 interface AuthContextType {
   currentUser: UserInfo | null;
   accessToken: string | null;
   isLoading: boolean;
   sessionMessage: string | null;
+  impersonation: ImpersonationSession | null;
+  isImpersonating: boolean;
   clearSessionMessage: () => void;
   loginSuccess: (token: string, user: UserInfo, meta?: Partial<SessionMeta>) => void;
   logout: () => Promise<void>;
+  startImpersonation: (session: ImpersonationSession) => void;
+  stopImpersonation: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -90,6 +102,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [accessToken, setAccessTokenState] = useState<string | null>(() => getAccessToken());
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [sessionMessage, setSessionMessage] = useState<string | null>(null);
+  const [impersonation, setImpersonation] = useState<ImpersonationSession | null>(null);
+  const isImpersonating = impersonation !== null;
+
+  const startImpersonation = useCallback((session: ImpersonationSession) => {
+    setImpersonation(session);
+    setImpersonationToken(session.token);
+  }, []);
+
+  const stopImpersonation = useCallback(() => {
+    setImpersonation(null);
+    setImpersonationToken(null);
+  }, []);
+
+  useEffect(() => {
+    if (!impersonation) return;
+    const timeLeft = impersonation.expiresAt - Date.now();
+    if (timeLeft <= 0) {
+      stopImpersonation();
+      return;
+    }
+    const timer = setTimeout(() => {
+      stopImpersonation();
+      alert('Phiên đăng nhập hộ sinh viên đã hết hạn (2 giờ). Đã trở lại tài khoản Quản lý.');
+    }, timeLeft);
+    return () => clearTimeout(timer);
+  }, [impersonation, stopImpersonation]);
 
   const authSeqRef = useRef(0);
   const isLoggingOutRef = useRef(false);
@@ -106,6 +144,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       broadcastAuthEvent({ type: 'EXPIRED', reason, at: Date.now() });
       setApiClientAccessToken(null);
+      setImpersonationToken(null);
+      setImpersonation(null);
       clearSessionStorage();
       setAccessTokenState(null);
       setCurrentUser(null);
@@ -309,6 +349,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = useCallback(async () => {
     authSeqRef.current += 1;
+    setImpersonation(null);
+    setImpersonationToken(null);
     broadcastAuthEvent({ type: 'LOGOUT', at: Date.now() });
     try {
       await logoutApi();
@@ -328,9 +370,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         accessToken,
         isLoading,
         sessionMessage,
+        impersonation,
+        isImpersonating,
         clearSessionMessage,
         loginSuccess,
         logout,
+        startImpersonation,
+        stopImpersonation,
       }}
     >
       {children}

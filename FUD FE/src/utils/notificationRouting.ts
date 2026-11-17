@@ -13,6 +13,7 @@ export type GuardTab =
   | 'checkin'
   | 'checkin-list'
   | 'bed-transfer'
+  | 'bed-transfer-list'
   | 'create'
   | 'list'
   | 'ew'
@@ -32,6 +33,7 @@ export type ManagerTab =
   | 'ew'
   | 'bookings'
   | 'keeping';
+  | 'impersonate';
 
 export type StudentTab =
   | 'profile'
@@ -56,6 +58,7 @@ const GUARD_TABS: readonly string[] = [
   'checkin',
   'checkin-list',
   'bed-transfer',
+  'bed-transfer-list',
   'create',
   'list',
   'ew',
@@ -76,6 +79,7 @@ const MANAGER_TABS: readonly string[] = [
   'ew',
   'bookings',
   'keeping',
+  'impersonate',
 ];
 
 const STUDENT_TABS: readonly string[] = [
