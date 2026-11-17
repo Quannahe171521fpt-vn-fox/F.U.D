@@ -32,7 +32,7 @@ export type ManagerTab =
   | 'requests'
   | 'ew'
   | 'bookings'
-  | 'keeping';
+  | 'keeping'
   | 'impersonate';
 
 export type StudentTab =
