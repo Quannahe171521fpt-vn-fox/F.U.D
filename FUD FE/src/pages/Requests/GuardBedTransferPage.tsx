@@ -26,10 +26,13 @@ const formatVnd = (amount?: number) =>
     ? `${Number(amount).toLocaleString('vi-VN')} đ`
     : '0 đ';
 
-export const GuardBedTransferPage: React.FC = () => {
+interface GuardBedTransferPageProps {
+  mode?: 'pending' | 'history';
+}
+
+export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode = 'pending' }) => {
   const [tasks, setTasks] = useState<TransferInspectionTaskDto[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterTab, setFilterTab] = useState<'pending' | 'completed'>('pending');
   const [selectedTask, setSelectedTask] = useState<TransferInspectionTaskDto | null>(null);
 
   const [equipments, setEquipments] = useState<EditableTransferEquipment[]>([]);
@@ -61,6 +64,11 @@ export const GuardBedTransferPage: React.FC = () => {
   useEffect(() => {
     loadTasks();
   }, []);
+
+  useEffect(() => {
+    setSelectedTask(null);
+    setModalError('');
+  }, [mode]);
 
   const closeModal = () => {
     if (submitting) return;
@@ -186,9 +194,7 @@ export const GuardBedTransferPage: React.FC = () => {
     }
   };
 
-  const pendingCount = tasks.filter((t) => !t.handoverCompleted).length;
-  const completedCount = tasks.filter((t) => t.handoverCompleted).length;
-  const visibleTasks = tasks.filter((t) => (filterTab === 'pending' ? !t.handoverCompleted : t.handoverCompleted));
+  const visibleTasks = tasks.filter((t) => (mode === 'pending' ? !t.handoverCompleted : t.handoverCompleted));
 
   const elecDelta = selectedTask
     ? Math.max(0, (Number(currElectricity) || 0) - selectedTask.previousElectricityReading)
@@ -212,9 +218,15 @@ export const GuardBedTransferPage: React.FC = () => {
     <div className="checkin-page-wrapper">
       <div className="checkin-header">
         <div>
-          <h1>Kiểm tra Chuyển giường Giữa kỳ</h1>
+          <h1>
+            {mode === 'pending'
+              ? 'Trả phòng'
+              : 'Biên bản Trả phòng'}
+          </h1>
           <p>
-            Kiểm tra thiết bị phòng/giường cũ, chốt chỉ số điện nước cuối với sự chứng kiến 3 bên (Sinh viên, Bảo vệ, Bạn cùng phòng) trước khi Quản lý xuất hóa đơn.
+            {mode === 'pending'
+              ? 'Kiểm tra thiết bị phòng/giường cũ, chốt chỉ số điện nước cuối với sự chứng kiến 3 bên (Sinh viên, Bảo vệ, Bạn cùng phòng) trước khi Quản lý xuất hóa đơn.'
+              : 'Tra cứu các biên bản kiểm tra thiết bị và chốt chỉ số điện nước chuyển giường giữa kỳ đã lập.'}
           </p>
         </div>
         <button
@@ -261,44 +273,11 @@ export const GuardBedTransferPage: React.FC = () => {
       )}
 
       <div className="checkin-filter-card">
-        <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
-          <button
-            type="button"
-            onClick={() => setFilterTab('pending')}
-            style={{
-              padding: '8px 14px',
-              borderRadius: 8,
-              border: filterTab === 'pending' ? '1px solid #047857' : '1px solid #CBD5E1',
-              background: filterTab === 'pending' ? '#ECFDF5' : '#FFFFFF',
-              color: filterTab === 'pending' ? '#047857' : '#475569',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            Chờ kiểm tra ({pendingCount})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilterTab('completed')}
-            style={{
-              padding: '8px 14px',
-              borderRadius: 8,
-              border: filterTab === 'completed' ? '1px solid #047857' : '1px solid #CBD5E1',
-              background: filterTab === 'completed' ? '#ECFDF5' : '#FFFFFF',
-              color: filterTab === 'completed' ? '#047857' : '#475569',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            Đã lập biên bản ({completedCount})
-          </button>
-        </div>
-
         {loading ? (
           <p style={{ color: '#64748B', fontSize: 13 }}>Đang tải danh sách đơn được phân công...</p>
         ) : visibleTasks.length === 0 ? (
           <p style={{ color: '#64748B', fontSize: 13, margin: 0 }}>
-            {filterTab === 'pending'
+            {mode === 'pending'
               ? 'Hiện không có đơn chuyển giường nào đang chờ bạn kiểm tra.'
               : 'Chưa có biên bản kiểm tra chuyển giường nào được ghi nhận.'}
           </p>

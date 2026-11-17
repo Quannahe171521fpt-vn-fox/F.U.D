@@ -32,11 +32,12 @@ export const GuardPortal: React.FC<GuardPortalProps> = ({
 
   const guardSections: SidebarSection[] = [
     {
-      label: 'BÀN GIAO PHÒNG (CHECK-IN)',
+      label: 'BÀN GIAO PHÒNG',
       items: [
-        { id: 'checkin', name: 'Check-in nhận phòng', counter: 'Lập biên bản bàn giao' },
-        { id: 'checkin-list', name: 'Biên bản đã Check-in', counter: 'Tra cứu & In biên bản' },
-        { id: 'bed-transfer', name: 'Kiểm tra chuyển giường', counter: 'Chốt thiết bị & điện nước' },
+        { id: 'checkin', name: 'Nhận phòng', counter: 'Lập biên bản bàn giao' },
+        { id: 'checkin-list', name: 'Biên bản đã nhận phòng', counter: 'Tra cứu & In biên bản' },
+        { id: 'bed-transfer', name: 'Trả phòng', counter: 'Chốt thiết bị & điện nước' },
+        { id: 'bed-transfer-list', name: 'Biên bản đã trả phòng', counter: 'Tra cứu biên bản đã lập' },
       ],
     },
     {
@@ -83,7 +84,9 @@ export const GuardPortal: React.FC<GuardPortalProps> = ({
         ) : activeTab === 'checkin-list' ? (
           <GuardCheckinPage mode="history" />
         ) : activeTab === 'bed-transfer' ? (
-          <GuardBedTransferPage />
+          <GuardBedTransferPage mode="pending" />
+        ) : activeTab === 'bed-transfer-list' ? (
+          <GuardBedTransferPage mode="history" />
         ) : activeTab === 'create' ? (
           <RecordViolationPage onSuccessNavigate={() => setActiveTab('list')} />
         ) : activeTab === 'list' ? (

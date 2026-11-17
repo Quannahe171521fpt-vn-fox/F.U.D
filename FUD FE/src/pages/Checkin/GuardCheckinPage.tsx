@@ -391,8 +391,8 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
         <div>
           <h1>
             {mode === 'create'
-              ? 'Check-in Nhận phòng & Bàn giao tài sản'
-              : 'Danh sách Biên bản Bàn giao (Check-in)'}
+              ? 'Nhận phòng & Bàn giao tài sản'
+              : 'Danh sách Biên bản Nhận phòng'}
           </h1>
           <p>
             {mode === 'create'
