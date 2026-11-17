@@ -13,13 +13,15 @@ namespace FUD.Tests.Booking;
 
 /// <summary>
 /// Unit tests cho nghiệp vụ Phê duyệt Đơn đặt phòng (Approve Booking) tại tầng Service.
-/// Tuân thủ quy tắc AAA (Arrange - Act - Assert) và chuẩn kiểm thử chuyên nghiệp.
+/// Tuân thủ quy tắc AAA (Arrange - Act - Assert) và chuẩn kiểm thử khớp 1-1 với Report-5.1_Unit Test.xlsx.
 /// </summary>
 public class ApproveBookingServiceTests
 {
     private readonly Mock<IBookingRepository> _bookingRepoMock = new();
 
     private BookingService CreateSut() => new(_bookingRepoMock.Object);
+
+    #region Helper Methods
 
     private static (BookingRequest Booking, User StudentUser, Student Student, User ManagerUser, Manager Manager, Term Term, Dorm Dorm, Block Block, Room Room, Bed Bed)
         CreateSampleEntities(int bookingId = 1, int studentId = 10, int managerId = 99, int bedId = 20, int termId = 5)
@@ -85,8 +87,15 @@ public class ApproveBookingServiceTests
         return (booking, studentUser, student, managerUser, manager, term, dorm, block, room, bed);
     }
 
+    #endregion
+
+    #region ApproveAsync Tests
+
+    /// <summary>
+    /// UTC001 - Normal: Duyệt đơn đặt phòng Pending hợp lệ -> Gọi repo cập nhật và trả về DTO đã map đầy đủ.
+    /// </summary>
     [Fact]
-    public async Task ApproveAsync_WhenValidPendingBooking_CallsRepoAndReturnsMappedDto()
+    public async Task UTC001_ApproveAsync_WhenValidPendingBooking_CallsRepoAndReturnsMappedDto()
     {
         // Arrange
         const int bookingId = 100;
@@ -131,8 +140,11 @@ public class ApproveBookingServiceTests
         result.RejectReason.Should().BeNull();
     }
 
+    /// <summary>
+    /// UTC002 - Boundary: Duyệt đơn đặt phòng hợp lệ khi chưa có biểu giá giường cho học kỳ -> Trả về DTO với TermPrice = null.
+    /// </summary>
     [Fact]
-    public async Task ApproveAsync_WhenBedPriceIsNull_ReturnsDtoWithNullTermPrice()
+    public async Task UTC002_ApproveAsync_WhenBedPriceIsNull_ReturnsDtoWithNullTermPrice()
     {
         // Arrange
         const int bookingId = 101;
@@ -157,8 +169,11 @@ public class ApproveBookingServiceTests
         result.Status.Should().Be("Approved");
     }
 
+    /// <summary>
+    /// UTC003 - Abnormal: Không tìm thấy đơn đặt phòng với ID cung cấp -> Bắn ra KeyNotFoundException.
+    /// </summary>
     [Fact]
-    public async Task ApproveAsync_WhenBookingNotFound_ThrowsKeyNotFoundException()
+    public async Task UTC003_ApproveAsync_WhenBookingNotFound_ThrowsKeyNotFoundException()
     {
         // Arrange
         const int notFoundBookingId = 999;
@@ -178,8 +193,35 @@ public class ApproveBookingServiceTests
         _bookingRepoMock.Verify(r => r.GetBookingRequestByIdAsync(It.IsAny<int>()), Times.Never);
     }
 
+    /// <summary>
+    /// UTC004 - Boundary: BookingId không hợp lệ (số âm) -> Bắn ra KeyNotFoundException.
+    /// </summary>
     [Fact]
-    public async Task ApproveAsync_WhenBookingAlreadyProcessed_ThrowsInvalidOperationException()
+    public async Task UTC004_ApproveAsync_WhenBookingIdIsNegativeBoundary_ThrowsKeyNotFoundException()
+    {
+        // Arrange
+        const int invalidBookingId = -1;
+        const int managerId = 88;
+
+        _bookingRepoMock.Setup(r => r.ApproveBookingAsync(invalidBookingId, managerId))
+            .ThrowsAsync(new KeyNotFoundException("Không tìm thấy đơn đặt phòng."));
+
+        var sut = CreateSut();
+
+        // Act
+        Func<Task> act = async () => await sut.ApproveAsync(invalidBookingId, managerId);
+
+        // Assert
+        await act.Should().ThrowAsync<KeyNotFoundException>()
+            .WithMessage("*Không tìm thấy đơn đặt phòng*");
+        _bookingRepoMock.Verify(r => r.GetBookingRequestByIdAsync(It.IsAny<int>()), Times.Never);
+    }
+
+    /// <summary>
+    /// UTC005 - Abnormal: Đơn đặt phòng đã được xử lý trước đó (Approved/Rejected) -> Bắn ra InvalidOperationException.
+    /// </summary>
+    [Fact]
+    public async Task UTC005_ApproveAsync_WhenBookingAlreadyProcessed_ThrowsInvalidOperationException()
     {
         // Arrange
         const int bookingId = 102;
@@ -199,8 +241,11 @@ public class ApproveBookingServiceTests
         _bookingRepoMock.Verify(r => r.GetBookingRequestByIdAsync(It.IsAny<int>()), Times.Never);
     }
 
+    /// <summary>
+    /// UTC006 - Abnormal: Giường đã có người đặt hoặc không khả dụng cho học kỳ -> Bắn ra InvalidOperationException.
+    /// </summary>
     [Fact]
-    public async Task ApproveAsync_WhenBedNotAvailableForTerm_ThrowsInvalidOperationException()
+    public async Task UTC006_ApproveAsync_WhenBedNotAvailableForTerm_ThrowsInvalidOperationException()
     {
         // Arrange
         const int bookingId = 103;
@@ -220,8 +265,15 @@ public class ApproveBookingServiceTests
         _bookingRepoMock.Verify(r => r.GetBookingRequestByIdAsync(It.IsAny<int>()), Times.Never);
     }
 
+    #endregion
+
+    #region Post-Approval Business Rules Tests
+
+    /// <summary>
+    /// UTC007 - Boundary: Sinh viên đã có đơn Approved -> CheckEligibility trả về Eligible = false kèm lý do đã được duyệt.
+    /// </summary>
     [Fact]
-    public async Task CheckEligibilityAsync_WhenStudentAlreadyHasApprovedBooking_ReturnsIneligibleWithApprovedReason()
+    public async Task UTC007_CheckEligibilityAsync_WhenStudentAlreadyHasApprovedBooking_ReturnsIneligibleWithApprovedReason()
     {
         // Arrange
         const int studentId = 10;
@@ -254,8 +306,11 @@ public class ApproveBookingServiceTests
         result.CurrentBooking.RequestId.Should().Be(approvedBooking.Id);
     }
 
+    /// <summary>
+    /// UTC008 - Abnormal: Sinh viên đã có đơn Approved -> Cố tình tạo đơn mới sẽ bắn ra InvalidOperationException.
+    /// </summary>
     [Fact]
-    public async Task CreateBookingAsync_WhenStudentAlreadyHasApprovedBooking_ThrowsInvalidOperationException()
+    public async Task UTC008_CreateBookingAsync_WhenStudentAlreadyHasApprovedBooking_ThrowsInvalidOperationException()
     {
         // Arrange
         const int studentId = 10;
@@ -286,5 +341,6 @@ public class ApproveBookingServiceTests
             .WithMessage("Bạn đã có đơn đặt phòng cho học kỳ này.");
         _bookingRepoMock.Verify(r => r.CreateBookingRequestAsync(It.IsAny<BookingRequest>()), Times.Never);
     }
-}
 
+    #endregion
+}

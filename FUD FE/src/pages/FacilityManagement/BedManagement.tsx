@@ -48,12 +48,18 @@ export const BedManagement: React.FC = () => {
   const [statusError, setStatusError] = useState<string | null>(null);
 
   // Load rooms lookup for dropdown
-  useEffect(() => {
-    roomApi
-      .getAll({ pageSize: 500 })
-      .then((res) => setRooms(res.items || []))
-      .catch(() => {});
+  const loadRoomsLookup = useCallback(async () => {
+    try {
+      const res = await roomApi.getAll({ pageSize: 500 });
+      setRooms(res.items || []);
+    } catch (err: any) {
+      console.error('Không thể tải danh sách phòng:', err);
+    }
   }, []);
+
+  useEffect(() => {
+    loadRoomsLookup();
+  }, [loadRoomsLookup]);
 
   // Load beds
   const loadBeds = useCallback(async () => {
@@ -87,6 +93,9 @@ export const BedManagement: React.FC = () => {
 
   // Open Create
   const openCreate = () => {
+    if (rooms.length === 0) {
+      loadRoomsLookup();
+    }
     setEditingBed(null);
     setFormData({
       roomId: rooms[0]?.id || 0,
@@ -449,6 +458,11 @@ export const BedManagement: React.FC = () => {
                       </option>
                     ))}
                   </select>
+                  {rooms.length === 0 && (
+                    <span className="facilities-help-text" style={{ color: '#ef4444', marginTop: '6px', display: 'block' }}>
+                      ⚠️ Chưa có dữ liệu phòng hoặc không tải được danh sách phòng. Vui lòng kiểm tra lại kết nối hoặc thêm phòng tại trang Quản lý phòng.
+                    </span>
+                  )}
                 </div>
               )}
 
