@@ -18,5 +18,7 @@ namespace FUD.DTOs.Facilities.Room
         public string Status { get; set; } = string.Empty;              // "Active" | "Maintenance"
         public int TotalBeds { get; set; }                              // tổng số giường
         public int FreeBeds { get; set; }                               // số giường trống (Status = 'Free')
+        public int OccupiedBeds { get; set; }                           // số giường có sinh viên ở (Status = 'Occupied' | 'Holding' | 'Pending Transfer')
+        public bool IsEditable => OccupiedBeds == 0;                    // Phòng có thể sửa khi không có ai ở
     }
 }

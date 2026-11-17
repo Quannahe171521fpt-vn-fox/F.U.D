@@ -891,6 +891,8 @@ export interface RoomDto {
   status: string;
   totalBeds: number;
   freeBeds: number;
+  occupiedBeds: number;      // số giường có sinh viên ở thực tế
+  isEditable: boolean;       // = occupiedBeds === 0 (do backend tính)
 }
 
 export interface RoomTypeLookup {

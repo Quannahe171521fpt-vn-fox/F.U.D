@@ -30,8 +30,8 @@ public class RoomRepositoryTests
         SeedBasicFacilitiesAsync(FudContext context)
     {
         var dorm = new Dorm { Id = 1, Name = "Dorm A", Code = "DA", CampusId = 1, Status = "Active" };
-        var block1 = new Block { Id = 1, DormId = 1, Name = "Block 101", Code = "B101", GenderType = "Male", Status = "Active", Dorm = dorm };
-        var block2 = new Block { Id = 2, DormId = 1, Name = "Block 102", Code = "B102", GenderType = "Female", Status = "Active", Dorm = dorm };
+        var block1 = new Block { Id = 1, DormId = 1, Name = "Block 101", Code = "B101", FloorLevel = 5, GenderType = "Male", Status = "Active", Dorm = dorm };
+        var block2 = new Block { Id = 2, DormId = 1, Name = "Block 102", Code = "B102", FloorLevel = 3, GenderType = "Female", Status = "Active", Dorm = dorm };
 
         var type2 = new RoomType { Id = 1, Name = "Phòng 2 giường", BedCapacity = 2 };
         var type4 = new RoomType { Id = 2, Name = "Phòng 4 giường", BedCapacity = 4 };
@@ -460,6 +460,40 @@ public class RoomRepositoryTests
 
     #endregion
 
+    #region GetBlockNumberOfFloorsAsync Tests
+
+    [Fact]
+    public async Task GetBlockNumberOfFloorsAsync_WhenBlockExists_ReturnsFloorLevel()
+    {
+        // Arrange
+        using var context = CreateInMemoryContext();
+        await SeedBasicFacilitiesAsync(context);
+        var sut = new RoomRepository(context);
+
+        // Act
+        var floors = await sut.GetBlockNumberOfFloorsAsync(1);
+
+        // Assert
+        floors.Should().Be(5);
+    }
+
+    [Fact]
+    public async Task GetBlockNumberOfFloorsAsync_WhenBlockNotFound_ReturnsNull()
+    {
+        // Arrange
+        using var context = CreateInMemoryContext();
+        await SeedBasicFacilitiesAsync(context);
+        var sut = new RoomRepository(context);
+
+        // Act
+        var floors = await sut.GetBlockNumberOfFloorsAsync(999);
+
+        // Assert
+        floors.Should().BeNull();
+    }
+
+    #endregion
+
     #region CreateAsync & UpdateAsync Tests
 
     [Fact]
@@ -506,6 +540,70 @@ public class RoomRepositoryTests
         var inDb = await context.Rooms.FindAsync(10);
         inDb!.RoomNumber.Should().Be("101L-Renamed");
         inDb.FloorLevel.Should().Be(3);
+    }
+
+    #endregion
+
+    #region IsRoomNumberUniqueOnFloorAsync Tests
+
+    [Fact]
+    public async Task IsRoomNumberUniqueOnFloorAsync_WhenNoDuplicateOnFloor_ReturnsTrue()
+    {
+        // Arrange — Block 1 tầng 1 có phòng "101L", kiểm tra "102L" trên tầng 1 → unique
+        using var context = CreateInMemoryContext();
+        await SeedBasicFacilitiesAsync(context);
+        var sut = new RoomRepository(context);
+
+        // Act
+        var result = await sut.IsRoomNumberUniqueOnFloorAsync(blockId: 1, floorLevel: 1, roomNumber: "102L");
+
+        // Assert
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task IsRoomNumberUniqueOnFloorAsync_WhenDuplicateExistsOnSameFloor_ReturnsFalse()
+    {
+        // Arrange — Block 1 tầng 1 đã có phòng "101L", thêm "101L" nữa → trùng
+        using var context = CreateInMemoryContext();
+        await SeedBasicFacilitiesAsync(context);
+        var sut = new RoomRepository(context);
+
+        // Act — Phòng id=10 đã có RoomNumber="101L", FloorLevel=1, BlockId=1
+        var result = await sut.IsRoomNumberUniqueOnFloorAsync(blockId: 1, floorLevel: 1, roomNumber: "101L");
+
+        // Assert
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task IsRoomNumberUniqueOnFloorAsync_WhenExcludeIdProvided_ExcludesCurrentRoom()
+    {
+        // Arrange — Khi sửa chính phòng đó, phải bỏ qua phòng hiện tại khỏi check trùng
+        using var context = CreateInMemoryContext();
+        await SeedBasicFacilitiesAsync(context);
+        var sut = new RoomRepository(context);
+
+        // Act — Phòng id=10 (101L tầng 1 block 1) exclude chính nó → phải unique
+        var result = await sut.IsRoomNumberUniqueOnFloorAsync(blockId: 1, floorLevel: 1, roomNumber: "101L", excludeId: 10);
+
+        // Assert
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task IsRoomNumberUniqueOnFloorAsync_WhenSameNameDifferentFloor_ReturnsTrue()
+    {
+        // Arrange — Tầng 2 chưa có phòng "101L" → unique dù tầng 1 đã có
+        using var context = CreateInMemoryContext();
+        await SeedBasicFacilitiesAsync(context);
+        var sut = new RoomRepository(context);
+
+        // Act
+        var result = await sut.IsRoomNumberUniqueOnFloorAsync(blockId: 1, floorLevel: 2, roomNumber: "101L");
+
+        // Assert
+        result.Should().BeTrue();
     }
 
     #endregion
