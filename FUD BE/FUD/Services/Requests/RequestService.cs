@@ -8,6 +8,7 @@ using FUD.Infrastructure.Storage;
 using FUD.Models;
 using FUD.Repositories.Interfaces.Requests;
 using FUD.Repositories.Interfaces.Violations;
+using FUD.Services.Interfaces;
 using FUD.Services.Interfaces.Requests;
 
 namespace FUD.Services.Requests
@@ -18,17 +19,20 @@ namespace FUD.Services.Requests
         private readonly IViolationRepository _violationRepo;
         private readonly IFileStorage _fileStorage;
         private readonly IEmailSender _emailSender;
+        private readonly IInAppNotificationService? _inAppNotificationService;
 
         public RequestService(
             IRequestRepository requestRepo,
             IViolationRepository violationRepo,
             IFileStorage fileStorage,
-            IEmailSender emailSender)
+            IEmailSender emailSender,
+            IInAppNotificationService? inAppNotificationService = null)
         {
             _requestRepo = requestRepo;
             _violationRepo = violationRepo;
             _fileStorage = fileStorage;
             _emailSender = emailSender;
+            _inAppNotificationService = inAppNotificationService;
         }
 
         public async Task<List<RequestItemDto>> GetAllRequestsAsync(string? requestType = null, string? status = null)
@@ -222,6 +226,36 @@ namespace FUD.Services.Requests
             }
 
             var reloaded = await _requestRepo.GetRequestByIdAsync(request.Id);
+
+            if (_inAppNotificationService != null)
+            {
+                var studentLabel = studentUser != null
+                    ? $"{studentUser.FullName} ({studentUser.Code})"
+                    : (reloaded?.Student?.User != null
+                        ? $"{reloaded.Student.User.FullName} ({reloaded.Student.User.Code})"
+                        : $"SV #{studentId}");
+                var reqCode = $"REQ-{request.Id:D6}";
+                var title = dto.RequestType switch
+                {
+                    "Complaint" => $"Đơn khiếu nại mới ({reqCode})",
+                    "Checkout" => $"Yêu cầu trả phòng mới ({reqCode})",
+                    _ => $"Đơn yêu cầu mới ({reqCode})"
+                };
+                var kindLabel = dto.RequestType == "Complaint"
+                    ? "khiếu nại"
+                    : dto.RequestType == "Checkout"
+                        ? "trả phòng"
+                        : "yêu cầu";
+                var content = $"Sinh viên {studentLabel} vừa gửi đơn {kindLabel}. Lý do: {request.Reason ?? "Không có"}.";
+
+                await _inAppNotificationService.NotifyRolesAsync(
+                    new[] { AccountConstants.Roles.Manager },
+                    title,
+                    content,
+                    "Request",
+                    request.Id.ToString());
+            }
+
             return MapToDto(reloaded!);
         }
 
@@ -327,6 +361,21 @@ namespace FUD.Services.Requests
 
             toBed.Status = "Pending Transfer";
             await _requestRepo.CreateBedTransferRequestAsync(request, transferRequest, log);
+
+            if (_inAppNotificationService != null)
+            {
+                var reqCode = $"REQ-{request.Id:D6}";
+                var studentLabel = studentUser != null
+                    ? $"{studentUser.FullName} ({studentUser.Code})"
+                    : $"SV #{studentId}";
+
+                await _inAppNotificationService.NotifyRolesAsync(
+                    new[] { AccountConstants.Roles.Manager },
+                    $"Yêu cầu chuyển giường mới ({reqCode})",
+                    $"Sinh viên {studentLabel} yêu cầu chuyển từ giường {activeResidency.Bed.BedCode} sang giường {toBed.BedCode}.",
+                    "Request",
+                    request.Id.ToString());
+            }
 
             var reloaded = await _requestRepo.GetRequestByIdAsync(request.Id);
             return MapToDto(reloaded!);
@@ -679,6 +728,23 @@ namespace FUD.Services.Requests
             }
 
             await _requestRepo.UpdateRequestAsync(req);
+
+            if (_inAppNotificationService != null)
+            {
+                var reqCode = $"REQ-{req.Id:D6}";
+                var decisionText = dto.Decision == "Approved" ? "được chấp thuận" : "bị từ chối";
+                var noteText = string.IsNullOrWhiteSpace(dto.Note)
+                    ? string.Empty
+                    : $" Ghi chú từ Ban Quản lý: {dto.Note.Trim()}.";
+
+                await _inAppNotificationService.NotifyUserAsync(
+                    req.StudentId,
+                    $"Đơn yêu cầu {reqCode} đã {decisionText}",
+                    $"Đơn {req.RequestType} ({reqCode}) của bạn đã {decisionText}.{noteText}",
+                    "Request",
+                    req.Id.ToString());
+            }
+
             return MapToDto(req);
         }
 

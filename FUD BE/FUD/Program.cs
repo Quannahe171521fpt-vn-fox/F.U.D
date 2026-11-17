@@ -303,6 +303,8 @@ builder.Services.AddScoped<FUD.Services.Interfaces.Utilities.IEwService, FUD.Ser
 // ── Account Management DI (UC: Create Account / Assign Roles / Suspend / Restore) ──
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));
 builder.Services.AddScoped<INotificationService, GmailNotificationService>();
+builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
+builder.Services.AddScoped<IInAppNotificationService, InAppNotificationService>();
 builder.Services.AddScoped<IAccountRepository, AccountRepository>();
 builder.Services.AddScoped<IAccountHistoryRepository, AccountHistoryRepository>();
 builder.Services.AddScoped<IAccountService, AccountService>();

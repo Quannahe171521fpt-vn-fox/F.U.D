@@ -12,12 +12,37 @@ import { clearSessionStorage } from './services/sessionManager';
 import { HomePage } from './pages/Homepage/HomePage';
 import { ManagerPortal } from './role portal/ManagerPortal';
 import { AnnouncementsPage } from './pages/Announcements/AnnouncementsPage';
+import { NotificationsPage } from './pages/Notifications/NotificationsPage';
 
-import { newsApi } from './services/api';
+import { newsApi, type NotificationItem } from './services/api';
 import type { NewsItem } from './types/management';
+import {
+  isManagerTab,
+  resolveNotificationTarget,
+  type AppView,
+  type GuardTab,
+  type ManagerTab,
+  type StudentTab,
+} from './utils/notificationRouting';
 
 import './styles/dormitory.css';
 import './styles/management.css';
+
+function getDefaultViewForRole(role: UserInfo['primaryRole']): AppView {
+  if (role === 'Admin') return 'admin';
+  if (role === 'Guard') return 'guard';
+  if (role === 'Manager') return 'management';
+  return 'student';
+}
+
+function getDefaultPortalTabs(): { guard: GuardTab; management: ManagerTab; student: StudentTab } {
+  const savedManagerTab = typeof localStorage !== 'undefined' ? localStorage.getItem('fud_managerTab') : null;
+  return {
+    guard: 'checkin',
+    management: savedManagerTab && isManagerTab(savedManagerTab) ? savedManagerTab : 'terms',
+    student: 'profile',
+  };
+}
 
 export function App() {
   const { currentUser, isLoading, logout: authLogout, sessionMessage, clearSessionMessage } = useAuth();
@@ -29,25 +54,36 @@ export function App() {
     if (!hasUser) return 'guest';
     return (localStorage.getItem('fud_userRole') as 'guest' | 'student' | 'manager') || 'guest';
   });
-  // Main views: home, announcements, management (Ban Quản lý), admin (Quản trị viên), guard (Đội Bảo vệ), student (Sinh viên)
-  const [currentView, setCurrentView] = useState<'home' | 'announcements' | 'management' | 'admin' | 'guard' | 'student'>(() => {
+  // Main views: home, announcements, management (Ban Quản lý), admin (Quản trị viên), guard (Đội Bảo vệ), student (Sinh viên), notifications (Tất cả thông báo)
+  const [currentView, setCurrentView] = useState<AppView>(() => {
     const rawUser = localStorage.getItem('fud_currentUser');
+    const saved = localStorage.getItem('fud_currentView');
     if (!rawUser) {
-      const saved = localStorage.getItem('fud_currentView');
       return saved === 'announcements' ? 'announcements' : 'home';
     }
     try {
-      const user = JSON.parse(rawUser);
-      const role = user.primaryRole;
-      if (role === 'Admin') return 'admin';
-      if (role === 'Guard') return 'guard';
-      if (role === 'Manager') return 'management';
-      return 'student';
+      const user = JSON.parse(rawUser) as UserInfo;
+      if (user.primaryRole !== 'Admin' && saved === 'notifications') {
+        return 'notifications';
+      }
+      return getDefaultViewForRole(user.primaryRole);
     } catch {
       return 'home';
     }
   });
+  const [previousView, setPreviousView] = useState<AppView | null>(null);
+  const [bellSyncKey, setBellSyncKey] = useState(0);
+  const [pageSyncKey, setPageSyncKey] = useState(0);
   const [selectedRoomId, setSelectedRoomId] = useState('room-4');
+  const [portalTabs, setPortalTabs] = useState(getDefaultPortalTabs);
+
+  const resetPortalTabs = () => {
+    setPortalTabs({
+      guard: 'checkin',
+      management: 'terms',
+      student: 'profile',
+    });
+  };
 
   // Sync role and view to localStorage to prevent reset on reload/refresh
   useEffect(() => {
@@ -99,13 +135,13 @@ export function App() {
         setCurrentView(prev => (prev !== 'admin' ? 'admin' : prev));
       } else if (role === 'Guard') {
         setUserRole('manager');
-        setCurrentView(prev => (prev !== 'guard' ? 'guard' : prev));
+        setCurrentView(prev => (prev !== 'guard' && prev !== 'notifications' ? 'guard' : prev));
       } else if (role === 'Manager') {
         setUserRole('manager');
-        setCurrentView(prev => (prev !== 'management' ? 'management' : prev));
+        setCurrentView(prev => (prev !== 'management' && prev !== 'notifications' ? 'management' : prev));
       } else {
         setUserRole('student');
-        setCurrentView(prev => (prev !== 'student' ? 'student' : prev));
+        setCurrentView(prev => (prev !== 'student' && prev !== 'notifications' ? 'student' : prev));
       }
     } else {
       setUserRole('guest');
@@ -117,6 +153,8 @@ export function App() {
     const onSessionExpired = () => {
       setUserRole('guest');
       setCurrentView('home');
+      setPreviousView(null);
+      resetPortalTabs();
     };
     window.addEventListener('fud:session-expired', onSessionExpired);
     return () => window.removeEventListener('fud:session-expired', onSessionExpired);
@@ -136,6 +174,8 @@ export function App() {
 
   const handleLoginSuccess = (user: UserInfo) => {
     clearSessionMessage();
+    resetPortalTabs();
+    setPreviousView(null);
     // Điều hướng trực tiếp theo role ngay khi login thành công
     const role = user.primaryRole;
     if (role === 'Admin') {
@@ -157,10 +197,50 @@ export function App() {
     await authLogout();
     setUserRole('guest');
     setCurrentView('home');
+    setPreviousView(null);
     clearSessionStorage();
+    resetPortalTabs();
+  };
+
+  const handleNavigateFromNotification = (item: NotificationItem) => {
+    if (!currentUser) return;
+    const target = resolveNotificationTarget(currentUser.primaryRole, item.referenceType);
+    if (!target) return;
+
+    setPreviousView(null);
+    if (target.role === 'Guard') {
+      setCurrentView('guard');
+      setPortalTabs((prev) => ({ ...prev, guard: target.tabId }));
+    } else if (target.role === 'Manager') {
+      setCurrentView('management');
+      setPortalTabs((prev) => ({ ...prev, management: target.tabId }));
+    } else {
+      setCurrentView('student');
+      setPortalTabs((prev) => ({ ...prev, student: target.tabId }));
+    }
+  };
+
+  const handleOpenAllNotifications = () => {
+    if (!currentUser || currentUser.primaryRole === 'Admin') return;
+    setPreviousView((prev) => (currentView !== 'notifications' ? currentView : prev));
+    setCurrentView('notifications');
+  };
+
+  const handleBackFromNotifications = () => {
+    const fallback = currentUser ? getDefaultViewForRole(currentUser.primaryRole) : 'home';
+    const target =
+      previousView && previousView !== 'notifications'
+        ? previousView
+        : fallback;
+    setPreviousView(null);
+    setCurrentView(target);
   };
 
   const isRestoringSession = isLoading && Boolean(currentUser);
+  const effectiveView: AppView =
+    currentView === 'notifications' && (!currentUser || currentUser.primaryRole === 'Admin')
+      ? 'home'
+      : currentView;
 
   return (
     <div className="dormitory-page-wrapper">
@@ -169,9 +249,13 @@ export function App() {
         onOpenLogin={() => setIsLoginOpen(true)}
         onNavigate={scrollToSection}
         currentRole={userRole}
-        currentView={currentView}
+        currentView={effectiveView}
         onChangeView={setCurrentView}
         onLogout={handleLogout}
+        onNavigateNotification={handleNavigateFromNotification}
+        onOpenAllNotifications={handleOpenAllNotifications}
+        notificationSyncKey={bellSyncKey}
+        onNotificationsChanged={() => setPageSyncKey((k) => k + 1)}
       />
 
       {sessionMessage && !currentUser && !isLoading && (
@@ -241,30 +325,53 @@ export function App() {
       )}
 
       {/* VIEW 0: Admin Portal (Trang quản trị hệ thống dành riêng cho Admin) */}
-      {!isRestoringSession && currentView === 'admin' && (
+      {!isRestoringSession && effectiveView === 'admin' && (
         <AdminPortal onLogout={handleLogout} />
       )}
 
       {/* VIEW 0.5: Guard Portal (Trang nghiệp vụ dành riêng cho Bảo vệ) */}
-      {!isRestoringSession && currentView === 'guard' && (
-        <GuardPortal onLogout={handleLogout} />
-      )}
-
-      {/* VIEW 1: Dedicated Management Portal with Sidebar (Ban Quản lý) */}
-      {!isRestoringSession && currentView === 'management' && (
-        <ManagerPortal />
-      )}
-
-      {/* VIEW 1.5: Student Portal (Cổng Sinh viên) */}
-      {!isRestoringSession && currentView === 'student' && (
-        <StudentPortal
+      {!isRestoringSession && effectiveView === 'guard' && (
+        <GuardPortal
           onLogout={handleLogout}
-          onOpenAnnouncements={() => setCurrentView('announcements')}
+          activeTab={portalTabs.guard}
+          onTabChange={(tab) => setPortalTabs((prev) => ({ ...prev, guard: tab }))}
         />
       )}
 
+      {/* VIEW 1: Dedicated Management Portal with Sidebar (Ban Quản lý) */}
+      {!isRestoringSession && effectiveView === 'management' && (
+        <ManagerPortal
+          activeTab={portalTabs.management}
+          onTabChange={(tab) => setPortalTabs((prev) => ({ ...prev, management: tab }))}
+        />
+      )}
+
+      {/* VIEW 1.5: Student Portal (Cổng Sinh viên) */}
+      {!isRestoringSession && effectiveView === 'student' && (
+        <StudentPortal
+          onLogout={handleLogout}
+          onOpenAnnouncements={() => setCurrentView('announcements')}
+          activeTab={portalTabs.student}
+          onTabChange={(tab) => setPortalTabs((prev) => ({ ...prev, student: tab }))}
+        />
+      )}
+
+      {/* VIEW 1.8: All Notifications Page (Student, Manager, Guard) */}
+      {!isRestoringSession &&
+        effectiveView === 'notifications' &&
+        currentUser &&
+        currentUser.primaryRole !== 'Admin' && (
+          <NotificationsPage
+            userRole={currentUser.primaryRole}
+            syncKey={pageSyncKey}
+            onBack={handleBackFromNotifications}
+            onNavigateTarget={handleNavigateFromNotification}
+            onNotificationsChanged={() => setBellSyncKey((k) => k + 1)}
+          />
+        )}
+
       {/* VIEW 2: Dedicated Announcements Page */}
-      {currentView === 'announcements' && (
+      {effectiveView === 'announcements' && (
         <main>
           <AnnouncementsPage
             newsList={publicNews}
@@ -274,7 +381,7 @@ export function App() {
       )}
 
       {/* VIEW 3: Homepage Page in Homepage folder */}
-      {currentView === 'home' && (
+      {effectiveView === 'home' && (
         <HomePage
           selectedRoomId={selectedRoomId}
           onSelectRoom={handleSelectRoom}
@@ -283,10 +390,10 @@ export function App() {
         />
       )}
 
-      {/* Footer is only rendered on Homepage & Announcements, keeping Portals layout clean without line cuts */}
-      {currentView !== 'management' && currentView !== 'admin' && currentView !== 'guard' && currentView !== 'student' && (
+      {/* Footer is only rendered on Homepage & Announcements, keeping Portals & Notifications layout clean without line cuts */}
+      {(effectiveView === 'home' || effectiveView === 'announcements') && (
         <Footer onNavigate={(sec) => {
-          if (currentView !== 'home') {
+          if (effectiveView !== 'home') {
             setCurrentView('home');
             setTimeout(() => scrollToSection(sec), 100);
           } else {

@@ -2,6 +2,7 @@ using FUD.DTOs.Utilities;
 using FUD.Infrastructure.Excel;
 using FUD.Models;
 using FUD.Repositories.Interfaces.Utilities;
+using FUD.Services.Interfaces;
 using FUD.Services.Interfaces.Utilities;
 
 namespace FUD.Services.Utilities
@@ -9,10 +10,12 @@ namespace FUD.Services.Utilities
     public class EwService : IEwService
     {
         private readonly IEwRepository _ewRepo;
+        private readonly IInAppNotificationService? _inAppNotificationService;
 
-        public EwService(IEwRepository ewRepo)
+        public EwService(IEwRepository ewRepo, IInAppNotificationService? inAppNotificationService = null)
         {
             _ewRepo = ewRepo;
+            _inAppNotificationService = inAppNotificationService;
         }
 
         public async Task<IEnumerable<object>> GetUsagesAsync(string? blockCode, string? meterType, int? month, int? year, int? termId = null, int? billingPeriodId = null)
@@ -380,6 +383,16 @@ namespace FUD.Services.Utilities
                 });
             }
 
+            if (_inAppNotificationService != null && response.Flagged > 0)
+            {
+                await _inAppNotificationService.NotifyRolesAsync(
+                    new[] { AccountConstants.Roles.Manager },
+                    $"Cảnh báo chỉ số điện/nước bất thường (T{period.TargetMonth}/{period.TargetYear})",
+                    $"Phát hiện {response.Flagged} chỉ số điện/nước bất thường khi nhập liệu tại block {request.BlockCode}. Vui lòng kiểm tra.",
+                    "Utility",
+                    period.Id.ToString());
+            }
+
             return response;
         }
 
@@ -645,6 +658,16 @@ namespace FUD.Services.Utilities
 
             batch.ErrorRows = errorRows;
             await _ewRepo.SaveChangesAsync();
+
+            if (_inAppNotificationService != null && flaggedReadings > 0)
+            {
+                await _inAppNotificationService.NotifyRolesAsync(
+                    new[] { AccountConstants.Roles.Manager },
+                    $"Cảnh báo chỉ số điện/nước bất thường (T{period.TargetMonth}/{period.TargetYear})",
+                    $"File import '{request.FileName}' phát hiện {flaggedReadings} chỉ số bất thường. Vui lòng kiểm tra và đối soát.",
+                    "Utility",
+                    period.Id.ToString());
+            }
 
             return new ExcelConfirmImportResponseDto
             {

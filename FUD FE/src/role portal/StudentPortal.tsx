@@ -14,16 +14,31 @@ import { StudentEwUsagePage } from '../pages/Student/StudentEwUsagePage';
 import type { NewsItem } from '../types/management';
 import { useAuth } from '../contexts/AuthContext';
 import { useIdleAwarePolling } from '../utils/useIdleAwarePolling';
+import { isStudentTab, type StudentTab } from '../utils/notificationRouting';
 import '../styles/management.css';
 
 interface StudentPortalProps {
   onLogout?: () => void;
   onOpenAnnouncements?: () => void;
+  activeTab?: StudentTab;
+  onTabChange?: (tab: StudentTab) => void;
 }
 
-export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
+export const StudentPortal: React.FC<StudentPortalProps> = ({
+  onLogout,
+  activeTab: controlledActiveTab,
+  onTabChange,
+}) => {
   const { currentUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<string>('profile');
+  const [internalTab, setInternalTab] = useState<StudentTab>('profile');
+  const activeTab = controlledActiveTab ?? internalTab;
+  const setActiveTab = (tab: StudentTab) => {
+    if (onTabChange) {
+      onTabChange(tab);
+    } else {
+      setInternalTab(tab);
+    }
+  };
   const [newsList, setNewsList] = useState<NewsItem[]>([]);
   const [hasNewViolationNotice, setHasNewViolationNotice] = useState<boolean>(false);
   const [hasNewAnnouncements, setHasNewAnnouncements] = useState<boolean>(false);
@@ -111,7 +126,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onLogout }) => {
   });
 
   const handleTabSelect = (tabId: string) => {
-    setActiveTab(tabId);
+    if (isStudentTab(tabId)) {
+      setActiveTab(tabId);
+    }
     if (tabId === 'announcements') {
       setHasNewAnnouncements(false);
       localStorage.setItem(`lastSeenNews_${currentUser?.id || 'guest'}`, Date.now().toString());
