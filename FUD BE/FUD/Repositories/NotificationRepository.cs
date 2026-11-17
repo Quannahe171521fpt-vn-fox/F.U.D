@@ -169,4 +169,26 @@ public class NotificationRepository : INotificationRepository
             .Distinct()
             .ToListAsync();
     }
+
+    public async Task<Dictionary<int, string>> GetEmailsByUserIdsAsync(IEnumerable<int> userIds)
+    {
+        var ids = userIds
+            .Where(id => id > 0)
+            .Distinct()
+            .ToList();
+
+        if (ids.Count == 0)
+        {
+            return new Dictionary<int, string>();
+        }
+
+        return await _context.Users
+            .AsNoTracking()
+            .Where(u => ids.Contains(u.Id)
+                        && u.DeletedAt == null
+                        && u.AccountStatus == AccountConstants.Statuses.Active
+                        && !string.IsNullOrWhiteSpace(u.Email))
+            .Select(u => new { u.Id, u.Email })
+            .ToDictionaryAsync(u => u.Id, u => u.Email);
+    }
 }

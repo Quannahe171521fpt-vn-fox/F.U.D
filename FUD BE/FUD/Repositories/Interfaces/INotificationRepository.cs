@@ -28,4 +28,6 @@ public interface INotificationRepository
     Task<List<int>> GetActiveUserIdsByRolesAsync(IEnumerable<string> roleNames);
 
     Task<List<int>> GetActiveGuardUserIdsByDormAsync(int dormId);
+
+    Task<Dictionary<int, string>> GetEmailsByUserIdsAsync(IEnumerable<int> userIds);
 }

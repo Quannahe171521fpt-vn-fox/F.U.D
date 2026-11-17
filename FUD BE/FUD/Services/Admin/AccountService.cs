@@ -473,7 +473,8 @@ public class AccountService : IAccountService
                 "Tài khoản đã được khôi phục",
                 $"Tài khoản {user.Code} đã được kích hoạt hoạt động trở lại.{(string.IsNullOrWhiteSpace(reason) ? string.Empty : $" Lý do: {reason}")}",
                 "Account",
-                userId.ToString());
+                userId.ToString(),
+                skipEmail: true);
         }
 
         var updated = await _accountRepo.GetByIdAsync(userId);

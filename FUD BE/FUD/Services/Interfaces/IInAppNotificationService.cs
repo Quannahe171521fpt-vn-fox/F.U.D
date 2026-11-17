@@ -23,11 +23,13 @@ public interface IInAppNotificationService
 
     Task NotifyUserAsync(
         int userId, string title, string? content,
-        string? referenceType = null, string? referenceId = null);
+        string? referenceType = null, string? referenceId = null,
+        bool skipEmail = false);
 
     Task NotifyUsersAsync(
         IEnumerable<int> userIds, string title, string? content,
-        string? referenceType = null, string? referenceId = null);
+        string? referenceType = null, string? referenceId = null,
+        bool skipEmail = false);
 
     Task NotifyRolesAsync(
         IEnumerable<string> roles, string title, string? content,
