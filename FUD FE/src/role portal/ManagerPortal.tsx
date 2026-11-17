@@ -11,6 +11,7 @@ import { ManagerViolationManagement } from '../pages/Violations/ManagerViolation
 import { ManagerRequestManagement } from '../pages/Requests/ManagerRequestManagement';
 import { ManagerBookingManagement } from '../pages/Booking/ManagerBookingManagement';
 import { EwManagement } from '../pages/FacilityManagement/EwManagement';
+import { ImpersonateStudentPage } from '../pages/Manager/ImpersonateStudentPage';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
 import type { NewsItem, EquipmentRecord, EquipmentCatalogItem } from '../types/management';
 import { equipmentApi, newsApi, violationApi, requestApi, bookingApi } from '../services/api';
@@ -403,6 +404,16 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({
         },
       ],
     },
+    {
+      label: 'HỖ TRỢ SINH VIÊN',
+      items: [
+        {
+          id: 'impersonate',
+          name: 'Đăng nhập thay SV',
+          counter: 'Hỗ trợ từ xa',
+        },
+      ],
+    },
   ];
 
   return (
@@ -460,6 +471,8 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({
           <ManagerBookingManagement />
         ) : activeTab === 'ew' ? (
           <EwManagement />
+        ) : activeTab === 'impersonate' ? (
+          <ImpersonateStudentPage />
         ) : (
           <ManagerViolationManagement />
         )}

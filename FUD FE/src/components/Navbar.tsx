@@ -29,10 +29,13 @@ export const Navbar: React.FC<NavbarProps> = ({
   notificationSyncKey,
   onNotificationsChanged,
 }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, isImpersonating, impersonation } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const getRoleDisplayName = () => {
+    if (isImpersonating && impersonation) {
+      return `Đang hỗ trợ: ${impersonation.student.fullName} (${impersonation.student.code})`;
+    }
     if (!currentUser) return '';
     const roleMap: Record<string, string> = {
       Admin: 'Quản trị viên',
@@ -65,14 +68,26 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onNotificationsChanged={onNotificationsChanged}
                 />
               )}
-              <button
-                type="button"
-                onClick={onLogout}
-                className="btn-logout"
-                title="Đăng xuất khỏi hệ thống"
-              >
-                Đăng xuất
-              </button>
+              {isImpersonating ? (
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  className="btn-logout"
+                  style={{ backgroundColor: '#EA580C', borderColor: '#EA580C', color: '#FFFFFF', fontWeight: 700 }}
+                  title="Thoát chế độ đăng nhập hộ và trở về trang Quản lý"
+                >
+                  Thoát hỗ trợ
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  className="btn-logout"
+                  title="Đăng xuất khỏi hệ thống"
+                >
+                  Đăng xuất
+                </button>
+              )}
             </div>
           </div>
         </div>

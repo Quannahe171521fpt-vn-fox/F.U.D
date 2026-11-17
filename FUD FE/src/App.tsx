@@ -13,6 +13,7 @@ import { HomePage } from './pages/Homepage/HomePage';
 import { ManagerPortal } from './role portal/ManagerPortal';
 import { AnnouncementsPage } from './pages/Announcements/AnnouncementsPage';
 import { NotificationsPage } from './pages/Notifications/NotificationsPage';
+import { ImpersonationBanner } from './components/ImpersonationBanner';
 
 import { newsApi, type NotificationItem } from './services/api';
 import type { NewsItem } from './types/management';
@@ -45,7 +46,16 @@ function getDefaultPortalTabs(): { guard: GuardTab; management: ManagerTab; stud
 }
 
 export function App() {
-  const { currentUser, isLoading, logout: authLogout, sessionMessage, clearSessionMessage } = useAuth();
+  const {
+    currentUser,
+    isLoading,
+    logout: authLogout,
+    sessionMessage,
+    clearSessionMessage,
+    impersonation,
+    isImpersonating,
+    stopImpersonation,
+  } = useAuth();
 
   const [isLoginOpen, setIsLoginOpen] = useState(false);
 
@@ -138,7 +148,9 @@ export function App() {
         setCurrentView(prev => (prev !== 'guard' && prev !== 'notifications' ? 'guard' : prev));
       } else if (role === 'Manager') {
         setUserRole('manager');
-        setCurrentView(prev => (prev !== 'management' && prev !== 'notifications' ? 'management' : prev));
+        if (!isImpersonating) {
+          setCurrentView(prev => (prev !== 'management' && prev !== 'notifications' ? 'management' : prev));
+        }
       } else {
         setUserRole('student');
         setCurrentView(prev => (prev !== 'student' && prev !== 'notifications' ? 'student' : prev));
@@ -193,7 +205,24 @@ export function App() {
     }
   };
 
+  const handleExitImpersonation = () => {
+    stopImpersonation();
+    setUserRole('manager');
+    setCurrentView('management');
+    setPortalTabs((prev) => ({ ...prev, management: 'impersonate', student: 'profile' }));
+  };
+
+  useEffect(() => {
+    if (isImpersonating) {
+      setPortalTabs((prev) => ({ ...prev, student: 'profile' }));
+    }
+  }, [isImpersonating]);
+
   const handleLogout = async () => {
+    if (isImpersonating) {
+      handleExitImpersonation();
+      return;
+    }
     await authLogout();
     setUserRole('guest');
     setCurrentView('home');
@@ -244,14 +273,17 @@ export function App() {
 
   return (
     <div className="dormitory-page-wrapper">
+      {/* 0. Impersonation Banner cảnh báo khi Manager đang hỗ trợ sinh viên */}
+      <ImpersonationBanner />
+
       {/* 1. Navigation Header */}
       <Navbar
         onOpenLogin={() => setIsLoginOpen(true)}
         onNavigate={scrollToSection}
-        currentRole={userRole}
-        currentView={effectiveView}
+        currentRole={isImpersonating ? 'student' : userRole}
+        currentView={isImpersonating ? 'student' : effectiveView}
         onChangeView={setCurrentView}
-        onLogout={handleLogout}
+        onLogout={isImpersonating ? handleExitImpersonation : handleLogout}
         onNavigateNotification={handleNavigateFromNotification}
         onOpenAllNotifications={handleOpenAllNotifications}
         notificationSyncKey={bellSyncKey}
@@ -339,17 +371,18 @@ export function App() {
       )}
 
       {/* VIEW 1: Dedicated Management Portal with Sidebar (Ban Quản lý) */}
-      {!isRestoringSession && effectiveView === 'management' && (
+      {!isRestoringSession && effectiveView === 'management' && !isImpersonating && (
         <ManagerPortal
           activeTab={portalTabs.management}
           onTabChange={(tab) => setPortalTabs((prev) => ({ ...prev, management: tab }))}
         />
       )}
 
-      {/* VIEW 1.5: Student Portal (Cổng Sinh viên) */}
-      {!isRestoringSession && effectiveView === 'student' && (
+      {/* VIEW 1.5: Student Portal (Cổng Sinh viên: Normal hoặc Impersonation) */}
+      {!isRestoringSession && (effectiveView === 'student' || isImpersonating) && (
         <StudentPortal
-          onLogout={handleLogout}
+          onLogout={isImpersonating ? handleExitImpersonation : handleLogout}
+          impersonatedUser={isImpersonating ? impersonation?.student : null}
           onOpenAnnouncements={() => setCurrentView('announcements')}
           activeTab={portalTabs.student}
           onTabChange={(tab) => setPortalTabs((prev) => ({ ...prev, student: tab }))}
