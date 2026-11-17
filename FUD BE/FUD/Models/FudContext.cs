@@ -791,6 +791,8 @@ public partial class FudContext : DbContext
                 .IsUnicode(false);
             entity.Property(e => e.Amount).HasColumnType("decimal(18, 2)");
             entity.Property(e => e.CancelReason).HasMaxLength(500);
+            entity.Property(e => e.DueDate).HasColumnType("date");
+            entity.Property(e => e.DeletedAt).HasColumnType("datetime");
             entity.Property(e => e.InvoiceNumber)
                 .HasMaxLength(100)
                 .IsUnicode(false);
@@ -1020,6 +1022,7 @@ public partial class FudContext : DbContext
             entity.HasIndex(e => e.GatewayReference, "UQ__Payment___0D7A2497667E1EAF").IsUnique();
 
             entity.Property(e => e.CallbackTime).HasColumnType("datetime");
+            entity.Property(e => e.DeletedAt).HasColumnType("datetime");
             entity.Property(e => e.CreatedTime)
                 .HasDefaultValueSql("(getdate())")
                 .HasColumnType("datetime");

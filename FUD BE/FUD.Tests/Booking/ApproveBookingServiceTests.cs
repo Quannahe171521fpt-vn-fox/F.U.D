@@ -6,6 +6,7 @@ using FUD.DTOs.Booking;
 using FUD.Models;
 using FUD.Repositories.Interfaces.Booking;
 using FUD.Services.Booking;
+using FUD.Services.Interfaces.Payments;
 using Moq;
 using Xunit;
 
@@ -18,8 +19,9 @@ namespace FUD.Tests.Booking;
 public class ApproveBookingServiceTests
 {
     private readonly Mock<IBookingRepository> _bookingRepoMock = new();
+    private readonly Mock<IRoomFeeInvoiceService> _roomFeeInvoiceServiceMock = new();
 
-    private BookingService CreateSut() => new(_bookingRepoMock.Object);
+    private BookingService CreateSut() => new(_bookingRepoMock.Object, _roomFeeInvoiceServiceMock.Object);
 
     #region Helper Methods
 

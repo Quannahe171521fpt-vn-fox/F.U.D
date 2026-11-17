@@ -10,6 +10,7 @@ import { BedManagement } from '../pages/FacilityManagement/BedManagement';
 import { ManagerViolationManagement } from '../pages/Violations/ManagerViolationManagement';
 import { ManagerRequestManagement } from '../pages/Requests/ManagerRequestManagement';
 import { ManagerBookingManagement } from '../pages/Booking/ManagerBookingManagement';
+import { ManagerKeepingManagement } from '../pages/Keeping/ManagerKeepingManagement';
 import { EwManagement } from '../pages/FacilityManagement/EwManagement';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
 import type { NewsItem, EquipmentRecord, EquipmentCatalogItem } from '../types/management';
@@ -390,6 +391,12 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({
           showBadgeDot: hasPendingBookings,
         },
         {
+          id: 'keeping',
+          name: 'Duyệt giữ phòng',
+          counter: 'Giữ chỗ kỳ kế tiếp',
+          showBadgeDot: hasPendingBookings,
+        },
+        {
           id: 'violations',
           name: 'Quản lý vi phạm',
           counter: 'Thẩm định & Xử lý biên bản',
@@ -458,6 +465,8 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({
           <ManagerRequestManagement />
         ) : activeTab === 'bookings' ? (
           <ManagerBookingManagement />
+        ) : activeTab === 'keeping' ? (
+          <ManagerKeepingManagement />
         ) : activeTab === 'ew' ? (
           <EwManagement />
         ) : (

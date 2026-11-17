@@ -2081,6 +2081,12 @@ export interface KeepingRequestResult {
   feeAmount?: number | null;
   currency: string;
   createdAt: string;
+  /** Id hóa đơn phí giữ phòng đã tạo (dùng để redirect sang màn hình thanh toán). */
+  invoiceId?: number;
+  /** true nếu đang chờ sinh viên thanh toán phí giữ phòng. */
+  requiresPayment?: boolean;
+  /** true nếu đã thanh toán và đang chờ Ban Quản lý duyệt. */
+  awaitingManagerApproval?: boolean;
 }
 
 async function keepingRequest<T>(url: string, init: RequestInit | undefined, defaultError: string): Promise<T> {
@@ -2113,6 +2119,61 @@ export const keepingApi = {
 
   getById: (id: number) =>
     keepingRequest<KeepingRequestResult>(`${BASE_URL}/keeping/requests/${id}`, undefined, 'Không thể tải yêu cầu giữ phòng'),
+};
+
+// ── Keeping Manager API (duyệt / từ chối yêu cầu giữ phòng) ──────
+export interface KeepingRequestManagerDto {
+  requestId: number;
+  bookingRequestId?: number;
+  invoiceId?: number;
+  invoiceNumber?: string;
+  studentId: number;
+  studentCode: string;
+  studentName: string;
+  studentGender: string;
+  status: string;
+  invoiceStatus?: string;
+  isPaid: boolean;
+  bedId: number;
+  bedCode: string;
+  dormName: string;
+  blockName: string;
+  roomNumber: string;
+  termId: number;
+  termName: string;
+  feeAmount: number;
+  currency: string;
+  createdTime: string;
+  processedTime?: string;
+  processedByName?: string;
+  rejectReason?: string;
+}
+
+export const keepingManagerApi = {
+  getPending: () =>
+    keepingRequest<KeepingRequestManagerDto[]>(
+      `${BASE_URL}/keeping/manager/requests`,
+      undefined,
+      'Không thể tải danh sách yêu cầu giữ phòng chờ duyệt'
+    ),
+
+  approve: (id: number) =>
+    keepingRequest<KeepingRequestResult>(
+      `${BASE_URL}/keeping/manager/requests/${id}/approve`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' } },
+      'Lỗi khi phê duyệt yêu cầu giữ phòng'
+    ),
+
+  reject: (id: number, rejectReason: string) =>
+    keepingRequest<KeepingRequestResult>(
+      `${BASE_URL}/keeping/manager/requests/${id}/reject`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rejectReason }),
+      },
+      'Lỗi khi từ chối yêu cầu giữ phòng'
+    ),
 };
 
 // ── Booking Room API ──────────────────────────────────────
@@ -2179,6 +2240,10 @@ export interface BookingRequestItemDto {
   paymentDeadline: string;
   agreementToRegulations: boolean;
   rejectReason?: string;
+  /** Id hóa đơn phí phòng đã tạo (dùng để redirect sang màn hình thanh toán). */
+  invoiceId?: number;
+  /** true nếu đơn đang chờ sinh viên thanh toán. */
+  requiresPayment?: boolean;
 }
 
 export interface BookingRequestManagerDto {
@@ -2374,3 +2439,195 @@ export const notificationApi = {
     return json.data;
   },
 };
+
+// ── Student Payment API (UC-Payment – VietQR) ────────────────
+export type InvoiceType = 'RoomFee' | 'Utility' | 'BedTransfer' | 'Compensation' | string;
+export type InvoiceStatus = 'Unpaid' | 'Processing' | 'Paid' | 'Overdue' | 'Cancelled' | string;
+export type PaymentSourceType = 'Booking' | 'Keeping' | 'Utility' | 'BedTransfer' | 'Checkout' | string;
+
+export interface InvoiceItemDto {
+  id: number;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+}
+
+export interface StudentInvoiceDto {
+  id: number;
+  studentId: number;
+  termId: number;
+  invoiceNumber: string;
+  invoiceType: InvoiceType;
+  adjustmentKind?: string | null;
+  sourceType?: PaymentSourceType | null;
+  sourceId?: number | null;
+  amount: number;
+  issuedTime: string;
+  dueDate: string;
+  paidTime?: string | null;
+  status: InvoiceStatus;
+  isOverdue: boolean;
+  overdueDays: number;
+  items: InvoiceItemDto[];
+  hasActiveTransaction: boolean;
+  activeTransactionId?: number | null;
+  activeTransactionExpiryTime?: string | null;
+  activeTransactionNotExpired: boolean;
+}
+
+export interface StudentInvoiceListResponseDto {
+  items: StudentInvoiceDto[];
+  totalOutstanding: number;
+  overdueCount: number;
+  serverTime: string;
+}
+
+export interface TransactionInvoiceDto {
+  invoiceId: number;
+  invoiceNumber: string;
+  invoiceType: InvoiceType;
+  allocatedAmount: number;
+  dueDate: string;
+  status: InvoiceStatus;
+  items: InvoiceItemDto[];
+}
+
+export interface PaymentTransactionDto {
+  id: number;
+  studentId: number;
+  method: string;
+  gatewayReference: string;
+  qrLink?: string | null;
+  totalAmount: number;
+  status: 'Processing' | 'Success' | 'Failed' | 'Cancelled' | 'Expired' | string;
+  receiptNumber?: string | null;
+  createdTime: string;
+  expiryTime: string;
+  paidTime?: string | null;
+  callbackTime?: string | null;
+  invoices: TransactionInvoiceDto[];
+  remainingSeconds: number;
+}
+
+export interface PaymentSuccessDto {
+  transactionId: number;
+  receiptNumber: string;
+  gatewayReference: string;
+  totalAmount: number;
+  paidTime: string;
+  callbackTime: string;
+  invoices: TransactionInvoiceDto[];
+  sideEffectNotes: string[];
+}
+
+export interface UnlockedInvoiceDto {
+  invoiceId: number;
+  invoiceNumber: string;
+  previousStatus: string;
+  currentStatus: string;
+}
+
+export interface PaymentCancelResultDto {
+  transactionId: number;
+  status: string;
+  cancelledTime: string;
+  unlockedInvoices: UnlockedInvoiceDto[];
+}
+
+export interface PaymentNavigationParams {
+  invoiceId?: number;
+  sourceType?: PaymentSourceType;
+  sourceId?: number;
+  tabFilter?: InvoiceType;
+}
+
+/**
+ * Điều hướng từ các màn hình nghiệp vụ (Booking, Keeping, Utility, BedTransfer, Checkout, Lịch sử lưu trú)
+ * sang màn hình Chọn khoản thanh toán (Choose Paid Item) kèm query parameter trên URL.
+ */
+export function navigateToStudentPayment(params?: PaymentNavigationParams): void {
+  if (typeof window === 'undefined') return;
+  const search = new URLSearchParams();
+  if (params?.invoiceId && params.invoiceId > 0) {
+    search.set('invoiceId', String(params.invoiceId));
+  } else if (params?.sourceType && params?.sourceId && params.sourceId > 0) {
+    search.set('sourceType', params.sourceType);
+    search.set('sourceId', String(params.sourceId));
+  }
+  if (params?.tabFilter) {
+    search.set('invoiceType', params.tabFilter);
+  }
+  const qs = search.toString();
+  const nextUrl = `${window.location.pathname}${qs ? `?${qs}` : ''}`;
+  window.history.pushState({}, '', nextUrl);
+  window.dispatchEvent(new CustomEvent<PaymentNavigationParams>('fud:navigate-payment', { detail: params || {} }));
+}
+
+async function studentPaymentRequest<T>(url: string, init: RequestInit | undefined, defaultError: string): Promise<T> {
+  const res = await authFetch(url, init);
+  if (res.status === 403) {
+    throw new Error('Chức năng thanh toán hóa đơn chỉ dành cho tài khoản Sinh viên.');
+  }
+  const json = await safeParseResponse<T>(res, defaultError);
+  if (!res.ok || json.success === false) {
+    const detail = json.errors && json.errors.length > 0 ? json.errors.join('; ') : '';
+    throw new Error(json.message || detail || defaultError);
+  }
+  return json.data;
+}
+
+export const paymentApi = {
+  getUnpaidInvoices: (): Promise<StudentInvoiceListResponseDto> =>
+    studentPaymentRequest<StudentInvoiceListResponseDto>(
+      `${BASE_URL}/student/payments/unpaid-invoices`,
+      undefined,
+      'Không thể tải danh sách hóa đơn cần thanh toán'
+    ),
+
+  getInvoiceBySource: (sourceType: string, sourceId: number): Promise<StudentInvoiceDto> => {
+    const query = new URLSearchParams({
+      sourceType,
+      sourceId: String(sourceId),
+    });
+    return studentPaymentRequest<StudentInvoiceDto>(
+      `${BASE_URL}/student/payments/by-source?${query.toString()}`,
+      undefined,
+      'Không tìm thấy hóa đơn tương ứng với nguồn phát sinh'
+    );
+  },
+
+  createTransaction: (invoiceIds: number[]): Promise<PaymentTransactionDto> =>
+    studentPaymentRequest<PaymentTransactionDto>(
+      `${BASE_URL}/student/payments/create`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceIds }),
+      },
+      'Không thể khởi tạo giao dịch VietQR'
+    ),
+
+  mockConfirm: (transactionId: number, gatewayReference?: string): Promise<PaymentSuccessDto> =>
+    studentPaymentRequest<PaymentSuccessDto>(
+      `${BASE_URL}/student/payments/${transactionId}/mock-confirm`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(gatewayReference ? { gatewayReference } : {}),
+      },
+      'Không thể xác nhận thanh toán giao dịch'
+    ),
+
+  cancelTransaction: (transactionId: number, reason?: string): Promise<PaymentCancelResultDto> =>
+    studentPaymentRequest<PaymentCancelResultDto>(
+      `${BASE_URL}/student/payments/${transactionId}/cancel`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(reason ? { reason } : {}),
+      },
+      'Không thể hủy giao dịch thanh toán'
+    ),
+};
+

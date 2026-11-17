@@ -91,23 +91,27 @@ namespace FUD.Repositories.Keeping
 
         public async Task<bool> HasCompletedKeepingRequestAsync(int studentId, int termId)
         {
-            return await _context.Requests
+            // Theo thiết kế DB, lượt giữ phòng nằm ở Booking_Requests (BookingKind = 'Keeping').
+            return await _context.BookingRequests
                 .AsNoTracking()
-                .AnyAsync(r => r.StudentId == studentId
-                            && r.TermId == termId
-                            && r.RequestType == "Keeping"
-                            && r.Status == "Completed");
+                .AnyAsync(b => b.StudentId == studentId
+                            && b.TermId == termId
+                            && b.BookingKind == "Keeping"
+                            && b.Status == "Approved");
         }
 
-        public async Task<Request?> GetCompletedKeepingRequestAsync(int studentId, int termId)
+        public async Task<BookingRequest?> GetCompletedKeepingRequestAsync(int studentId, int termId)
         {
-            return await _context.Requests
+            return await _context.BookingRequests
                 .AsNoTracking()
-                .Include(r => r.Term)
-                .FirstOrDefaultAsync(r => r.StudentId == studentId
-                                       && r.TermId == termId
-                                       && r.RequestType == "Keeping"
-                                       && r.Status == "Completed");
+                .Include(b => b.Bed).ThenInclude(b => b.Room).ThenInclude(r => r.Block).ThenInclude(bl => bl.Dorm)
+                .Include(b => b.Term)
+                .Include(b => b.Student).ThenInclude(s => s.User)
+                .Include(b => b.Invoices)
+                .FirstOrDefaultAsync(b => b.StudentId == studentId
+                                       && b.TermId == termId
+                                       && b.BookingKind == "Keeping"
+                                       && b.Status == "Approved");
         }
 
         public async Task<Request?> GetKeepingRequestByIdAsync(int requestId)
@@ -159,12 +163,13 @@ namespace FUD.Repositories.Keeping
 
         public async Task<bool> IsBedOccupiedForTermAsync(int bedId, int termId)
         {
-            // 'Upcoming' cũng bị tính là chiếm chỗ để chống double-book cho kỳ kế tiếp.
+            // 'Reserved' cũng bị tính là chiếm chỗ để chống double-book cho kỳ kế tiếp.
+            // Lưu ý: CHK_Residency_Status chỉ cho phép ('Reserved','Active','Ended','Cancelled').
             return await _context.Residencies
                 .AsNoTracking()
                 .AnyAsync(r => r.BedId == bedId
                             && r.TermId == termId
-                            && (r.Status == "Active" || r.Status == "Reserved" || r.Status == "Upcoming"));
+                            && (r.Status == "Active" || r.Status == "Reserved"));
         }
 
         public async Task<bool> HasResidencyForTermAsync(int studentId, int termId)
@@ -173,7 +178,7 @@ namespace FUD.Repositories.Keeping
                 .AsNoTracking()
                 .AnyAsync(r => r.StudentId == studentId
                             && r.TermId == termId
-                            && (r.Status == "Active" || r.Status == "Reserved" || r.Status == "Upcoming"));
+                            && (r.Status == "Active" || r.Status == "Reserved"));
         }
 
         public async Task<List<Residency>> GetActiveResidenciesForTermAsync(int termId)
@@ -184,14 +189,54 @@ namespace FUD.Repositories.Keeping
                 .ToListAsync();
         }
 
+        public async Task<BookingRequest?> GetKeepingBookingAsync(int bookingRequestId)
+        {
+            return await _context.BookingRequests
+                .Include(b => b.Bed).ThenInclude(b => b.Room).ThenInclude(r => r.Block).ThenInclude(bl => bl.Dorm)
+                .Include(b => b.Term)
+                .Include(b => b.Student).ThenInclude(s => s.User)
+                .Include(b => b.ProcessedBy).ThenInclude(p => p.User)
+                .Include(b => b.Invoices)
+                .FirstOrDefaultAsync(b => b.Id == bookingRequestId
+                                        && b.BookingKind == "Keeping");
+        }
+
+        public async Task<BookingRequest?> GetKeepingBookingAsync(int studentId, int termId)
+        {
+            return await _context.BookingRequests
+                .Include(b => b.Bed).ThenInclude(b => b.Room).ThenInclude(r => r.Block).ThenInclude(bl => bl.Dorm)
+                .Include(b => b.Term)
+                .Include(b => b.Student).ThenInclude(s => s.User)
+                .Include(b => b.ProcessedBy).ThenInclude(p => p.User)
+                .Include(b => b.Invoices)
+                .FirstOrDefaultAsync(b => b.StudentId == studentId
+                                        && b.TermId == termId
+                                        && b.BookingKind == "Keeping");
+        }
+
+        public async Task<List<BookingRequest>> GetKeepingBookingsPendingApprovalAsync()
+        {
+            return await _context.BookingRequests
+                .AsNoTracking()
+                .Include(b => b.Bed).ThenInclude(b => b.Room).ThenInclude(r => r.Block).ThenInclude(bl => bl.Dorm)
+                .Include(b => b.Term)
+                .Include(b => b.Student).ThenInclude(s => s.User)
+                .Include(b => b.ProcessedBy).ThenInclude(p => p.User)
+                .Include(b => b.Invoices)
+                .Where(b => b.BookingKind == "Keeping" && b.Status == "Pending")
+                .OrderByDescending(b => b.CreatedTime)
+                .ToListAsync();
+        }
+
         public async Task<HashSet<int>> GetStudentsWithCompletedKeepingAsync(int termId)
         {
-            var ids = await _context.Requests
+            // Theo thiết kế DB, lượt giữ phòng nằm ở Booking_Requests (BookingKind = 'Keeping').
+            var ids = await _context.BookingRequests
                 .AsNoTracking()
-                .Where(r => r.TermId == termId
-                            && r.RequestType == "Keeping"
-                            && r.Status == "Completed")
-                .Select(r => r.StudentId)
+                .Where(b => b.TermId == termId
+                            && b.BookingKind == "Keeping"
+                            && b.Status == "Approved")
+                .Select(b => b.StudentId)
                 .ToListAsync();
 
             return new HashSet<int>(ids);

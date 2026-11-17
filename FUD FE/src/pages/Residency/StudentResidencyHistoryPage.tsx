@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   residencyApi,
+  navigateToStudentPayment,
   type ResidencyHistoryItem,
   type ResidencyHistoryDetail,
 } from '../../services/api';
@@ -914,6 +915,28 @@ export const StudentResidencyHistoryPage: React.FC<StudentResidencyHistoryPagePr
                           >
                             {invBadge.label}
                           </span>
+                          {(inv.status === 'Unpaid' || inv.status === 'Overdue' || inv.status === 'Processing') && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedDetail(null);
+                                navigateToStudentPayment({ invoiceId: inv.id });
+                              }}
+                              style={{
+                                padding: '5px 12px',
+                                backgroundColor: '#EA580C',
+                                color: '#FFFFFF',
+                                border: 'none',
+                                borderRadius: '6px',
+                                fontSize: '11.5px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              Thanh toán ngay
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -981,12 +1004,35 @@ export const StudentResidencyHistoryPage: React.FC<StudentResidencyHistoryPagePr
                       <div style={{ fontSize: '12.5px', color: '#475569', marginTop: 4 }}>
                         <strong>Lý do:</strong> {tr.transferReason}
                       </div>
-                      <div style={{ fontSize: '12px', color: '#64748B', marginTop: 2 }}>
-                        Ngày gửi: {formatDateTime(tr.createdTime)}
-                        {tr.transferDate ? ` · Ngày chuyển: ${formatDate(tr.transferDate)}` : ''}
-                        {tr.priceDifference !== undefined && tr.priceDifference !== null
-                          ? ` · Chênh lệch phí: ${formatCurrency(tr.priceDifference)}`
-                          : ''}
+                      <div style={{ fontSize: '12px', color: '#64748B', marginTop: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                        <span>
+                          Ngày gửi: {formatDateTime(tr.createdTime)}
+                          {tr.transferDate ? ` · Ngày chuyển: ${formatDate(tr.transferDate)}` : ''}
+                          {tr.priceDifference !== undefined && tr.priceDifference !== null
+                            ? ` · Chênh lệch phí: ${formatCurrency(tr.priceDifference)}`
+                            : ''}
+                        </span>
+                        {tr.priceDifference != null && tr.priceDifference > 0 && tr.status !== 'Completed' && tr.status !== 'Rejected' && tr.status !== 'Cancelled' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedDetail(null);
+                              navigateToStudentPayment({ sourceType: 'BedTransfer', sourceId: tr.requestId });
+                            }}
+                            style={{
+                              padding: '4px 10px',
+                              backgroundColor: '#EA580C',
+                              color: '#FFFFFF',
+                              border: 'none',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Thanh toán ngay
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -1054,15 +1100,38 @@ export const StudentResidencyHistoryPage: React.FC<StudentResidencyHistoryPagePr
                           <strong>Trường hợp ngoại lệ:</strong> {co.exceptionNote}
                         </div>
                       )}
-                      <div style={{ fontSize: '12px', color: '#64748B', marginTop: 2 }}>
-                        Ngày gửi đơn: {formatDateTime(co.createdTime)}
-                        {co.reviewedTime ? ` · Duyệt lúc: ${formatDateTime(co.reviewedTime)}` : ''}
-                        {co.checkoutHandoverId
-                          ? ` · Biên bản trả phòng #${co.checkoutHandoverId} (${co.checkoutHandoverStatus})`
-                          : ''}
-                        {co.totalCompensation && co.totalCompensation > 0
-                          ? ` · Bồi thường thiết bị: ${formatCurrency(co.totalCompensation)}`
-                          : ''}
+                      <div style={{ fontSize: '12px', color: '#64748B', marginTop: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                        <span>
+                          Ngày gửi đơn: {formatDateTime(co.createdTime)}
+                          {co.reviewedTime ? ` · Duyệt lúc: ${formatDateTime(co.reviewedTime)}` : ''}
+                          {co.checkoutHandoverId
+                            ? ` · Biên bản trả phòng #${co.checkoutHandoverId} (${co.checkoutHandoverStatus})`
+                            : ''}
+                          {co.totalCompensation && co.totalCompensation > 0
+                            ? ` · Bồi thường thiết bị: ${formatCurrency(co.totalCompensation)}`
+                            : ''}
+                        </span>
+                        {co.checkoutHandoverId && co.status !== 'Completed' && co.status !== 'Rejected' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedDetail(null);
+                              navigateToStudentPayment({ sourceType: 'Checkout', sourceId: co.checkoutHandoverId! });
+                            }}
+                            style={{
+                              padding: '4px 10px',
+                              backgroundColor: '#EA580C',
+                              color: '#FFFFFF',
+                              border: 'none',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Thanh toán ngay
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}

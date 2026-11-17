@@ -9,6 +9,7 @@ using FUD.Models;
 using FUD.Repositories.Interfaces;
 using FUD.Repositories.Interfaces.Keeping;
 using FUD.Services.Interfaces.Keeping;
+using FUD.Services.Interfaces.Payments;
 using FUD.Services.Keeping;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -25,6 +26,7 @@ public class KeepingServiceTests
 {
     private readonly Mock<IKeepingRepository> _keepingRepoMock = new();
     private readonly Mock<IKeepingEligibilityService> _eligibilityServiceMock = new();
+    private readonly Mock<IRoomFeeInvoiceService> _roomFeeInvoiceServiceMock = new();
     private readonly Mock<INotificationService> _notificationServiceMock = new();
     private readonly Mock<ILogger<KeepingService>> _loggerMock = new();
 
@@ -40,6 +42,7 @@ public class KeepingServiceTests
     private KeepingService CreateSut(FudContext context) => new(
         _keepingRepoMock.Object,
         _eligibilityServiceMock.Object,
+        _roomFeeInvoiceServiceMock.Object,
         _notificationServiceMock.Object,
         context,
         _loggerMock.Object);
@@ -116,6 +119,14 @@ public class KeepingServiceTests
                 AcademicYear = "2026-2027",
                 StartDate = new DateOnly(2026, 9, 1),
                 EndDate = new DateOnly(2026, 12, 31)
+            },
+            // Phí giữ phòng (lấy từ bảng giá Published của kỳ kế tiếp).
+            Fee = new KeepingFeeDto
+            {
+                Amount = 1_500_000m,
+                Currency = "VND",
+                Months = 1,
+                Description = "Phí giữ phòng kỳ kế tiếp"
             }
         };
     }
@@ -169,13 +180,14 @@ public class KeepingServiceTests
         using var context = CreateInMemoryContext();
         var (_, _, _, bed, _, nextTerm, _, _) = CreateSampleEntities(studentId);
 
-        var existingRequest = new Request
+        var existingRequest = new BookingRequest
         {
             Id = 77,
             StudentId = studentId,
             TermId = nextTerm.Id,
-            RequestType = KeepingConstants.RequestType,
-            Status = KeepingConstants.StatusCompleted,
+            BookingKind = "Keeping",
+            AgreementToRegulations = true,
+            Status = "Approved",
             Term = nextTerm
         };
         var upcomingResidency = new Residency
@@ -211,9 +223,9 @@ public class KeepingServiceTests
 
         // Assert
         result.RequestId.Should().Be(77);
-        result.Status.Should().Be(KeepingConstants.StatusCompleted);
+        result.Status.Should().Be("Approved");
         result.FeeAmount.Should().Be(1_200_000m);
-        context.Requests.Should().BeEmpty();
+        context.BookingRequests.Should().BeEmpty();
     }
 
     [Fact]
@@ -224,13 +236,14 @@ public class KeepingServiceTests
         using var context = CreateInMemoryContext();
         var (_, _, _, bed, _, nextTerm, _, _) = CreateSampleEntities(studentId);
 
-        var existingRequest = new Request
+        var existingRequest = new BookingRequest
         {
             Id = 80,
             StudentId = studentId,
             TermId = nextTerm.Id,
-            RequestType = KeepingConstants.RequestType,
-            Status = KeepingConstants.StatusCompleted,
+            BookingKind = "Keeping",
+            AgreementToRegulations = true,
+            Status = "Approved",
             Term = nextTerm
         };
         var upcomingResidency = new Residency
@@ -284,7 +297,7 @@ public class KeepingServiceTests
         _eligibilityServiceMock.Setup(s => s.CheckEligibilityAsync(studentId))
             .ReturnsAsync(CreateEligibleResponse(nextTerm.Id, nextTerm.Name));
         _keepingRepoMock.Setup(r => r.GetCompletedKeepingRequestAsync(studentId, nextTerm.Id))
-            .ReturnsAsync((Request?)null);
+            .ReturnsAsync((BookingRequest?)null);
         _keepingRepoMock.Setup(r => r.BeginTransactionAsync())
             .ReturnsAsync(txMock.Object);
         _keepingRepoMock.Setup(r => r.GetActiveResidencyAsync(studentId))
@@ -297,20 +310,48 @@ public class KeepingServiceTests
             .ReturnsAsync(false);
         _keepingRepoMock.Setup(r => r.GetKeepingBedPriceAsync(bed.Id, nextTerm.Id))
             .ReturnsAsync(1_500_000m);
-        _keepingRepoMock.Setup(r => r.GetKeepingRequestByIdAsync(It.IsAny<int>()))
-            .ReturnsAsync((int reqId) =>
+        _keepingRepoMock.Setup(r => r.GetKeepingBookingAsync(It.IsAny<int>()))
+            .ReturnsAsync((int bookingId) =>
             {
-                var req = context.Requests.First(r => r.Id == reqId);
-                req.Term = nextTerm;
-                return req;
+                var br = context.BookingRequests.First(b => b.Id == bookingId);
+                br.Term = nextTerm;
+                br.Bed = bed;
+                return br;
             });
         _keepingRepoMock.Setup(r => r.GetResidencyByStudentAndTermAsync(studentId, nextTerm.Id))
             .ReturnsAsync(() =>
             {
-                var res = context.Residencies.First(r => r.StudentId == studentId && r.TermId == nextTerm.Id);
-                res.Bed = bed;
+                var res = context.Residencies.FirstOrDefault(r => r.StudentId == studentId && r.TermId == nextTerm.Id);
+                if (res != null)
+                {
+                    res.Bed = bed;
+                }
                 return res;
             });
+
+        // Mock tạo hóa đơn phí giữ phòng: trả về Invoice thật để khẳng định DB được ghi đúng.
+        _roomFeeInvoiceServiceMock.Setup(s => s.CreateRoomFeeInvoiceAsync(
+                It.IsAny<BookingRequest>(), It.IsAny<decimal>(), It.IsAny<string>(),
+                It.IsAny<DateOnly>(), It.IsAny<DateTime>()))
+            .ReturnsAsync((BookingRequest br, decimal amount, string desc, DateOnly due, DateTime issued) =>
+            {
+                var inv = new Invoice
+                {
+                    StudentId = br.StudentId,
+                    TermId = br.TermId,
+                    InvoiceNumber = "INV-TEST-001",
+                    InvoiceType = "RoomFee",
+                    BookingRequestId = br.Id,
+                    Amount = amount,
+                    IssuedTime = issued,
+                    DueDate = due,
+                    Status = "Unpaid"
+                };
+                context.Invoices.Add(inv);
+                context.SaveChanges();
+                return inv;
+            });
+        _roomFeeInvoiceServiceMock.Setup(s => s.SaveChangesAsync()).Returns(Task.CompletedTask);
 
         var sut = CreateSut(context);
         var dto = new CreateKeepingRequestDto { AgreedToRegulations = true };
@@ -320,54 +361,72 @@ public class KeepingServiceTests
 
         // Assert
         result.Should().NotBeNull();
-        result.Status.Should().Be(KeepingConstants.StatusCompleted);
-        result.FeeAmount.Should().Be(1_500_000m);
-        result.Bed!.BedCode.Should().Be("A1-101-1");
+        // Luồng mới: tạo yêu cầu -> chờ thanh toán -> chờ QL duyệt -> Approved.
+        result.Status.Should().Be("Pending Payment");
+        result.RequiresPayment.Should().BeTrue();
+        result.InvoiceId.Should().NotBeNull();
 
-        context.Requests.Should().ContainSingle(r =>
-            r.StudentId == studentId &&
-            r.TermId == nextTerm.Id &&
-            r.Status == KeepingConstants.StatusCompleted);
+        // Yêu cầu giữ phòng được lưu ở Booking_Requests (BookingKind = 'Keeping').
+        context.BookingRequests.Should().ContainSingle(b =>
+            b.StudentId == studentId &&
+            b.TermId == nextTerm.Id &&
+            b.BookingKind == "Keeping" &&
+            b.Status == "Pending Payment");
 
-        context.Residencies.Should().ContainSingle(r =>
-            r.StudentId == studentId &&
-            r.BedId == bed.Id &&
-            r.TermId == nextTerm.Id &&
-            r.Status == KeepingConstants.ResidencyUpcoming);
+        // Hóa đơn phí giữ phòng được tạo ở trạng thái Unpaid.
+        context.Invoices.Should().ContainSingle(i =>
+            i.StudentId == studentId &&
+            i.TermId == nextTerm.Id &&
+            i.InvoiceType == "RoomFee" &&
+            i.Status == "Unpaid");
 
-        context.RequestLogs.Should().ContainSingle(l => l.ToStatus == KeepingConstants.StatusCompleted);
+        // Chưa tạo Residency cho tới khi Ban Quản lý duyệt.
+        context.Residencies.Should().BeEmpty();
+
         context.AuditLogs.Should().ContainSingle(a => a.TargetEntity == "KeepingRequest" && a.ActionType == "CREATE");
         context.Notifications.Should().ContainSingle(n => n.UserId == studentId && n.Channel == "InApp");
 
-        txMock.Verify(t => t.CommitAsync(), Times.Once);
+        // Không gửi email "giữ phòng thành công" ở giai đoạn chờ thanh toán.
         _notificationServiceMock.Verify(n => n.SendEmailAsync(
-            studentUser.Email,
-            It.Is<string>(s => s.Contains("Giữ phòng thành công")),
-            It.IsAny<string>()), Times.Once);
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
-    public async Task CreateAsync_WhenActiveResidencyLostDuringTransaction_ThrowsNotEligibleAndRollsBack()
+    public async Task ApproveByManagerAsync_WhenActiveResidencyLost_ThrowsNotEligibleAndRollsBack()
     {
         // Arrange
         const int studentId = 106;
         using var context = CreateInMemoryContext();
         var txMock = CreateMockTransaction();
 
-        _eligibilityServiceMock.Setup(s => s.CheckEligibilityAsync(studentId))
-            .ReturnsAsync(CreateEligibleResponse());
-        _keepingRepoMock.Setup(r => r.GetCompletedKeepingRequestAsync(studentId, 2))
-            .ReturnsAsync((Request?)null);
+        var booking = new BookingRequest
+        {
+            StudentId = studentId,
+            TermId = 2,
+            BookingKind = "Keeping",
+            AgreementToRegulations = true,
+            PaymentDeadline = DateTime.UtcNow.AddDays(2),
+            Status = "Pending",
+            CreatedTime = DateTime.UtcNow
+        };
+        await context.BookingRequests.AddAsync(booking);
+        await context.SaveChangesAsync();
+        var bookingId = booking.Id;
+
+        _keepingRepoMock.Setup(r => r.GetKeepingBookingAsync(bookingId))
+            .ReturnsAsync(booking);
         _keepingRepoMock.Setup(r => r.BeginTransactionAsync())
             .ReturnsAsync(txMock.Object);
+        // Cư trú hiện tại đã mất (sinh viên đã chuyển ra KTX) -> không thể hoàn tất giữ phòng.
         _keepingRepoMock.Setup(r => r.GetActiveResidencyAsync(studentId))
             .ReturnsAsync((Residency?)null);
 
         var sut = CreateSut(context);
-        var dto = new CreateKeepingRequestDto { AgreedToRegulations = true };
 
         // Act
-        Func<Task> act = async () => await sut.CreateAsync(studentId, dto);
+        Func<Task> act = async () => await sut.ApproveByManagerAsync(bookingId, 99);
 
         // Assert
         var ex = await act.Should().ThrowAsync<KeepingNotEligibleException>();
@@ -377,7 +436,7 @@ public class KeepingServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_WhenStudentGenderMismatchesBlockGender_ThrowsKeepingConflictException()
+    public async Task ApproveByManagerAsync_WhenStudentGenderMismatchesBlockGender_ThrowsKeepingConflictException()
     {
         // Arrange
         const int studentId = 107;
@@ -386,23 +445,33 @@ public class KeepingServiceTests
             CreateSampleEntities(studentId, studentGender: "Male", blockGender: "Female");
 
         await context.Users.AddAsync(studentUser);
+
+        var booking = new BookingRequest
+        {
+            StudentId = studentId,
+            TermId = nextTerm.Id,
+            BookingKind = "Keeping",
+            AgreementToRegulations = true,
+            PaymentDeadline = DateTime.UtcNow.AddDays(2),
+            Status = "Pending",
+            CreatedTime = DateTime.UtcNow
+        };
+        await context.BookingRequests.AddAsync(booking);
         await context.SaveChangesAsync();
+        var bookingId = booking.Id;
 
         var txMock = CreateMockTransaction();
-        _eligibilityServiceMock.Setup(s => s.CheckEligibilityAsync(studentId))
-            .ReturnsAsync(CreateEligibleResponse(nextTerm.Id, nextTerm.Name));
-        _keepingRepoMock.Setup(r => r.GetCompletedKeepingRequestAsync(studentId, nextTerm.Id))
-            .ReturnsAsync((Request?)null);
+        _keepingRepoMock.Setup(r => r.GetKeepingBookingAsync(bookingId))
+            .ReturnsAsync(booking);
         _keepingRepoMock.Setup(r => r.BeginTransactionAsync())
             .ReturnsAsync(txMock.Object);
         _keepingRepoMock.Setup(r => r.GetActiveResidencyAsync(studentId))
             .ReturnsAsync(activeResidency);
 
         var sut = CreateSut(context);
-        var dto = new CreateKeepingRequestDto { AgreedToRegulations = true };
 
         // Act
-        Func<Task> act = async () => await sut.CreateAsync(studentId, dto);
+        Func<Task> act = async () => await sut.ApproveByManagerAsync(bookingId, 99);
 
         // Assert
         await act.Should().ThrowAsync<KeepingConflictException>()
@@ -411,7 +480,7 @@ public class KeepingServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_WhenBedAlreadyOccupiedForNextTerm_ThrowsKeepingConflictException()
+    public async Task ApproveByManagerAsync_WhenBedAlreadyOccupiedForNextTerm_ThrowsKeepingConflictException()
     {
         // Arrange
         const int studentId = 108;
@@ -419,13 +488,24 @@ public class KeepingServiceTests
         var (_, _, _, bed, _, nextTerm, activeResidency, studentUser) = CreateSampleEntities(studentId);
 
         await context.Users.AddAsync(studentUser);
+
+        var booking = new BookingRequest
+        {
+            StudentId = studentId,
+            TermId = nextTerm.Id,
+            BookingKind = "Keeping",
+            AgreementToRegulations = true,
+            PaymentDeadline = DateTime.UtcNow.AddDays(2),
+            Status = "Pending",
+            CreatedTime = DateTime.UtcNow
+        };
+        await context.BookingRequests.AddAsync(booking);
         await context.SaveChangesAsync();
+        var bookingId = booking.Id;
 
         var txMock = CreateMockTransaction();
-        _eligibilityServiceMock.Setup(s => s.CheckEligibilityAsync(studentId))
-            .ReturnsAsync(CreateEligibleResponse(nextTerm.Id, nextTerm.Name));
-        _keepingRepoMock.Setup(r => r.GetCompletedKeepingRequestAsync(studentId, nextTerm.Id))
-            .ReturnsAsync((Request?)null);
+        _keepingRepoMock.Setup(r => r.GetKeepingBookingAsync(bookingId))
+            .ReturnsAsync(booking);
         _keepingRepoMock.Setup(r => r.BeginTransactionAsync())
             .ReturnsAsync(txMock.Object);
         _keepingRepoMock.Setup(r => r.GetActiveResidencyAsync(studentId))
@@ -434,10 +514,9 @@ public class KeepingServiceTests
             .ReturnsAsync(true);
 
         var sut = CreateSut(context);
-        var dto = new CreateKeepingRequestDto { AgreedToRegulations = true };
 
         // Act
-        Func<Task> act = async () => await sut.CreateAsync(studentId, dto);
+        Func<Task> act = async () => await sut.ApproveByManagerAsync(bookingId, 99);
 
         // Assert
         await act.Should().ThrowAsync<KeepingConflictException>()
@@ -446,7 +525,7 @@ public class KeepingServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_WhenStudentAlreadyHasResidencyForNextTerm_ThrowsKeepingConflictException()
+    public async Task ApproveByManagerAsync_WhenStudentAlreadyHasResidencyForNextTerm_ThrowsKeepingConflictException()
     {
         // Arrange
         const int studentId = 109;
@@ -454,13 +533,24 @@ public class KeepingServiceTests
         var (_, _, _, bed, _, nextTerm, activeResidency, studentUser) = CreateSampleEntities(studentId);
 
         await context.Users.AddAsync(studentUser);
+
+        var booking = new BookingRequest
+        {
+            StudentId = studentId,
+            TermId = nextTerm.Id,
+            BookingKind = "Keeping",
+            AgreementToRegulations = true,
+            PaymentDeadline = DateTime.UtcNow.AddDays(2),
+            Status = "Pending",
+            CreatedTime = DateTime.UtcNow
+        };
+        await context.BookingRequests.AddAsync(booking);
         await context.SaveChangesAsync();
+        var bookingId = booking.Id;
 
         var txMock = CreateMockTransaction();
-        _eligibilityServiceMock.Setup(s => s.CheckEligibilityAsync(studentId))
-            .ReturnsAsync(CreateEligibleResponse(nextTerm.Id, nextTerm.Name));
-        _keepingRepoMock.Setup(r => r.GetCompletedKeepingRequestAsync(studentId, nextTerm.Id))
-            .ReturnsAsync((Request?)null);
+        _keepingRepoMock.Setup(r => r.GetKeepingBookingAsync(bookingId))
+            .ReturnsAsync(booking);
         _keepingRepoMock.Setup(r => r.BeginTransactionAsync())
             .ReturnsAsync(txMock.Object);
         _keepingRepoMock.Setup(r => r.GetActiveResidencyAsync(studentId))
@@ -473,15 +563,49 @@ public class KeepingServiceTests
             .ReturnsAsync(true);
 
         var sut = CreateSut(context);
-        var dto = new CreateKeepingRequestDto { AgreedToRegulations = true };
 
         // Act
-        Func<Task> act = async () => await sut.CreateAsync(studentId, dto);
+        Func<Task> act = async () => await sut.ApproveByManagerAsync(bookingId, 99);
 
         // Assert
         await act.Should().ThrowAsync<KeepingConflictException>()
             .WithMessage("*đã có cư trú cho học kỳ kế tiếp*");
         txMock.Verify(t => t.RollbackAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task ApproveByManagerAsync_WhenRequestNotPendingApproval_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        const int studentId = 111;
+        using var context = CreateInMemoryContext();
+
+        var booking = new BookingRequest
+        {
+            StudentId = studentId,
+            TermId = 2,
+            BookingKind = "Keeping",
+            AgreementToRegulations = true,
+            PaymentDeadline = DateTime.UtcNow.AddDays(2),
+            // Chưa thanh toán -> vẫn đang 'Pending Payment', không được duyệt.
+            Status = "Pending Payment",
+            CreatedTime = DateTime.UtcNow
+        };
+        await context.BookingRequests.AddAsync(booking);
+        await context.SaveChangesAsync();
+        var bookingId = booking.Id;
+
+        _keepingRepoMock.Setup(r => r.GetKeepingBookingAsync(bookingId))
+            .ReturnsAsync(booking);
+
+        var sut = CreateSut(context);
+
+        // Act
+        Func<Task> act = async () => await sut.ApproveByManagerAsync(bookingId, 99);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*không thể phê duyệt*");
     }
 
     [Fact]
@@ -507,19 +631,21 @@ public class KeepingServiceTests
         using var context = CreateInMemoryContext();
         var (_, _, _, bed, _, nextTerm, _, _) = CreateSampleEntities(studentId);
 
-        var request = new Request
+        var booking = new BookingRequest
         {
             Id = 55,
             StudentId = studentId,
             TermId = nextTerm.Id,
-            RequestType = KeepingConstants.RequestType,
-            Status = KeepingConstants.StatusCompleted,
-            Reason = "Giữ phòng",
+            BedId = bed.Id,
+            BookingKind = "Keeping",
+            AgreementToRegulations = true,
+            PaymentDeadline = DateTime.UtcNow.AddDays(2),
+            Status = "Approved",
             CreatedTime = DateTime.UtcNow,
             Term = nextTerm
         };
         await context.Terms.AddAsync(nextTerm);
-        await context.Requests.AddAsync(request);
+        await context.BookingRequests.AddAsync(booking);
         await context.SaveChangesAsync();
 
         var upcomingResidency = new Residency
@@ -532,8 +658,8 @@ public class KeepingServiceTests
             Bed = bed
         };
 
-        _keepingRepoMock.Setup(r => r.GetKeepingRequestByIdAsync(55))
-            .ReturnsAsync(request);
+        _keepingRepoMock.Setup(r => r.GetKeepingBookingAsync(55))
+            .ReturnsAsync(booking);
         _keepingRepoMock.Setup(r => r.GetResidencyByStudentAndTermAsync(studentId, nextTerm.Id))
             .ReturnsAsync(upcomingResidency);
         _keepingRepoMock.Setup(r => r.GetKeepingBedPriceAsync(bed.Id, nextTerm.Id))
@@ -546,7 +672,7 @@ public class KeepingServiceTests
 
         // Assert
         result.RequestId.Should().Be(55);
-        result.Status.Should().Be(KeepingConstants.StatusCompleted);
+        result.Status.Should().Be("Approved");
         result.FeeAmount.Should().Be(1_400_000m);
         _keepingRepoMock.Verify(r => r.BeginTransactionAsync(), Times.Never);
     }
@@ -559,13 +685,16 @@ public class KeepingServiceTests
         using var context = CreateInMemoryContext();
         var (_, _, _, bed, _, nextTerm, _, _) = CreateSampleEntities(studentId);
 
-        var request = new Request
+        var booking = new BookingRequest
         {
             Id = 60,
             StudentId = studentId,
             TermId = nextTerm.Id,
-            RequestType = KeepingConstants.RequestType,
-            Status = KeepingConstants.StatusCompleted,
+            BedId = bed.Id,
+            BookingKind = "Keeping",
+            AgreementToRegulations = true,
+            PaymentDeadline = DateTime.UtcNow.AddDays(2),
+            Status = "Approved",
             Term = nextTerm
         };
         var upcomingResidency = new Residency
@@ -579,19 +708,22 @@ public class KeepingServiceTests
         };
 
         await context.Terms.AddAsync(nextTerm);
-        await context.Requests.AddAsync(new Request
+        await context.BookingRequests.AddAsync(new BookingRequest
         {
             Id = 60,
             StudentId = studentId,
             TermId = nextTerm.Id,
-            RequestType = KeepingConstants.RequestType,
-            Status = KeepingConstants.StatusCompleted,
+            BedId = bed.Id,
+            BookingKind = "Keeping",
+            AgreementToRegulations = true,
+            PaymentDeadline = DateTime.UtcNow.AddDays(2),
+            Status = "Approved",
             CreatedTime = DateTime.UtcNow
         });
         await context.SaveChangesAsync();
 
-        _keepingRepoMock.Setup(r => r.GetKeepingRequestByIdAsync(60)).ReturnsAsync(request);
-        _keepingRepoMock.Setup(r => r.GetKeepingRequestByIdAsync(999)).ReturnsAsync((Request?)null);
+        _keepingRepoMock.Setup(r => r.GetKeepingBookingAsync(60)).ReturnsAsync(booking);
+        _keepingRepoMock.Setup(r => r.GetKeepingBookingAsync(999)).ReturnsAsync((BookingRequest?)null);
         _keepingRepoMock.Setup(r => r.GetResidencyByStudentAndTermAsync(studentId, nextTerm.Id)).ReturnsAsync(upcomingResidency);
         _keepingRepoMock.Setup(r => r.GetKeepingBedPriceAsync(bed.Id, nextTerm.Id)).ReturnsAsync(1_100_000m);
 

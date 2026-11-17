@@ -8,7 +8,8 @@ import { AnnouncementsPage } from '../pages/Announcements/AnnouncementsPage';
 import { StudentCheckinRecordsPage } from '../pages/Checkin/StudentCheckinRecordsPage';
 import { StudentResidencyHistoryPage } from '../pages/Residency/StudentResidencyHistoryPage';
 import { StudentKeepingPage } from '../pages/Keeping/StudentKeepingPage';
-import { newsApi, violationApi, requestApi, bookingApi } from '../services/api';
+import { ChoosePaidItemPage } from '../pages/Payment/ChoosePaidItemPage';
+import { newsApi, violationApi, requestApi, bookingApi, paymentApi, type PaymentNavigationParams } from '../services/api';
 import { BookingPage } from '../pages/Booking/BookingPage';
 import { StudentEwUsagePage } from '../pages/Student/StudentEwUsagePage';
 import type { NewsItem } from '../types/management';
@@ -44,6 +45,34 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const [hasNewAnnouncements, setHasNewAnnouncements] = useState<boolean>(false);
   const [hasNewRequestUpdate, setHasNewRequestUpdate] = useState<boolean>(false);
   const [isBookingOpen, setIsBookingOpen] = useState<boolean>(false);
+  const [unpaidInvoiceCount, setUnpaidInvoiceCount] = useState<number>(0);
+  const [overdueInvoiceCount, setOverdueInvoiceCount] = useState<number>(0);
+  const [paymentNavParams, setPaymentNavParams] = useState<PaymentNavigationParams | null>(null);
+
+  // Nếu URL có query param ?invoiceId=... hoặc ?sourceType=...&sourceId=... hoặc sự kiện điều hướng thanh toán -> tự mở tab payment
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const search = new URLSearchParams(window.location.search);
+    const invId = Number(search.get('invoiceId') || 0);
+    const srcType = search.get('sourceType') || undefined;
+    const srcId = Number(search.get('sourceId') || 0);
+    if (invId > 0 || (srcType && srcId > 0) || window.location.pathname.includes('/payment')) {
+      setPaymentNavParams({
+        invoiceId: invId > 0 ? invId : undefined,
+        sourceType: srcType,
+        sourceId: srcId > 0 ? srcId : undefined,
+      });
+      setActiveTab('payment');
+    }
+
+    const handleNavigatePayment = (e: Event) => {
+      const custom = e as CustomEvent<PaymentNavigationParams>;
+      setPaymentNavParams(custom.detail || null);
+      setActiveTab('payment');
+    };
+    window.addEventListener('fud:navigate-payment', handleNavigatePayment);
+    return () => window.removeEventListener('fud:navigate-payment', handleNavigatePayment);
+  }, []);
 
   // Kiểm tra thời gian mở cổng đặt phòng (Booking)
   const checkBooking = useCallback(async () => {
@@ -88,13 +117,22 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
   const currentUserId = currentUser?.id;
 
-  // Kiểm tra thông báo vi phạm mới và cập nhật đơn từ
+  // Kiểm tra thông báo vi phạm mới, cập nhật đơn từ và hóa đơn cần thanh toán
   const checkBadges = useCallback(async () => {
     try {
-      const [notices, requests] = await Promise.all([
+      const [notices, requests, invoiceSummary] = await Promise.all([
         violationApi.getStudentNotices().catch(() => []),
         requestApi.getMyRequests().catch(() => []),
+        paymentApi.getUnpaidInvoices().catch(() => null),
       ]);
+
+      if (invoiceSummary) {
+        const actionable = (invoiceSummary.items || []).filter(
+          (i) => i.status === 'Unpaid' || i.status === 'Overdue' || i.status === 'Processing'
+        ).length;
+        setUnpaidInvoiceCount(actionable);
+        setOverdueInvoiceCount(invoiceSummary.overdueCount || 0);
+      }
 
       // Thông báo vi phạm: Có biên bản vi phạm mới (Recorded) và chưa đọc
       const lastSeenNoticeTime = localStorage.getItem(`lastSeenNotice_${currentUserId || 'guest'}`);
@@ -154,6 +192,17 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       items: [
         { id: 'keeping', name: 'Giữ phòng kỳ tiếp' },
         { id: 'booking', name: 'Đặt phòng KTX', showBadgeDot: isBookingOpen },
+        {
+          id: 'payment',
+          name: 'Thanh toán hóa đơn',
+          showBadgeDot: unpaidInvoiceCount > 0,
+          pill:
+            overdueInvoiceCount > 0
+              ? { count: overdueInvoiceCount, label: 'quá hạn', color: '#EF4444' }
+              : unpaidInvoiceCount > 0
+              ? { count: unpaidInvoiceCount, label: 'chờ trả', color: '#F59E0B' }
+              : undefined,
+        },
         { id: 'residency-history', name: 'Lịch sử lưu trú' },
         { id: 'checkin-records', name: 'Biên bản nhận phòng' },
         { id: 'student-ew', name: 'Điện nước & Định mức' },
@@ -247,6 +296,18 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         )}
 
         {activeTab === 'keeping' && <StudentKeepingPage />}
+
+        {activeTab === 'payment' && (
+          <ChoosePaidItemPage
+            navigationParams={paymentNavParams}
+            onClearNavigationParams={() => setPaymentNavParams(null)}
+            onGoToResidencyHistory={() => setActiveTab('residency-history')}
+            onGoToRequests={() => setActiveTab('request-list')}
+            onInvoicesUpdated={() => {
+              void checkBadges();
+            }}
+          />
+        )}
 
         {activeTab === 'residency-history' && (
           <StudentResidencyHistoryPage
@@ -497,6 +558,31 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   }}
                 >
                   <span>📋</span> Xem Biên bản nhận phòng
+                </button>
+              </div>
+
+              <div style={{ marginTop: 12 }}>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('payment')}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    backgroundColor: overdueInvoiceCount > 0 ? '#FEF2F2' : '#FFF7ED',
+                    color: overdueInvoiceCount > 0 ? '#B91C1C' : '#C2410C',
+                    border: `1px solid ${overdueInvoiceCount > 0 ? '#FCA5A5' : '#FDBA74'}`,
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span>💳</span> Thanh toán hóa đơn & Công nợ KTX
+                  {unpaidInvoiceCount > 0 ? ` (${unpaidInvoiceCount} hóa đơn)` : ''}
                 </button>
               </div>
 
