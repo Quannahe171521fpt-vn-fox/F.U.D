@@ -159,6 +159,7 @@ export const ManagerBookingManagement: React.FC = () => {
           >
             <option value="All">Tất cả trạng thái</option>
             <option value="Pending">Đang chờ duyệt (Pending)</option>
+            <option value="Pending Payment">Chờ sinh viên thanh toán (Pending Payment)</option>
             <option value="Approved">Đã phê duyệt (Approved)</option>
             <option value="Rejected">Đã từ chối (Rejected)</option>
           </select>
@@ -252,8 +253,19 @@ export const ManagerBookingManagement: React.FC = () => {
                           item.status === 'Approved' ? 'approved' : item.status === 'Rejected' ? 'rejected' : 'pending'
                         }`}
                       >
-                        {item.status === 'Approved' ? 'Đã duyệt' : item.status === 'Rejected' ? 'Từ chối' : 'Chờ duyệt'}
+                        {item.status === 'Approved'
+                          ? 'Đã duyệt'
+                          : item.status === 'Rejected'
+                          ? 'Từ chối'
+                          : item.status === 'Pending Payment'
+                          ? 'Chờ sinh viên thanh toán'
+                          : 'Chờ duyệt'}
                       </span>
+                      {item.status === 'Pending Payment' && (
+                        <div style={{ fontSize: 11, color: '#D97706', marginTop: 3, maxWidth: 180 }}>
+                          Chưa thanh toán phí phòng — chưa thể duyệt
+                        </div>
+                      )}
                       {item.processedByName && (
                         <div style={{ fontSize: 11, color: '#64748B', marginTop: 3 }}>
                           Bởi: {item.processedByName}

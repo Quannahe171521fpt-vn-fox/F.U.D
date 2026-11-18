@@ -338,6 +338,11 @@ builder.Services.AddScoped<FUD.Services.Keeping.KeepingPeriodCloseJob>();
 // Job đóng kỳ giữ phòng: tự động trả giường về pool booking sau khi kỳ Keeping kết thúc.
 builder.Services.AddHostedService<FUD.Services.Keeping.KeepingPeriodCloseHostedService>();
 
+// UC-Payment: Thanh toán VietQR của sinh viên
+builder.Services.AddScoped<FUD.Services.Interfaces.Payments.IPaymentTransactionFactory, FUD.Services.Payments.PaymentTransactionFactory>();
+builder.Services.AddScoped<FUD.Services.Interfaces.Payments.IRoomFeeInvoiceService, FUD.Services.Payments.RoomFeeInvoiceService>();
+builder.Services.AddScoped<FUD.Services.Interfaces.Payments.IStudentPaymentService, FUD.Services.Payments.StudentPaymentService>();
+
 // ── Booking Room DI ──
 builder.Services.AddScoped<FUD.Repositories.Interfaces.Booking.IBookingRepository, FUD.Repositories.Booking.BookingRepository>();
 builder.Services.AddScoped<FUD.Services.Interfaces.Booking.IBookingService, FUD.Services.Booking.BookingService>();

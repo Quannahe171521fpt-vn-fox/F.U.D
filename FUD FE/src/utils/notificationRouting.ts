@@ -32,6 +32,7 @@ export type ManagerTab =
   | 'requests'
   | 'ew'
   | 'bookings'
+  | 'keeping'
   | 'impersonate';
 
 export type StudentTab =
@@ -41,6 +42,7 @@ export type StudentTab =
   | 'residency-history'
   | 'checkin-records'
   | 'student-ew'
+  | 'payment'
   | 'announcements'
   | 'request-list'
   | 'submit-request'
@@ -76,6 +78,7 @@ const MANAGER_TABS: readonly string[] = [
   'requests',
   'ew',
   'bookings',
+  'keeping',
   'impersonate',
 ];
 
@@ -86,6 +89,7 @@ const STUDENT_TABS: readonly string[] = [
   'residency-history',
   'checkin-records',
   'student-ew',
+  'payment',
   'announcements',
   'request-list',
   'submit-request',
@@ -119,6 +123,8 @@ export function resolveNotificationTarget(
         return { role, tabId: 'announcements', actionLabel: 'Xem Bảng tin KTX' };
       case 'Booking':
         return { role, tabId: 'booking', actionLabel: 'Xem Đặt phòng KTX' };
+      case 'Keeping':
+        return { role, tabId: 'keeping', actionLabel: 'Xem Giữ phòng KTX' };
       case 'Request':
         return { role, tabId: 'request-list', actionLabel: 'Xem Danh sách đơn từ' };
       case 'Violation':
@@ -128,7 +134,7 @@ export function resolveNotificationTarget(
       case 'Utility':
         return { role, tabId: 'student-ew', actionLabel: 'Xem Điện nước & Định mức' };
       case 'Invoice':
-        return { role, tabId: 'residency-history', actionLabel: 'Xem Lịch sử lưu trú & Hóa đơn' };
+        return { role, tabId: 'payment', actionLabel: 'Mở Thanh toán & Hóa đơn' };
       case 'Account':
         return { role, tabId: 'profile', actionLabel: 'Xem Hồ sơ sinh viên' };
       default:
@@ -140,6 +146,8 @@ export function resolveNotificationTarget(
     switch (referenceType) {
       case 'Booking':
         return { role, tabId: 'bookings', actionLabel: 'Mở Duyệt đặt phòng' };
+      case 'Keeping':
+        return { role, tabId: 'keeping', actionLabel: 'Mở Duyệt giữ phòng' };
       case 'Request':
         return { role, tabId: 'requests', actionLabel: 'Mở Xử lý đơn yêu cầu' };
       case 'Violation':
@@ -178,6 +186,7 @@ export interface NotificationCategoryMeta {
 const CATEGORY_META: Record<string, NotificationCategoryMeta> = {
   News: { label: 'Tin tức KTX', bg: '#EFF6FF', color: '#1D4ED8' },
   Booking: { label: 'Đặt phòng', bg: '#FFF7ED', color: '#C2410C' },
+  Keeping: { label: 'Giữ phòng', bg: '#F5F3FF', color: '#6D28D9' },
   Request: { label: 'Đơn từ', bg: '#F0FDF4', color: '#15803D' },
   Violation: { label: 'Vi phạm', bg: '#FEF2F2', color: '#B91C1C' },
   Checkin: { label: 'Nhận phòng', bg: '#ECFDF5', color: '#047857' },

@@ -31,6 +31,9 @@ public partial class PaymentTransaction
 
     public string? GatewayPayload { get; set; }
 
+    /// <summary>Thời điểm xóa mềm (soft delete). NULL = giao dịch còn hiệu lực.</summary>
+    public DateTime? DeletedAt { get; set; }
+
     public virtual ICollection<Refund> Refunds { get; set; } = new List<Refund>();
 
     public virtual Student Student { get; set; } = null!;

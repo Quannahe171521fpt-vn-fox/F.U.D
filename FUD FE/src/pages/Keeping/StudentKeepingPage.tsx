@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   keepingApi,
+  navigateToStudentPayment,
   type KeepingEligibility,
   type KeepingRequestResult,
 } from '../../services/api';
@@ -107,7 +108,9 @@ export const StudentKeepingPage: React.FC = () => {
 
       {result && (
         <div className="violation-alert violation-alert-success" style={{ maxWidth: 760 }}>
-          <div style={{ fontWeight: 700, marginBottom: 4 }}>Giữ phòng thành công!</div>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>
+            {result.requiresPayment ? 'Đã tạo yêu cầu giữ phòng - Vui lòng thanh toán!' : 'Giữ phòng thành công!'}
+          </div>
           <div>Mã yêu cầu: #{result.requestId} · Trạng thái: {result.status}</div>
           {result.bed && (
             <div>
@@ -117,6 +120,41 @@ export const StudentKeepingPage: React.FC = () => {
           {result.nextTerm && <div>Học kỳ: {result.nextTerm.name} ({result.nextTerm.academicYear})</div>}
           {result.feeAmount != null && <div>Phí giữ phòng: {formatMoney(result.feeAmount, result.currency)}</div>}
           <div>Thời điểm: {formatDateTime(result.createdAt)}</div>
+          {result.requiresPayment && (
+            <div style={{ marginTop: 6, opacity: 0.9 }}>
+              Vui lòng thanh toán phí giữ phòng để yêu cầu được chuyển sang Ban Quản lý xét duyệt.
+            </div>
+          )}
+          {result.awaitingManagerApproval && (
+            <div style={{ marginTop: 6, opacity: 0.9 }}>
+              Yêu cầu đã được thanh toán và đang chờ Ban Quản lý xét duyệt.
+            </div>
+          )}
+          <div style={{ marginTop: 10 }}>
+            <button
+              type="button"
+              onClick={() =>
+                navigateToStudentPayment({
+                  invoiceId: result.invoiceId,
+                  sourceType: 'Keeping',
+                  sourceId: result.requestId,
+                  tabFilter: 'RoomFee',
+                })
+              }
+              style={{
+                padding: '7px 14px',
+                backgroundColor: '#EA580C',
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              💳 Thanh toán ngay
+            </button>
+          </div>
         </div>
       )}
 
@@ -147,6 +185,27 @@ export const StudentKeepingPage: React.FC = () => {
                   eligibility.message !== REASON_HINTS[eligibility.reasonCode] && (
                     <div style={{ marginTop: 4, opacity: 0.85 }}>{eligibility.message}</div>
                   )}
+                {(eligibility.reasonCode === 'HAS_UNPAID_INVOICE' ||
+                  eligibility.reasonCode === 'HAS_OVERDUE_INVOICE') && (
+                  <div style={{ marginTop: 10 }}>
+                    <button
+                      type="button"
+                      onClick={() => navigateToStudentPayment()}
+                      style={{
+                        padding: '7px 14px',
+                        backgroundColor: '#EA580C',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      💳 Thanh toán ngay các hóa đơn còn nợ
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   bookingApi,
+  navigateToStudentPayment,
   type BookingEligibilityDto,
   type BookingAvailableDormDto,
   type BookingAvailableBlockDto,
@@ -252,7 +253,25 @@ export const BookingPage: React.FC<BookingPageProps> = ({ onGoToRequests }) => {
             )}
           </div>
 
-          <div style={{ marginTop: 24, display: 'flex', gap: 12 }}>
+          <div style={{ marginTop: 24, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {(booking.status === 'Pending Payment' || booking.status === 'Pending') && (
+              <button
+                type="button"
+                onClick={() => navigateToStudentPayment({ sourceType: 'Booking', sourceId: booking.requestId })}
+                style={{
+                  padding: '10px 18px',
+                  backgroundColor: '#16A34A',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: 700,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                }}
+              >
+                💳 Thanh toán ngay
+              </button>
+            )}
             {onGoToRequests && (
               <button
                 type="button"
@@ -298,18 +317,29 @@ export const BookingPage: React.FC<BookingPageProps> = ({ onGoToRequests }) => {
 
   // Màn hình hoàn tất vừa submit thành công
   if (submitSuccess) {
+    const needsPayment = submitSuccess.requiresPayment && submitSuccess.invoiceId;
     return (
       <div className="booking-page-container">
         <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 14, padding: 36, textAlign: 'center', maxWidth: 600, margin: '20px auto' }}>
-          <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#DCFCE7', color: '#16A34A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, margin: '0 auto 16px' }}>
-            ✓
+          <div style={{ width: 64, height: 64, borderRadius: '50%', background: needsPayment ? '#FFF7ED' : '#DCFCE7', color: needsPayment ? '#EA580C' : '#16A34A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, margin: '0 auto 16px' }}>
+            {needsPayment ? '💳' : '✓'}
           </div>
           <h2 style={{ fontSize: 22, fontWeight: 700, color: '#0F172A', margin: '0 0 8px' }}>
-            Đặt phòng thành công!
+            {needsPayment ? 'Đặt phòng thành công - Vui lòng thanh toán!' : 'Đặt phòng thành công!'}
           </h2>
           <p style={{ color: '#64748B', fontSize: 14, lineHeight: 1.6, margin: '0 0 24px' }}>
-            Yêu cầu đặt phòng của bạn đã được chuyển đến <strong>Ban Quản lý KTX</strong> để thẩm định và phê duyệt.
-            Bạn sẽ nhận được thông báo ngay khi hồ sơ được duyệt.
+            {needsPayment ? (
+              <>
+                Yêu cầu đặt phòng của bạn đã được tạo. Vui lòng <strong>thanh toán phí phòng</strong> để
+                đơn được chuyển đến <strong>Ban Quản lý KTX</strong> xét duyệt.
+                Hạn thanh toán: <strong>{new Date(submitSuccess.paymentDeadline).toLocaleString('vi-VN')}</strong>.
+              </>
+            ) : (
+              <>
+                Yêu cầu đặt phòng của bạn đã được chuyển đến <strong>Ban Quản lý KTX</strong> để thẩm định và phê duyệt.
+                Bạn sẽ nhận được thông báo ngay khi hồ sơ được duyệt.
+              </>
+            )}
           </p>
 
           <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 16, textAlign: 'left', fontSize: 13, lineHeight: 1.8, marginBottom: 24 }}>
@@ -320,10 +350,38 @@ export const BookingPage: React.FC<BookingPageProps> = ({ onGoToRequests }) => {
             {submitSuccess.termPrice && (
               <div><strong>Đơn giá:</strong> {submitSuccess.termPrice.toLocaleString('vi-VN')} VNĐ / kỳ</div>
             )}
-            <div><strong>Trạng thái:</strong> <span style={{ color: '#D97706', fontWeight: 700 }}>Đang chờ duyệt (Pending)</span></div>
+            <div>
+              <strong>Trạng thái:</strong>{' '}
+              <span style={{ color: '#D97706', fontWeight: 700 }}>
+                {needsPayment ? 'Chờ thanh toán (Pending Payment)' : 'Đang chờ duyệt (Pending)'}
+              </span>
+            </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+            {needsPayment && (
+              <button
+                type="button"
+                onClick={() =>
+                  navigateToStudentPayment({
+                    invoiceId: submitSuccess.invoiceId,
+                    tabFilter: 'RoomFee',
+                  })
+                }
+                style={{
+                  padding: '10px 20px',
+                  background: '#EA580C',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: 8,
+                  fontWeight: 600,
+                  fontSize: 14,
+                  cursor: 'pointer',
+                }}
+              >
+                💳 Thanh toán ngay
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
