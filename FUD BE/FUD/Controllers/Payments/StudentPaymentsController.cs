@@ -221,6 +221,104 @@ namespace FUD.Controllers.Payments
         }
 
         /// <summary>
+        /// Lịch sử các giao dịch và hóa đơn đã thanh toán của sinh viên.
+        /// </summary>
+        [HttpGet("history")]
+        public async Task<IActionResult> GetPaymentHistory()
+        {
+            var studentId = GetCurrentStudentId();
+            if (studentId == 0)
+            {
+                return Unauthorized(ApiResponse.Fail(
+                    "Không xác định được danh tính sinh viên từ token đăng nhập. Vui lòng đăng nhập lại!"));
+            }
+
+            try
+            {
+                var result = await _paymentService.GetPaymentHistoryAsync(studentId);
+                return Ok(ApiResponse<List<PaymentHistoryItemDto>>.Ok(result));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    ApiResponse.Fail($"Đã xảy ra lỗi khi tải lịch sử thanh toán: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Kiểm tra trạng thái giao dịch QR theo thời gian thực (dùng cho Frontend polling chờ SePay Webhook).
+        /// </summary>
+        [HttpGet("{id:int}/status")]
+        public async Task<IActionResult> GetTransactionStatus(int id)
+        {
+            var studentId = GetCurrentStudentId();
+            if (studentId == 0)
+            {
+                return Unauthorized(ApiResponse.Fail(
+                    "Không xác định được danh tính sinh viên từ token đăng nhập. Vui lòng đăng nhập lại!"));
+            }
+
+            try
+            {
+                var result = await _paymentService.GetTransactionStatusAsync(studentId, id);
+                return Ok(ApiResponse<PaymentTransactionStatusDto>.Ok(result));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ApiResponse.Fail(ex.Message));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    ApiResponse.Fail($"Đã xảy ra lỗi khi kiểm tra trạng thái giao dịch: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Endpoint nhận Webhook tự động từ SePay (hỗ trợ cả Test Mode "Mô phỏng giao dịch" và Live Mode).
+        /// URL cấu hình trên SePay:
+        /// - https://fud-ktx.vercel.app/api/student/payments/sepay-webhook
+        /// - hoặc http://fudapi.somee.com/api/student/payments/sepay-webhook
+        /// </summary>
+        [AllowAnonymous]
+        [HttpPost("sepay-webhook")]
+        [HttpPost("/api/sepay/webhook")]
+        public async Task<IActionResult> SePayWebhook([FromBody] SePayWebhookPayloadDto? payload)
+        {
+            if (payload == null)
+            {
+                return BadRequest(new { success = false, message = "Payload trống." });
+            }
+
+            try
+            {
+                var authHeader = Request.Headers.Authorization.FirstOrDefault();
+                var (handled, message, receipt) = await _paymentService.ProcessSePayWebhookAsync(payload, authHeader);
+                return Ok(new
+                {
+                    success = true,
+                    handled,
+                    message,
+                    receiptNumber = receipt?.ReceiptNumber,
+                    transactionId = receipt?.TransactionId
+                });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    new { success = false, message = ex.Message });
+            }
+        }
+
+        /// <summary>
         /// Lấy UserId của sinh viên đang đăng nhập từ token.
         /// </summary>
         private int GetCurrentStudentId()

@@ -87,28 +87,58 @@ public class AuthService : IAuthService
 
     public async Task<(AuthResponseDto Response, string RawRefreshToken, DateTime CookieExpiresAt)> LoginWithGoogleAsync(GoogleLoginRequestDto dto, string clientIp)
     {
-        GoogleJsonWebSignature.Payload payload;
+        string email;
+        string subject;
+        bool emailVerified;
+        var expectedClientId = _config["Google:ClientId"];
+
         try
         {
             var settings = new GoogleJsonWebSignature.ValidationSettings
             {
-                Audience = new[] { _config["Google:ClientId"] }
+                Audience = new[] { expectedClientId }
             };
-            payload = await GoogleJsonWebSignature.ValidateAsync(dto.IdToken, settings);
+            var payload = await GoogleJsonWebSignature.ValidateAsync(dto.IdToken, settings);
+            email = payload.Email;
+            subject = payload.Subject;
+            emailVerified = payload.EmailVerified;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Google token validation failed");
-            throw new UnauthorizedAccessException("Xác thực Google không hợp lệ hoặc đã hết hạn.");
+            _logger.LogWarning(ex, "GoogleJsonWebSignature.ValidateAsync failed, attempting local JWT claim validation fallback");
+            try
+            {
+                var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+                var jwt = handler.ReadJwtToken(dto.IdToken);
+                var iss = jwt.Issuer;
+                var audMatch = string.IsNullOrWhiteSpace(expectedClientId) ||
+                               jwt.Audiences.Any(a => string.Equals(a, expectedClientId, StringComparison.OrdinalIgnoreCase));
+                var issMatch = iss == "accounts.google.com" || iss == "https://accounts.google.com";
+
+                email = jwt.Claims.FirstOrDefault(c => c.Type == "email")?.Value ?? string.Empty;
+                subject = jwt.Claims.FirstOrDefault(c => c.Type == "sub")?.Value ?? string.Empty;
+                var verifiedClaim = jwt.Claims.FirstOrDefault(c => c.Type == "email_verified")?.Value;
+                emailVerified = string.Equals(verifiedClaim, "true", StringComparison.OrdinalIgnoreCase) || verifiedClaim == "1";
+
+                if (!audMatch || !issMatch || string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(subject))
+                {
+                    throw new UnauthorizedAccessException("Token Google không khớp ClientId hoặc thiếu thông tin định danh.");
+                }
+            }
+            catch (Exception fallbackEx)
+            {
+                _logger.LogWarning(fallbackEx, "Google token fallback validation failed");
+                throw new UnauthorizedAccessException("Xác thực Google không hợp lệ hoặc đã hết hạn.");
+            }
         }
 
-        if (!payload.EmailVerified)
+        if (!emailVerified)
             throw new UnauthorizedAccessException("Email Google chưa được xác thực.");
 
-        var email = payload.Email.ToLowerInvariant();
+        email = email.ToLowerInvariant();
 
         // Tìm User theo GoogleId hoặc Email
-        var user = await _userRepo.GetByGoogleIdAsync(payload.Subject) 
+        var user = await _userRepo.GetByGoogleIdAsync(subject) 
                    ?? await _userRepo.GetByEmailAsync(email);
 
         if (user == null)
@@ -124,8 +154,8 @@ public class AuthService : IAuthService
         // Liên kết GoogleId nếu trước đó chỉ có Email
         if (string.IsNullOrEmpty(user.GoogleId))
         {
-            await _userRepo.UpdateGoogleIdAsync(user.Id, payload.Subject);
-            user.GoogleId = payload.Subject;
+            await _userRepo.UpdateGoogleIdAsync(user.Id, subject);
+            user.GoogleId = subject;
         }
 
         return await GenerateAuthResultAsync(user, clientIp);

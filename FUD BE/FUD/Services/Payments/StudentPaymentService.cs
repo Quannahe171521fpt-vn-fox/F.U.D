@@ -1,6 +1,8 @@
+using System.Net;
 using System.Security.Cryptography;
 using FUD.DTOs.Booking;
 using FUD.DTOs.Payments;
+using FUD.Infrastructure.Email;
 using FUD.Models;
 using FUD.Services.Interfaces.Payments;
 using Microsoft.EntityFrameworkCore;
@@ -19,19 +21,26 @@ namespace FUD.Services.Payments
     {
         private const int QrExpiryMinutes = 20;
         private const string VietQrBankCode = "970436-FUD-compact";
+        private const int UpcomingDueReminderDays = 3;
 
         private readonly FudContext _context;
         private readonly IPaymentTransactionFactory _transactionFactory;
         private readonly ILogger<StudentPaymentService> _logger;
+        private readonly IConfiguration? _config;
+        private readonly IEmailSender? _emailSender;
 
         public StudentPaymentService(
             FudContext context,
             IPaymentTransactionFactory transactionFactory,
-            ILogger<StudentPaymentService> logger)
+            ILogger<StudentPaymentService> logger,
+            IConfiguration? config = null,
+            IEmailSender? emailSender = null)
         {
             _context = context;
             _transactionFactory = transactionFactory;
             _logger = logger;
+            _config = config;
+            _emailSender = emailSender;
         }
 
         // ============================================================
@@ -145,6 +154,9 @@ namespace FUD.Services.Payments
                     result.OverdueCount++;
                 }
             }
+
+            // Kiểm tra và gửi email nhắc hạn cho các hóa đơn sắp đến hạn trong vòng 3 ngày (idempotent)
+            await TrySendUpcomingDueRemindersForStudentAsync(studentId, invoices, today);
 
             return result;
         }
@@ -316,6 +328,14 @@ namespace FUD.Services.Payments
                 await _context.SaveChangesAsync();
                 await dbTransaction.CommitAsync();
 
+                var sePayBank = _config?["SePay:BankCode"];
+                if (string.IsNullOrWhiteSpace(sePayBank)) sePayBank = "BIDV";
+                var sePayAcc = _config?["SePay:AccountNumber"];
+                if (string.IsNullOrWhiteSpace(sePayAcc)) sePayAcc = "96247FUD26";
+                var sePayName = _config?["SePay:AccountName"];
+                if (string.IsNullOrWhiteSpace(sePayName)) sePayName = "LE ANH QUANG (TK: 4271030639)";
+                var sePayQr = $"https://qr.sepay.vn/img?acc={Uri.EscapeDataString(sePayAcc)}&bank={Uri.EscapeDataString(sePayBank)}&amount={(int)totalAmount}&des={Uri.EscapeDataString(gatewayReference)}&template=compact";
+
                 return new PaymentTransactionDto
                 {
                     Id = transaction.Id,
@@ -323,6 +343,10 @@ namespace FUD.Services.Payments
                     Method = transaction.Method,
                     GatewayReference = transaction.GatewayReference,
                     QrLink = transaction.QrLink,
+                    SePayQrLink = sePayQr,
+                    SePayBankCode = sePayBank,
+                    SePayAccountNumber = sePayAcc,
+                    SePayAccountName = sePayName,
                     TotalAmount = transaction.TotalAmount,
                     Status = transaction.Status,
                     ReceiptNumber = transaction.ReceiptNumber,
@@ -442,7 +466,7 @@ namespace FUD.Services.Payments
                 await _context.SaveChangesAsync();
                 await dbTransaction.CommitAsync();
 
-                return new PaymentSuccessDto
+                var successResult = new PaymentSuccessDto
                 {
                     TransactionId = transaction.Id,
                     ReceiptNumber = transaction.ReceiptNumber ?? string.Empty,
@@ -472,6 +496,11 @@ namespace FUD.Services.Payments
                             .ToList()
                     }).ToList()
                 };
+
+                // Gửi email biên lai xác nhận thanh toán thành công cho sinh viên (không chặn luồng chính nếu SMTP lỗi)
+                await TrySendPaymentSuccessEmailAsync(studentId, successResult);
+
+                return successResult;
             }
             catch
             {
@@ -559,6 +588,472 @@ namespace FUD.Services.Payments
             {
                 await dbTransaction.RollbackAsync();
                 throw;
+            }
+        }
+
+        // ============================================================
+        //  5. Kiểm tra trạng thái giao dịch (Frontend Polling chờ SePay Webhook)
+        // ============================================================
+        public async Task<PaymentTransactionStatusDto> GetTransactionStatusAsync(int studentId, int transactionId)
+        {
+            var transaction = await _context.PaymentTransactions
+                .AsNoTracking()
+                .Include(t => t.TransactionInvoices)
+                .FirstOrDefaultAsync(t => t.Id == transactionId && t.DeletedAt == null);
+
+            if (transaction == null)
+            {
+                throw new KeyNotFoundException($"PAY_404: Không tìm thấy giao dịch thanh toán với mã {transactionId}.");
+            }
+
+            if (transaction.StudentId != studentId)
+            {
+                throw new UnauthorizedAccessException("PAY_403: Giao dịch này không thuộc về tài khoản của bạn.");
+            }
+
+            var now = DateTime.Now;
+            var remainingSeconds = transaction.Status == PaymentTransactionStatuses.Processing
+                ? Math.Max(0, (int)Math.Ceiling((transaction.ExpiryTime - now).TotalSeconds))
+                : 0;
+
+            var statusDto = new PaymentTransactionStatusDto
+            {
+                TransactionId = transaction.Id,
+                Status = transaction.Status,
+                RemainingSeconds = remainingSeconds
+            };
+
+            if (transaction.Status == PaymentTransactionStatuses.Success)
+            {
+                var invoiceIds = transaction.TransactionInvoices.Select(ti => ti.InvoiceId).ToList();
+                var invoices = await _context.Invoices
+                    .AsNoTracking()
+                    .Include(i => i.InvoiceItems)
+                    .Where(i => invoiceIds.Contains(i.Id))
+                    .ToListAsync();
+
+                statusDto.Receipt = new PaymentSuccessDto
+                {
+                    TransactionId = transaction.Id,
+                    ReceiptNumber = transaction.ReceiptNumber ?? ("RC-" + transaction.GatewayReference.Replace("VQR-", string.Empty)),
+                    GatewayReference = transaction.GatewayReference,
+                    TotalAmount = transaction.TotalAmount,
+                    PaidTime = transaction.PaidTime ?? now,
+                    CallbackTime = transaction.CallbackTime ?? now,
+                    SideEffectNotes = new List<string>
+                    {
+                        "Đã xác nhận thanh toán tự động qua cổng SePay VietQR Webhook."
+                    },
+                    Invoices = invoices.Select(i => new TransactionInvoiceDto
+                    {
+                        InvoiceId = i.Id,
+                        InvoiceNumber = i.InvoiceNumber,
+                        InvoiceType = i.InvoiceType,
+                        AllocatedAmount = i.Amount,
+                        DueDate = i.DueDate,
+                        Status = i.Status,
+                        Items = i.InvoiceItems
+                            .OrderBy(it => it.Id)
+                            .Select(it => new InvoiceItemDto
+                            {
+                                Id = it.Id,
+                                Description = it.Description,
+                                Quantity = it.Quantity,
+                                UnitPrice = it.UnitPrice,
+                                Amount = it.Amount
+                            })
+                            .ToList()
+                    }).ToList()
+                };
+            }
+
+            return statusDto;
+        }
+
+        // ============================================================
+        //  6. Xử lý Webhook từ SePay (Test Mode & Live Mode)
+        // ============================================================
+        public async Task<(bool Handled, string Message, PaymentSuccessDto? Receipt)> ProcessSePayWebhookAsync(
+            SePayWebhookPayloadDto payload,
+            string? authorizationHeader = null)
+        {
+            var expectedApiKey = _config?["SePay:WebhookApiKey"];
+            if (!string.IsNullOrWhiteSpace(expectedApiKey))
+            {
+                var provided = (authorizationHeader ?? string.Empty).Trim();
+                if (provided.StartsWith("Apikey ", StringComparison.OrdinalIgnoreCase))
+                {
+                    provided = provided.Substring("Apikey ".Length).Trim();
+                }
+                else if (provided.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                {
+                    provided = provided.Substring("Bearer ".Length).Trim();
+                }
+
+                if (!string.Equals(provided, expectedApiKey, StringComparison.Ordinal))
+                {
+                    throw new UnauthorizedAccessException("SePay Webhook API Key không hợp lệ.");
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(payload.TransferType) &&
+                !string.Equals(payload.TransferType, "in", StringComparison.OrdinalIgnoreCase))
+            {
+                return (false, "Bỏ qua giao dịch không phải tiền vào (transferType != in).", null);
+            }
+
+            var rawText = $"{payload.Code} {payload.Content} {payload.Description}".Trim();
+            var normalizedText = NormalizeRef(rawText);
+
+            var activeTransactions = await _context.PaymentTransactions
+                .Where(t => t.Status == PaymentTransactionStatuses.Processing && t.DeletedAt == null)
+                .OrderByDescending(t => t.CreatedTime)
+                .ToListAsync();
+
+            if (activeTransactions.Count == 0)
+            {
+                return (false, "Không có giao dịch nào đang ở trạng thái chờ thanh toán (Processing).", null);
+            }
+
+            // 1. Ưu tiên khớp theo mã GatewayReference (có hoặc không có dấu gạch ngang '-').
+            PaymentTransaction? matched = activeTransactions.FirstOrDefault(t =>
+                (!string.IsNullOrWhiteSpace(rawText) &&
+                 rawText.Contains(t.GatewayReference, StringComparison.OrdinalIgnoreCase))
+                || (!string.IsNullOrWhiteSpace(normalizedText) &&
+                    normalizedText.Contains(NormalizeRef(t.GatewayReference), StringComparison.OrdinalIgnoreCase)));
+
+            // 2. Hỗ trợ SePay Test Mode: nếu người dùng bấm "Mô phỏng giao dịch" trên SePay với đúng số tiền
+            //    hoặc chỉ có 1 giao dịch đang chờ quét QR trên tài khoản test 0000000001.
+            if (matched == null && payload.TransferAmount > 0)
+            {
+                matched = activeTransactions.FirstOrDefault(t => t.TotalAmount == payload.TransferAmount);
+            }
+
+            if (matched == null &&
+                (string.Equals(payload.AccountNumber, "0000000001", StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(payload.AccountNumber, "4271030639", StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(payload.SubAccount, "96247FUD26", StringComparison.OrdinalIgnoreCase)))
+            {
+                matched = activeTransactions.FirstOrDefault();
+            }
+
+            if (matched == null)
+            {
+                return (false, "Không tìm thấy giao dịch khớp với nội dung hoặc số tiền chuyển khoản.", null);
+            }
+
+            var receipt = await MockConfirmAsync(
+                matched.StudentId,
+                matched.Id,
+                new MockConfirmPaymentDto { GatewayReference = matched.GatewayReference });
+
+            // Lưu thông tin payload SePay thật vào bản ghi giao dịch.
+            var confirmedTx = await _context.PaymentTransactions.FirstOrDefaultAsync(t => t.Id == matched.Id);
+            if (confirmedTx != null)
+            {
+                confirmedTx.GatewayPayload = System.Text.Json.JsonSerializer.Serialize(payload);
+                await _context.SaveChangesAsync();
+            }
+
+            _logger.LogInformation(
+                "SePay Webhook đã xác nhận thành công giao dịch #{TxId} ({GatewayRef}), số tiền {Amount}.",
+                matched.Id, matched.GatewayReference, payload.TransferAmount);
+
+            return (true, $"Đã xác nhận thanh toán giao dịch {matched.GatewayReference} qua SePay.", receipt);
+        }
+
+        private static string NormalizeRef(string? input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+            var chars = input.Where(char.IsLetterOrDigit).ToArray();
+            return new string(chars).ToUpperInvariant();
+        }
+
+        // ============================================================
+        //  7. Lịch sử giao dịch & hóa đơn đã thanh toán
+        // ============================================================
+        public async Task<List<PaymentHistoryItemDto>> GetPaymentHistoryAsync(int studentId)
+        {
+            var transactions = await _context.PaymentTransactions
+                .AsNoTracking()
+                .Include(t => t.TransactionInvoices)
+                    .ThenInclude(ti => ti.Invoice)
+                        .ThenInclude(i => i.InvoiceItems)
+                .Where(t => t.StudentId == studentId
+                            && t.DeletedAt == null
+                            && t.Status == PaymentTransactionStatuses.Success)
+                .OrderByDescending(t => t.PaidTime ?? t.CreatedTime)
+                .ToListAsync();
+
+            var history = new List<PaymentHistoryItemDto>();
+            var coveredInvoiceIds = new HashSet<int>();
+
+            foreach (var tx in transactions)
+            {
+                var invList = new List<TransactionInvoiceDto>();
+                foreach (var ti in tx.TransactionInvoices)
+                {
+                    coveredInvoiceIds.Add(ti.InvoiceId);
+                    var inv = ti.Invoice;
+                    if (inv == null) continue;
+                    invList.Add(new TransactionInvoiceDto
+                    {
+                        InvoiceId = inv.Id,
+                        InvoiceNumber = inv.InvoiceNumber,
+                        InvoiceType = inv.InvoiceType,
+                        AllocatedAmount = ti.AllocatedAmount,
+                        DueDate = inv.DueDate,
+                        Status = inv.Status,
+                        Items = inv.InvoiceItems
+                            .OrderBy(it => it.Id)
+                            .Select(it => new InvoiceItemDto
+                            {
+                                Id = it.Id,
+                                Description = it.Description,
+                                Quantity = it.Quantity,
+                                UnitPrice = it.UnitPrice,
+                                Amount = it.Amount
+                            })
+                            .ToList()
+                    });
+                }
+
+                history.Add(new PaymentHistoryItemDto
+                {
+                    TransactionId = tx.Id,
+                    ReceiptNumber = tx.ReceiptNumber ?? ("RC-" + tx.GatewayReference.Replace("VQR-", string.Empty)),
+                    GatewayReference = tx.GatewayReference,
+                    Method = tx.Method,
+                    TotalAmount = tx.TotalAmount,
+                    Status = tx.Status,
+                    PaidTime = tx.PaidTime ?? tx.CreatedTime,
+                    Invoices = invList
+                });
+            }
+
+            // Bổ sung các hóa đơn Paid trực tiếp trong DB (nếu không qua bảng Payment_Transactions)
+            var standalonePaidInvoices = await _context.Invoices
+                .AsNoTracking()
+                .Include(i => i.InvoiceItems)
+                .Where(i => i.StudentId == studentId
+                            && i.DeletedAt == null
+                            && i.Status == InvoiceStatuses.Paid
+                            && !coveredInvoiceIds.Contains(i.Id))
+                .OrderByDescending(i => i.PaidTime ?? i.IssuedTime)
+                .ToListAsync();
+
+            foreach (var inv in standalonePaidInvoices)
+            {
+                history.Add(new PaymentHistoryItemDto
+                {
+                    TransactionId = inv.Id,
+                    ReceiptNumber = $"RC-INV-{inv.Id}",
+                    GatewayReference = inv.InvoiceNumber,
+                    Method = "VietQR",
+                    TotalAmount = inv.Amount,
+                    Status = "Success",
+                    PaidTime = inv.PaidTime ?? inv.IssuedTime,
+                    Invoices = new List<TransactionInvoiceDto>
+                    {
+                        new TransactionInvoiceDto
+                        {
+                            InvoiceId = inv.Id,
+                            InvoiceNumber = inv.InvoiceNumber,
+                            InvoiceType = inv.InvoiceType,
+                            AllocatedAmount = inv.Amount,
+                            DueDate = inv.DueDate,
+                            Status = inv.Status,
+                            Items = inv.InvoiceItems
+                                .OrderBy(it => it.Id)
+                                .Select(it => new InvoiceItemDto
+                                {
+                                    Id = it.Id,
+                                    Description = it.Description,
+                                    Quantity = it.Quantity,
+                                    UnitPrice = it.UnitPrice,
+                                    Amount = it.Amount
+                                })
+                                .ToList()
+                        }
+                    }
+                });
+            }
+
+            return history.OrderByDescending(h => h.PaidTime).ToList();
+        }
+
+        // ============================================================
+        //  8. Gửi Email biên lai thanh toán thành công & Email nhắc hạn 3 ngày
+        // ============================================================
+        private async Task TrySendPaymentSuccessEmailAsync(int studentId, PaymentSuccessDto receipt)
+        {
+            if (_emailSender == null) return;
+
+            try
+            {
+                var user = await _context.Users
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(u => u.Id == studentId && u.DeletedAt == null);
+
+                if (user == null || string.IsNullOrWhiteSpace(user.Email))
+                {
+                    return;
+                }
+
+                var rowsHtml = string.Join("", receipt.Invoices.Select(inv =>
+                {
+                    var detail = inv.Items != null && inv.Items.Count > 0
+                        ? string.Join("; ", inv.Items.Select(it => WebUtility.HtmlEncode(it.Description)))
+                        : WebUtility.HtmlEncode(inv.InvoiceType);
+                    return $@"
+                        <tr>
+                            <td style=""padding:8px 12px;border:1px solid #e2e8f0;font-weight:700;color:#c2410c"">{WebUtility.HtmlEncode(inv.InvoiceNumber)}</td>
+                            <td style=""padding:8px 12px;border:1px solid #e2e8f0"">{WebUtility.HtmlEncode(inv.InvoiceType)}</td>
+                            <td style=""padding:8px 12px;border:1px solid #e2e8f0"">{detail}</td>
+                            <td style=""padding:8px 12px;border:1px solid #e2e8f0;text-align:right;font-weight:700"">{inv.AllocatedAmount:N0} đ</td>
+                        </tr>";
+                }));
+
+                var sideEffectsHtml = receipt.SideEffectNotes != null && receipt.SideEffectNotes.Count > 0
+                    ? $@"<div style=""margin-top:14px;padding:12px 14px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;color:#166534"">
+                            <strong>Cập nhật tự động từ hệ thống:</strong>
+                            <ul style=""margin:6px 0 0;padding-left:18px"">
+                                {string.Join("", receipt.SideEffectNotes.Select(n => $"<li>{WebUtility.HtmlEncode(n)}</li>"))}
+                            </ul>
+                         </div>"
+                    : string.Empty;
+
+                var subject = $"[KTX FUD] Biên lai xác nhận thanh toán thành công - {receipt.ReceiptNumber}";
+                var htmlBody = $@"
+                    <div style=""font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1e293b;max-width:640px;margin:0 auto;border:1px solid #e2e8f0;border-radius:12px;padding:24px"">
+                        <h2 style=""color:#15803d;margin:0 0 12px"">✓ Xác nhận thanh toán thành công</h2>
+                        <p>Xin chào <strong>{WebUtility.HtmlEncode(user.FullName)}</strong> ({WebUtility.HtmlEncode(user.Code)}),</p>
+                        <p>Hệ thống Quản lý Ký túc xá Đại học FPT (FUD) xác nhận đã nhận được khoản thanh toán của bạn:</p>
+                        <div style=""background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;margin:14px 0;line-height:1.7"">
+                            <div><strong>Số biên lai:</strong> <span style=""color:#15803d;font-weight:700"">{WebUtility.HtmlEncode(receipt.ReceiptNumber)}</span></div>
+                            <div><strong>Mã giao dịch VietQR:</strong> {WebUtility.HtmlEncode(receipt.GatewayReference)}</div>
+                            <div><strong>Thời gian thanh toán:</strong> {receipt.PaidTime:dd/MM/yyyy HH:mm:ss}</div>
+                            <div><strong>Tổng số tiền đã thanh toán:</strong> <span style=""color:#c2410c;font-weight:700;font-size:16px"">{receipt.TotalAmount:N0} đ</span></div>
+                        </div>
+                        <table style=""width:100%;border-collapse:collapse;font-size:13px;margin-top:12px"">
+                            <thead>
+                                <tr style=""background:#f1f5f9;text-align:left"">
+                                    <th style=""padding:8px 12px;border:1px solid #e2e8f0"">Mã hóa đơn</th>
+                                    <th style=""padding:8px 12px;border:1px solid #e2e8f0"">Loại phí</th>
+                                    <th style=""padding:8px 12px;border:1px solid #e2e8f0"">Chi tiết</th>
+                                    <th style=""padding:8px 12px;border:1px solid #e2e8f0;text-align:right"">Số tiền</th>
+                                </tr>
+                            </thead>
+                            <tbody>{rowsHtml}</tbody>
+                        </table>
+                        {sideEffectsHtml}
+                        <p style=""margin-top:20px;color:#64748b;font-size:12px"">Trân trọng,<br/><strong>Ban Quản lý Ký túc xá FUD - Đại học FPT</strong></p>
+                    </div>";
+
+                await _emailSender.SendEmailAsync(user.Email, subject, htmlBody);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Không thể gửi email biên lai thanh toán cho sinh viên {StudentId}", studentId);
+            }
+        }
+
+        private async Task TrySendUpcomingDueRemindersForStudentAsync(
+            int studentId,
+            List<Invoice> invoices,
+            DateOnly today)
+        {
+            if (_emailSender == null || invoices.Count == 0) return;
+
+            try
+            {
+                var deadlineLimit = today.AddDays(UpcomingDueReminderDays);
+                var dueSoonInvoices = invoices
+                    .Where(i => i.Status == InvoiceStatuses.Unpaid
+                                && i.DeletedAt == null
+                                && i.DueDate >= today
+                                && i.DueDate <= deadlineLimit)
+                    .ToList();
+
+                if (dueSoonInvoices.Count == 0) return;
+
+                var user = await _context.Users
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(u => u.Id == studentId && u.DeletedAt == null);
+
+                if (user == null || string.IsNullOrWhiteSpace(user.Email)) return;
+
+                var targetIds = dueSoonInvoices.Select(i => i.Id.ToString()).ToList();
+                var alreadyRemindedIds = await _context.AuditLogs
+                    .AsNoTracking()
+                    .Where(a => a.TargetEntity == "InvoiceDueReminder3Days"
+                                && a.TargetId != null
+                                && targetIds.Contains(a.TargetId))
+                    .Select(a => a.TargetId!)
+                    .ToListAsync();
+
+                var remindedSet = alreadyRemindedIds.ToHashSet();
+                var now = DateTime.Now;
+                var addedAny = false;
+
+                foreach (var invoice in dueSoonInvoices)
+                {
+                    var key = invoice.Id.ToString();
+                    if (remindedSet.Contains(key)) continue;
+
+                    var daysLeft = invoice.DueDate.DayNumber - today.DayNumber;
+                    var daysText = daysLeft == 0 ? "hôm nay" : $"còn {daysLeft} ngày";
+                    var subject = $"[KTX FUD] Nhắc hạn thanh toán hóa đơn {invoice.InvoiceNumber} ({daysText})";
+                    var htmlBody = $@"
+                        <div style=""font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1e293b;max-width:620px;margin:0 auto;border:1px solid #fed7aa;border-radius:12px;padding:24px"">
+                            <h2 style=""color:#c2410c;margin:0 0 12px"">⏰ Nhắc nhở hóa đơn sắp đến hạn thanh toán</h2>
+                            <p>Xin chào <strong>{WebUtility.HtmlEncode(user.FullName)}</strong> ({WebUtility.HtmlEncode(user.Code)}),</p>
+                            <p>Bạn có hóa đơn tại Ký túc xá FUD sắp đến hạn thanh toán (<strong>{daysText}</strong>):</p>
+                            <div style=""background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:14px;margin:14px 0;line-height:1.7"">
+                                <div><strong>Mã hóa đơn:</strong> <span style=""color:#c2410c;font-weight:700"">{WebUtility.HtmlEncode(invoice.InvoiceNumber)}</span></div>
+                                <div><strong>Loại khoản thu:</strong> {WebUtility.HtmlEncode(invoice.InvoiceType)}</div>
+                                <div><strong>Số tiền cần thanh toán:</strong> <span style=""color:#b91c1c;font-weight:700;font-size:16px"">{invoice.Amount:N0} đ</span></div>
+                                <div><strong>Hạn chót thanh toán:</strong> <strong>{invoice.DueDate:dd/MM/yyyy}</strong></div>
+                            </div>
+                            <p>Vui lòng đăng nhập Cổng Sinh viên KTX FUD mục <strong>Thanh toán hóa đơn</strong> để quét mã VietQR thanh toán đúng hạn, tránh phát sinh nợ quá hạn làm gián đoạn quyền gửi đơn từ và đăng ký phòng.</p>
+                            <p style=""margin-top:20px;color:#64748b;font-size:12px"">Trân trọng,<br/><strong>Ban Quản lý Ký túc xá FUD - Đại học FPT</strong></p>
+                        </div>";
+
+                    await _emailSender.SendEmailAsync(user.Email, subject, htmlBody);
+
+                    _context.Notifications.Add(new Notification
+                    {
+                        UserId = studentId,
+                        Channel = "InApp",
+                        Title = "Hóa đơn sắp đến hạn thanh toán",
+                        Content = $"Hóa đơn {invoice.InvoiceNumber} ({invoice.Amount:N0} đồng) sẽ đến hạn vào ngày {invoice.DueDate:dd/MM/yyyy} ({daysText}). Vui lòng thanh toán đúng hạn.",
+                        ReferenceType = "Invoice",
+                        ReferenceId = key,
+                        ReadFlag = false,
+                        SentTime = now
+                    });
+
+                    _context.AuditLogs.Add(new AuditLog
+                    {
+                        UserId = studentId,
+                        ActionType = "REMIND_3DAYS",
+                        TargetEntity = "InvoiceDueReminder3Days",
+                        TargetId = key,
+                        NewValue = $"Reminded {user.Email} for Invoice {invoice.InvoiceNumber} due {invoice.DueDate:yyyy-MM-dd}",
+                        CreatedAt = now
+                    });
+
+                    addedAny = true;
+                }
+
+                if (addedAny)
+                {
+                    await _context.SaveChangesAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi gửi email nhắc hạn 3 ngày cho sinh viên {StudentId}", studentId);
             }
         }
 

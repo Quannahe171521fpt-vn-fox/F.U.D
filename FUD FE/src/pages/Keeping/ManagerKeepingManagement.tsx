@@ -3,6 +3,7 @@ import { keepingManagerApi, type KeepingRequestManagerDto } from '../../services
 import { Pagination } from '../../components/Pagination';
 import { useIdleAwarePolling } from '../../utils/useIdleAwarePolling';
 import { formatDate } from '../../utils/dateUtils';
+import { usePopup } from '../../components/PopupDialog';
 import '../../styles/booking.css';
 import '../../styles/violation.css';
 
@@ -11,6 +12,7 @@ const PAGE_SIZE = 10;
 const formatVnd = (amount: number) => `${Number(amount || 0).toLocaleString('vi-VN')} đ`;
 
 export const ManagerKeepingManagement: React.FC = () => {
+  const { showAlert, showConfirm, popup } = usePopup();
   const [requests, setRequests] = useState<KeepingRequestManagerDto[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string>('');
@@ -52,14 +54,12 @@ export const ManagerKeepingManagement: React.FC = () => {
   }, 5000);
 
   const handleApprove = async (item: KeepingRequestManagerDto) => {
-    if (
-      !window.confirm(
+    const ok = await showConfirm(
         `Bạn có chắc chắn muốn PHÊ DUYỆT yêu cầu giữ phòng #${item.requestId}? ` +
-          'Hệ thống sẽ tạo hồ sơ cư trú cho học kỳ kế tiếp của sinh viên.'
-      )
-    ) {
-      return;
-    }
+          'Hệ thống sẽ tạo hồ sơ cư trú cho học kỳ kế tiếp của sinh viên.',
+      { title: 'Phê duyệt giữ phòng', confirmText: 'Phê duyệt', variant: 'success' }
+    );
+    if (!ok) return;
 
     setProcessingId(item.requestId);
     setErrorMsg('');
@@ -84,7 +84,7 @@ export const ManagerKeepingManagement: React.FC = () => {
     if (!rejectModalTarget) return;
 
     if (!rejectReason.trim()) {
-      alert('Vui lòng nhập lý do từ chối yêu cầu giữ phòng.');
+      void showAlert('Vui lòng nhập lý do từ chối yêu cầu giữ phòng.', { title: 'Thiếu lý do từ chối' });
       return;
     }
 
@@ -121,6 +121,7 @@ export const ManagerKeepingManagement: React.FC = () => {
 
   return (
     <div style={{ padding: '24px 32px' }}>
+      {popup}
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: '0 0 6px', color: '#0F172A' }}>
           Duyệt yêu cầu giữ phòng

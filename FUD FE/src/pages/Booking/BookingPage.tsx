@@ -10,6 +10,7 @@ import {
   type BookingRequestItemDto,
 } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePopup } from '../../components/PopupDialog';
 import '../../styles/booking.css';
 
 interface BookingPageProps {
@@ -18,6 +19,7 @@ interface BookingPageProps {
 
 export const BookingPage: React.FC<BookingPageProps> = ({ onGoToRequests }) => {
   const { currentUser } = useAuth();
+  const { showAlert, popup } = usePopup();
 
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -158,12 +160,12 @@ export const BookingPage: React.FC<BookingPageProps> = ({ onGoToRequests }) => {
   // 5. Handle submission
   const handleSubmitBooking = async () => {
     if (!selectedBedId) {
-      alert('Vui lòng chọn giường bạn muốn đăng ký.');
+      void showAlert('Vui lòng chọn giường bạn muốn đăng ký.', { title: 'Chưa chọn giường' });
       return;
     }
 
     if (!agreed) {
-      alert('Vui lòng đọc và tích đồng ý với Quy chế & Nội quy Ký túc xá.');
+      void showAlert('Vui lòng đọc và tích đồng ý với Quy chế & Nội quy Ký túc xá.', { title: 'Chưa đồng ý nội quy' });
       return;
     }
 
@@ -428,6 +430,7 @@ export const BookingPage: React.FC<BookingPageProps> = ({ onGoToRequests }) => {
   // MÀN HÌNH CHỌN PHÒNG (Wizard: Dorm -> Block -> Room -> Bed)
   return (
     <div className="booking-page-container">
+      {popup}
       <div className="booking-header">
         <h1 className="booking-title"><span>🛏️</span> Đăng ký chỗ ở KTX — {eligibility.nextTermName}</h1>
         <p className="booking-subtitle">

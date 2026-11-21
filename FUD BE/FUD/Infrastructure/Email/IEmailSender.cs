@@ -25,8 +25,25 @@ namespace FUD.Infrastructure.Email
         {
             if (string.IsNullOrWhiteSpace(toEmail)) return;
 
-            var senderEmail = _config["Email:Sender"] ?? _config["Email__Sender"];
-            var senderPassword = _config["Email:Password"] ?? _config["Email__Password"];
+            var senderEmail = _config["Email:Sender"]
+                              ?? _config["Email__Sender"]
+                              ?? _config["Email:SenderEmail"]
+                              ?? _config["Email__SenderEmail"]
+                              ?? "katrung182@gmail.com";
+            var senderPassword = _config["Email:Password"]
+                                 ?? _config["Email__Password"]
+                                 ?? _config["Email:SenderPassword"]
+                                 ?? _config["Email__SenderPassword"]
+                                 ?? "sqpdbjbludjrlegl";
+
+            if (senderEmail.Contains("youremail@", StringComparison.OrdinalIgnoreCase))
+            {
+                senderEmail = "katrung182@gmail.com";
+            }
+            if (senderPassword.Contains("your-gmail", StringComparison.OrdinalIgnoreCase))
+            {
+                senderPassword = "sqpdbjbludjrlegl";
+            }
 
             // Nếu cấu hình mặc định chưa đổi mật khẩu thật, ghi log và giả lập gửi thành công
             if (string.IsNullOrWhiteSpace(senderEmail) ||
