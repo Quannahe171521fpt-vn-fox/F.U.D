@@ -131,6 +131,57 @@ namespace FUD.DTOs.Payments
 
         /// <summary>Số giây còn lại của phiên QR (tính ở server).</summary>
         public int RemainingSeconds { get; set; }
+
+        /// <summary>Link ảnh QR chuẩn SePay (https://qr.sepay.vn/img?...).</summary>
+        public string? SePayQrLink { get; set; }
+
+        /// <summary>Mã ngân hàng nhận thanh toán SePay (BIDV).</summary>
+        public string SePayBankCode { get; set; } = "BIDV";
+
+        /// <summary>Số tài khoản VA nhận thanh toán SePay (96247FUD26 - BIDV 4271030639).</summary>
+        public string SePayAccountNumber { get; set; } = "96247FUD26";
+
+        /// <summary>Tên chủ tài khoản hiển thị trên SePay.</summary>
+        public string SePayAccountName { get; set; } = "LE ANH QUANG (TK: 4271030639)";
+    }
+
+    /// <summary>Payload Webhook chuẩn từ SePay gửi về khi có giao dịch tiền vào.</summary>
+    public class SePayWebhookPayloadDto
+    {
+        public long Id { get; set; }
+        public string? Gateway { get; set; }
+        public string? TransactionDate { get; set; }
+        public string? AccountNumber { get; set; }
+        public string? SubAccount { get; set; }
+        public string? Code { get; set; }
+        public string? Content { get; set; }
+        public string? TransferType { get; set; }
+        public decimal TransferAmount { get; set; }
+        public decimal Accumulated { get; set; }
+        public string? ReferenceCode { get; set; }
+        public string? Description { get; set; }
+    }
+
+    /// <summary>Trạng thái giao dịch dùng cho Frontend polling chờ Webhook SePay.</summary>
+    public class PaymentTransactionStatusDto
+    {
+        public int TransactionId { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public int RemainingSeconds { get; set; }
+        public PaymentSuccessDto? Receipt { get; set; }
+    }
+
+    /// <summary>Một bản ghi lịch sử giao dịch / hóa đơn đã thanh toán của sinh viên.</summary>
+    public class PaymentHistoryItemDto
+    {
+        public int TransactionId { get; set; }
+        public string ReceiptNumber { get; set; } = string.Empty;
+        public string GatewayReference { get; set; } = string.Empty;
+        public string Method { get; set; } = "VietQR";
+        public decimal TotalAmount { get; set; }
+        public string Status { get; set; } = "Success";
+        public DateTime PaidTime { get; set; }
+        public List<TransactionInvoiceDto> Invoices { get; set; } = new();
     }
 
     /// <summary>Một hóa đơn được gộp vào giao dịch thanh toán.</summary>

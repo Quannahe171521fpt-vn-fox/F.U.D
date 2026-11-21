@@ -86,6 +86,17 @@ namespace FUD.Services.Keeping
                     currentStay, nextTermDto, fee, periodDto);
             }
 
+            // Đã có lượt giữ phòng còn hiệu lực cho kỳ kế tiếp (Pending Payment / Pending / Approved / Completed)
+            // → từ chối. Phải kiểm tra TRƯỚC các điều kiện hóa đơn, vì chính hóa đơn phí giữ phòng
+            // vừa tạo (Unpaid) cũng sẽ làm sinh viên bị chặn với lý do sai.
+            if (await _keepingRepository.HasCompletedKeepingRequestAsync(studentId, nextTerm.Id))
+            {
+                return Ineligible(
+                    KeepingReasonCodes.AlreadyKept,
+                    "Bạn đã giữ phòng cho học kỳ kế tiếp.",
+                    currentStay, nextTermDto, fee, periodDto);
+            }
+
             // GB-11: còn hóa đơn quá hạn → từ chối.
             if (await _keepingRepository.HasOverdueInvoiceAsync(studentId))
             {
@@ -101,15 +112,6 @@ namespace FUD.Services.Keeping
                 return Ineligible(
                     KeepingReasonCodes.HasUnpaidInvoice,
                     "Bạn đang có hóa đơn chưa thanh toán. Vui lòng thanh toán trước khi giữ phòng.",
-                    currentStay, nextTermDto, fee, periodDto);
-            }
-
-            // Đã giữ phòng cho kỳ kế tiếp → từ chối.
-            if (await _keepingRepository.HasCompletedKeepingRequestAsync(studentId, nextTerm.Id))
-            {
-                return Ineligible(
-                    KeepingReasonCodes.AlreadyKept,
-                    "Bạn đã giữ phòng cho học kỳ kế tiếp.",
                     currentStay, nextTermDto, fee, periodDto);
             }
 

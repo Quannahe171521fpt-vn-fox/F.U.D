@@ -4,9 +4,11 @@ import {
   type StudentInvoiceDto,
   type PaymentTransactionDto,
   type PaymentSuccessDto,
+  type PaymentHistoryItemDto,
   type PaymentNavigationParams,
 } from '../../services/api';
 import { formatDate, formatDateTime } from '../../utils/dateUtils';
+import { usePopup } from '../../components/PopupDialog';
 import '../../styles/violation.css';
 
 type FilterTab = 'All' | 'RoomFee' | 'Utility' | 'BedTransfer' | 'Compensation';
@@ -43,6 +45,30 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
 };
 
 const TX_CACHE_KEY_PREFIX = 'fud_active_qr_tx_';
+const HISTORY_CACHE_KEY = 'fud_payment_history_cache';
+
+function saveReceiptToHistoryCache(receipt: PaymentSuccessDto) {
+  try {
+    const raw = localStorage.getItem(HISTORY_CACHE_KEY);
+    const list: PaymentHistoryItemDto[] = raw ? JSON.parse(raw) : [];
+    const item: PaymentHistoryItemDto = {
+      transactionId: receipt.transactionId,
+      receiptNumber: receipt.receiptNumber,
+      gatewayReference: receipt.gatewayReference,
+      method: 'VietQR · SePay',
+      totalAmount: receipt.totalAmount,
+      status: 'Success',
+      paidTime: receipt.paidTime,
+      invoices: receipt.invoices || [],
+    };
+    const filtered = list.filter(
+      (x) => x.receiptNumber !== item.receiptNumber && x.transactionId !== item.transactionId
+    );
+    localStorage.setItem(HISTORY_CACHE_KEY, JSON.stringify([item, ...filtered].slice(0, 50)));
+  } catch {
+    // ignore
+  }
+}
 
 function saveTxToSession(tx: PaymentTransactionDto) {
   try {
@@ -92,10 +118,9 @@ interface ChoosePaidItemPageProps {
 export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
   navigationParams,
   onClearNavigationParams,
-  onGoToResidencyHistory,
-  onGoToRequests,
   onInvoicesUpdated,
 }) => {
+  const { showConfirm, popup } = usePopup();
   const [invoices, setInvoices] = useState<StudentInvoiceDto[]>([]);
   const [totalOutstanding, setTotalOutstanding] = useState<number>(0);
   const [overdueCount, setOverdueCount] = useState<number>(0);
@@ -116,12 +141,30 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
   // Màn hình Quét mã QR (Step 3)
   const [activeTx, setActiveTx] = useState<PaymentTransactionDto | null>(null);
   const [remainingSeconds, setRemainingSeconds] = useState<number>(0);
-  const [confirmingPayment, setConfirmingPayment] = useState<boolean>(false);
   const [cancellingTxId, setCancellingTxId] = useState<number | null>(null);
   const [copiedRef, setCopiedRef] = useState<boolean>(false);
 
   // Màn hình Biên lai kết quả thanh toán (Step 3 - Success)
   const [paymentReceipt, setPaymentReceipt] = useState<PaymentSuccessDto | null>(null);
+
+  // Màn hình Lịch sử thanh toán & giao dịch
+  const [showHistory, setShowHistory] = useState<boolean>(false);
+  const [historyList, setHistoryList] = useState<PaymentHistoryItemDto[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
+  const [historyTab, setHistoryTab] = useState<FilterTab>('All');
+  const [historySearch, setHistorySearch] = useState<string>('');
+
+  const loadPaymentHistory = useCallback(async () => {
+    setLoadingHistory(true);
+    try {
+      const list = await paymentApi.getPaymentHistory();
+      setHistoryList(list || []);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, []);
 
   // Đọc tham số từ URL (?invoiceId=... hoặc ?sourceType=...&sourceId=...) kết hợp với navigationParams
   const resolveTargetFromUrlOrProps = useCallback((): PaymentNavigationParams => {
@@ -240,7 +283,8 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
 
   useEffect(() => {
     loadInvoices(true);
-  }, [loadInvoices]);
+    void loadPaymentHistory();
+  }, [loadInvoices, loadPaymentHistory]);
 
   // Lắng nghe sự kiện điều hướng từ các trang khác khi đang ở trong StudentPortal
   useEffect(() => {
@@ -267,6 +311,39 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
   }, [activeTx]);
+
+  // Tự động Polling chờ SePay Webhook xác nhận giao dịch (mỗi 3 giây khi đang mở màn hình QR)
+  useEffect(() => {
+    if (!activeTx) return;
+    let cancelled = false;
+
+    const checkSePayStatus = async () => {
+      try {
+        const statusRes = await paymentApi.getTransactionStatus(activeTx.id);
+        if (cancelled) return;
+        if (statusRes.status === 'Success' && statusRes.receipt) {
+          removeTxFromSession(activeTx.id);
+          saveReceiptToHistoryCache(statusRes.receipt);
+          setActiveTx(null);
+          setPaymentReceipt(statusRes.receipt);
+          await loadInvoices(false);
+          void loadPaymentHistory();
+          onInvoicesUpdated?.();
+        }
+      } catch {
+        // Bỏ qua lỗi mạng tạm thời trong lúc polling
+      }
+    };
+
+    const pollTimer = setInterval(() => {
+      void checkSePayStatus();
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollTimer);
+    };
+  }, [activeTx, loadInvoices, onInvoicesUpdated]);
 
   // Lọc hóa đơn theo Tab
   const filteredInvoices = useMemo(() => {
@@ -413,38 +490,14 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
     setActiveTx(reconstructed);
   };
 
-  // Bước 3: Bấm [Đã thanh toán (Giả lập thành công)]
-  const handleMockConfirmPayment = async () => {
-    if (!activeTx) return;
-    setConfirmingPayment(true);
-    setErrorMsg('');
-    try {
-      // Nếu là giao dịch khôi phục sau F5 không có gatewayReference gốc thì không gửi gatewayReference để tránh lệch đối soát
-      const refToSend = activeTx.gatewayReference.startsWith('VQR-TX')
-        ? undefined
-        : activeTx.gatewayReference;
-      const receipt = await paymentApi.mockConfirm(activeTx.id, refToSend);
-      removeTxFromSession(activeTx.id);
-      setActiveTx(null);
-      setPaymentReceipt(receipt);
-      await loadInvoices(false);
-      onInvoicesUpdated?.();
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Lỗi khi xác nhận thanh toán.');
-    } finally {
-      setConfirmingPayment(false);
-    }
-  };
-
   // Bước 4: Bấm [Hủy giao dịch] hoặc [Hủy phiên cũ]
   const handleCancelTransaction = async (txId: number, askConfirm = true) => {
-    if (
-      askConfirm &&
-      !window.confirm(
-        'Bạn có chắc chắn muốn hủy phiên giao dịch QR này? Các hóa đơn trong phiên sẽ được mở khóa để bạn chọn lại.'
-      )
-    ) {
-      return;
+    if (askConfirm) {
+      const ok = await showConfirm(
+        'Bạn có chắc chắn muốn hủy phiên giao dịch QR này? Các hóa đơn trong phiên sẽ được mở khóa để bạn chọn lại.',
+        { title: 'Hủy giao dịch QR', confirmText: 'Hủy giao dịch', cancelText: 'Giữ lại', variant: 'danger' }
+      );
+      if (!ok) return;
     }
 
     setCancellingTxId(txId);
@@ -676,6 +729,30 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
               type="button"
               onClick={() => {
                 setPaymentReceipt(null);
+                setShowHistory(true);
+                void loadPaymentHistory();
+              }}
+              style={{
+                padding: '10px 20px',
+                backgroundColor: '#16A34A',
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: '8px',
+                fontWeight: 700,
+                fontSize: '13px',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                boxShadow: '0 4px 10px rgba(22, 163, 74, 0.25)',
+              }}
+            >
+              📜 Xem lịch sử giao dịch
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPaymentReceipt(null);
                 loadInvoices(false);
               }}
               style={{
@@ -691,42 +768,6 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
             >
               ← Quay lại danh sách hóa đơn
             </button>
-            {onGoToResidencyHistory && (
-              <button
-                type="button"
-                onClick={onGoToResidencyHistory}
-                style={{
-                  padding: '10px 18px',
-                  backgroundColor: '#F1F5F9',
-                  color: '#334155',
-                  border: '1px solid #CBD5E1',
-                  borderRadius: '8px',
-                  fontWeight: 600,
-                  fontSize: '13px',
-                  cursor: 'pointer',
-                }}
-              >
-                Xem Lịch sử lưu trú
-              </button>
-            )}
-            {onGoToRequests && (
-              <button
-                type="button"
-                onClick={onGoToRequests}
-                style={{
-                  padding: '10px 18px',
-                  backgroundColor: '#F1F5F9',
-                  color: '#334155',
-                  border: '1px solid #CBD5E1',
-                  borderRadius: '8px',
-                  fontWeight: 600,
-                  fontSize: '13px',
-                  cursor: 'pointer',
-                }}
-              >
-                Xem Danh sách đơn từ
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -734,19 +775,43 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
   }
 
   // ============================================================================
-  // RENDER 2: MÀN HÌNH QUÉT MÃ VIETQR & GIẢ LẬP ĐÃ THANH TOÁN
+  // RENDER 2: MÀN HÌNH QUÉT MÃ VIETQR (SEPAY) & GIẢ LẬP ĐÃ THANH TOÁN
   // ============================================================================
   if (activeTx) {
     const isExpired = remainingSeconds <= 0;
+    const sePayBank = 'BIDV';
+    const sePayAcc = '96247FUD26';
+    const sePayName = 'LE ANH QUANG (TK: 4271030639)';
+    const sePayQrUrl = `https://qr.sepay.vn/img?acc=${encodeURIComponent(
+      sePayAcc
+    )}&bank=${encodeURIComponent(sePayBank)}&amount=${Math.round(
+      activeTx.totalAmount
+    )}&des=${encodeURIComponent(activeTx.gatewayReference)}&template=compact`;
+
     return (
       <div style={{ padding: '24px 32px', maxWidth: '980px', margin: '0 auto' }}>
+        {popup}
         <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
           <div>
-            <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 4px', color: '#0F172A' }}>
-              Quét mã VietQR để thanh toán
-            </h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <h1 style={{ fontSize: '24px', fontWeight: 700, margin: 0, color: '#0F172A' }}>
+                Thanh toán VietQR qua cổng SePay
+              </h1>
+              <span
+                style={{
+                  padding: '3px 10px',
+                  borderRadius: '9999px',
+                  backgroundColor: '#DBEAFE',
+                  color: '#1D4ED8',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                }}
+              >
+                SePay Auto-Webhook
+              </span>
+            </div>
             <p style={{ color: '#64748B', fontSize: '13px', margin: 0 }}>
-              Các hóa đơn trong phiên này đang được khóa tạm thời để chống thanh toán trùng
+              Quét mã QR hoặc dùng "Mô phỏng giao dịch" trên SePay Test Mode — hệ thống sẽ tự động gạch nợ ngay khi nhận Webhook
             </p>
           </div>
           <button
@@ -780,7 +845,7 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
             alignItems: 'start',
           }}
         >
-          {/* Cột trái: Khung mã QR & Nút giả lập */}
+          {/* Cột trái: Khung mã QR SePay & Nút giả lập */}
           <div
             style={{
               backgroundColor: '#FFFFFF',
@@ -804,7 +869,7 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
                 border: `1px solid ${isExpired ? '#FCA5A5' : '#FDBA74'}`,
                 fontSize: '13px',
                 fontWeight: 700,
-                marginBottom: 16,
+                marginBottom: 12,
               }}
             >
               <span>⏱</span>
@@ -815,31 +880,49 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
               )}
             </div>
 
-            {/* Ảnh mã QR */}
+            {/* Trạng thái lắng nghe SePay Webhook tự động */}
+            {!isExpired && (
+              <div
+                style={{
+                  backgroundColor: '#EFF6FF',
+                  border: '1px solid #BFDBFE',
+                  color: '#1D4ED8',
+                  borderRadius: '8px',
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  marginBottom: 14,
+                }}
+              >
+                🔄 Đang lắng nghe Webhook tự động từ SePay (kiểm tra mỗi 3 giây)...
+              </div>
+            )}
+
+            {/* Ảnh mã QR SePay */}
             <div
               style={{
                 maxWidth: 280,
                 margin: '0 auto 16px',
                 padding: 14,
                 borderRadius: 12,
-                border: '2px solid #FED7AA',
+                border: '2px solid #93C5FD',
                 backgroundColor: '#FFFFFF',
               }}
             >
-              {activeTx.qrLink ? (
-                <img
-                  src={activeTx.qrLink}
-                  alt={`VietQR ${activeTx.gatewayReference}`}
-                  style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 8 }}
-                />
-              ) : (
-                <div style={{ padding: '40px 16px', color: '#64748B', fontSize: 13 }}>
-                  Không thể hiển thị ảnh QR
-                </div>
-              )}
+              <img
+                src={sePayQrUrl}
+                alt={`SePay VietQR ${activeTx.gatewayReference}`}
+                onError={(e) => {
+                  const img = e.currentTarget;
+                  if (activeTx.qrLink && img.src !== activeTx.qrLink) {
+                    img.src = activeTx.qrLink;
+                  }
+                }}
+                style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 8 }}
+              />
             </div>
 
-            {/* Số tiền & Nội dung chuyển khoản */}
+            {/* Thông tin tài khoản SePay & Nội dung chuyển khoản */}
             <div
               style={{
                 backgroundColor: '#F8FAFC',
@@ -848,13 +931,23 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
                 padding: '14px 16px',
                 textAlign: 'left',
                 fontSize: '13px',
-                lineHeight: 1.8,
+                lineHeight: 1.85,
                 marginBottom: 20,
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: '#64748B' }}>Phương thức:</span>
-                <strong>{activeTx.method || 'VietQR'}</strong>
+                <span style={{ color: '#64748B' }}>Cổng / Ngân hàng:</span>
+                <strong>SePay · {sePayBank}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: '#64748B' }}>Số tài khoản SePay:</span>
+                <strong style={{ fontFamily: 'monospace', fontSize: '14px', color: '#1D4ED8' }}>
+                  {sePayAcc}
+                </strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: '#64748B' }}>Chủ tài khoản:</span>
+                <strong>{sePayName}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ color: '#64748B' }}>Số tiền thanh toán:</span>
@@ -898,36 +991,11 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
               </div>
             </div>
 
-            {/* Nút Giả lập Đã thanh toán & Nút Hủy giao dịch */}
+            {/* Nút Hủy giao dịch */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <button
                 type="button"
-                disabled={confirmingPayment || cancellingTxId === activeTx.id || isExpired}
-                onClick={handleMockConfirmPayment}
-                style={{
-                  width: '100%',
-                  padding: '12px 18px',
-                  backgroundColor: isExpired ? '#94A3B8' : '#16A34A',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  fontWeight: 700,
-                  cursor:
-                    confirmingPayment || cancellingTxId === activeTx.id || isExpired
-                      ? 'not-allowed'
-                      : 'pointer',
-                  boxShadow: isExpired ? 'none' : '0 4px 10px rgba(22, 163, 74, 0.25)',
-                }}
-              >
-                {confirmingPayment
-                  ? 'Đang xác nhận giao dịch...'
-                  : '✓ Đã thanh toán (Giả lập thành công)'}
-              </button>
-
-              <button
-                type="button"
-                disabled={confirmingPayment || cancellingTxId === activeTx.id}
+                disabled={cancellingTxId === activeTx.id}
                 onClick={() => handleCancelTransaction(activeTx.id, true)}
                 style={{
                   width: '100%',
@@ -938,10 +1006,7 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
                   borderRadius: '8px',
                   fontSize: '13px',
                   fontWeight: 600,
-                  cursor:
-                    confirmingPayment || cancellingTxId === activeTx.id
-                      ? 'not-allowed'
-                      : 'pointer',
+                  cursor: cancellingTxId === activeTx.id ? 'not-allowed' : 'pointer',
                 }}
               >
                 {cancellingTxId === activeTx.id ? 'Đang hủy giao dịch...' : '✕ Hủy giao dịch'}
@@ -1069,10 +1134,355 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
   }
 
   // ============================================================================
+  // RENDER 2.5: MÀN HÌNH LỊCH SỬ THANH TOÁN & GIAO DỊCH
+  // ============================================================================
+  if (showHistory) {
+    const filteredHistory = historyList.filter((item) => {
+      if (historyTab !== 'All') {
+        const hasType = (item.invoices || []).some((inv) => inv.invoiceType === historyTab);
+        if (!hasType) return false;
+      }
+      if (historySearch.trim()) {
+        const q = historySearch.trim().toLowerCase();
+        const inReceipt = (item.receiptNumber || '').toLowerCase().includes(q);
+        const inRef = (item.gatewayReference || '').toLowerCase().includes(q);
+        const inInv = (item.invoices || []).some(
+          (inv) =>
+            (inv.invoiceNumber || '').toLowerCase().includes(q) ||
+            (inv.items || []).some((it) => (it.description || '').toLowerCase().includes(q))
+        );
+        if (!inReceipt && !inRef && !inInv) return false;
+      }
+      return true;
+    });
+
+    const totalPaidSuccess = historyList.reduce((s, h) => s + Number(h.totalAmount || 0), 0);
+
+    return (
+      <div style={{ padding: '24px 32px' }}>
+        {popup}
+        {/* Header Lịch sử */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            flexWrap: 'wrap',
+            gap: 12,
+            marginBottom: 20,
+          }}
+        >
+          <div>
+            <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 6px', color: '#0F172A' }}>
+              📜 Lịch sử thanh toán & Giao dịch VietQR
+            </h1>
+            <p style={{ color: '#64748B', fontSize: '13px', margin: 0 }}>
+              Tra cứu toàn bộ biên lai và các hóa đơn bạn đã thanh toán thành công qua cổng SePay VietQR
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => void loadPaymentHistory()}
+              disabled={loadingHistory}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#FFFFFF',
+                color: '#334155',
+                border: '1px solid #CBD5E1',
+                borderRadius: '8px',
+                fontWeight: 600,
+                fontSize: '13px',
+                cursor: loadingHistory ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Làm mới
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowHistory(false)}
+              style={{
+                padding: '8px 18px',
+                backgroundColor: '#EA580C',
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: '8px',
+                fontWeight: 700,
+                fontSize: '13px',
+                cursor: 'pointer',
+              }}
+            >
+              ← Quay lại Thanh toán hóa đơn
+            </button>
+          </div>
+        </div>
+
+        {/* Thẻ thống kê lịch sử */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+            gap: '14px',
+            marginBottom: 18,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '12px',
+              border: '1px solid #E2E8F0',
+              padding: '16px 20px',
+            }}
+          >
+            <div style={{ fontSize: '12px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+              Tổng số giao dịch thành công
+            </div>
+            <div style={{ fontSize: '22px', fontWeight: 800, color: '#15803D', marginTop: 4 }}>
+              {historyList.length} giao dịch
+            </div>
+            <div style={{ fontSize: '12px', color: '#64748B', marginTop: 2 }}>
+              Đã được hệ thống đối soát và cấp biên lai điện tử
+            </div>
+          </div>
+
+          <div
+            style={{
+              backgroundColor: '#F0FDF4',
+              borderRadius: '12px',
+              border: '1px solid #86EFAC',
+              padding: '16px 20px',
+            }}
+          >
+            <div style={{ fontSize: '12px', fontWeight: 700, color: '#166534', textTransform: 'uppercase' }}>
+              Tổng số tiền đã thanh toán
+            </div>
+            <div style={{ fontSize: '22px', fontWeight: 800, color: '#15803D', marginTop: 4 }}>
+              {formatVnd(totalPaidSuccess)}
+            </div>
+            <div style={{ fontSize: '12px', color: '#166534', marginTop: 2 }}>
+              Thanh toán qua cổng SePay · BIDV VietQR
+            </div>
+          </div>
+        </div>
+
+        {/* Bộ lọc & Tìm kiếm */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+            marginBottom: 16,
+            backgroundColor: '#FFFFFF',
+            padding: '12px 14px',
+            borderRadius: '12px',
+            border: '1px solid #E2E8F0',
+          }}
+        >
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {INVOICE_TYPE_TABS.map((tab) => {
+              const isActive = historyTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setHistoryTab(tab.id)}
+                  style={{
+                    padding: '7px 12px',
+                    borderRadius: '8px',
+                    border: isActive ? '1px solid #EA580C' : '1px solid transparent',
+                    backgroundColor: isActive ? '#EA580C' : '#F8FAFC',
+                    color: isActive ? '#FFFFFF' : '#334155',
+                    fontSize: '12.5px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <input
+            type="text"
+            value={historySearch}
+            onChange={(e) => setHistorySearch(e.target.value)}
+            placeholder="Tìm theo số biên lai, mã giao dịch, mã hóa đơn..."
+            style={{
+              minWidth: '260px',
+              padding: '8px 12px',
+              borderRadius: '8px',
+              border: '1px solid #CBD5E1',
+              fontSize: '13px',
+            }}
+          />
+        </div>
+
+        {/* Bảng lịch sử giao dịch */}
+        <div className="fud-table-wrapper">
+          <table className="fud-table">
+            <colgroup>
+              <col style={{ width: '16%' }} />
+              <col style={{ width: '18%' }} />
+              <col style={{ width: '24%' }} />
+              <col style={{ width: '14%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '16%' }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Số biên lai / Mã GD</th>
+                <th>Hóa đơn đã trả</th>
+                <th>Chi tiết khoản thu</th>
+                <th>Thời gian thanh toán</th>
+                <th style={{ textAlign: 'right' }}>Tổng tiền</th>
+                <th style={{ textAlign: 'center' }}>Trạng thái & Biên lai</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loadingHistory ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '36px', color: '#64748B' }}>
+                    Đang tải lịch sử thanh toán...
+                  </td>
+                </tr>
+              ) : filteredHistory.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '42px', color: '#64748B' }}>
+                    <div style={{ fontWeight: 700, fontSize: '15px', color: '#0F172A', marginBottom: 4 }}>
+                      Chưa có giao dịch thanh toán nào
+                    </div>
+                    <div style={{ fontSize: '13px' }}>
+                      Các giao dịch thanh toán hóa đơn qua VietQR sẽ được lưu trữ đầy đủ tại đây.
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filteredHistory.map((item) => (
+                  <tr key={`${item.receiptNumber}-${item.transactionId}`}>
+                    <td>
+                      <div style={{ fontWeight: 800, color: '#15803D', fontSize: '13px' }}>
+                        {item.receiptNumber}
+                      </div>
+                      <div style={{ fontSize: '11.5px', color: '#64748B', fontFamily: 'monospace' }}>
+                        {item.gatewayReference}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#94A3B8' }}>
+                        Cổng: {item.method || 'VietQR · SePay'}
+                      </div>
+                    </td>
+
+                    <td>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {(item.invoices || []).map((inv) => {
+                          const typeMeta = INVOICE_TYPE_META[inv.invoiceType] || {
+                            label: inv.invoiceType,
+                            bg: '#F1F5F9',
+                            color: '#334155',
+                            border: '#CBD5E1',
+                          };
+                          return (
+                            <div key={inv.invoiceId} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <strong style={{ color: '#C2410C', fontSize: '12.5px' }}>{inv.invoiceNumber}</strong>
+                              <span
+                                style={{
+                                  padding: '2px 7px',
+                                  borderRadius: '9999px',
+                                  fontSize: '10.5px',
+                                  fontWeight: 700,
+                                  backgroundColor: typeMeta.bg,
+                                  color: typeMeta.color,
+                                  border: `1px solid ${typeMeta.border}`,
+                                }}
+                              >
+                                {typeMeta.label}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </td>
+
+                    <td style={{ fontSize: '12.5px', color: '#334155' }}>
+                      {(item.invoices || [])
+                        .flatMap((inv) =>
+                          inv.items && inv.items.length > 0
+                            ? inv.items.map((it) => it.description)
+                            : [INVOICE_TYPE_META[inv.invoiceType]?.label || inv.invoiceType]
+                        )
+                        .join('; ')}
+                    </td>
+
+                    <td style={{ fontSize: '12.5px', color: '#0F172A', fontWeight: 600 }}>
+                      {formatDateTime(item.paidTime)}
+                    </td>
+
+                    <td style={{ textAlign: 'right', fontWeight: 800, color: '#0F172A', fontSize: '13.5px' }}>
+                      {formatVnd(item.totalAmount)}
+                    </td>
+
+                    <td style={{ textAlign: 'center' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            padding: '3px 10px',
+                            borderRadius: '9999px',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            backgroundColor: '#DCFCE7',
+                            color: '#15803D',
+                          }}
+                        >
+                          Đã thanh toán
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPaymentReceipt({
+                              transactionId: item.transactionId,
+                              receiptNumber: item.receiptNumber,
+                              gatewayReference: item.gatewayReference,
+                              totalAmount: item.totalAmount,
+                              paidTime: item.paidTime,
+                              callbackTime: item.paidTime,
+                              invoices: item.invoices || [],
+                              sideEffectNotes: [],
+                            });
+                          }}
+                          style={{
+                            padding: '4px 10px',
+                            backgroundColor: '#EFF6FF',
+                            color: '#1D4ED8',
+                            border: '1px solid #BFDBFE',
+                            borderRadius: '6px',
+                            fontSize: '11.5px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Xem biên lai
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================================
   // RENDER 3: MÀN HÌNH CHỌN KHOẢN THANH TOÁN (CHOOSE PAID ITEM)
   // ============================================================================
   return (
     <div style={{ padding: '24px 32px' }}>
+      {popup}
       {/* Header */}
       <div
         style={{
@@ -1092,23 +1502,61 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
             Chọn một hoặc nhiều hóa đơn để thanh toán gộp qua cổng VietQR
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => loadInvoices(false)}
-          disabled={loading}
-          style={{
-            padding: '8px 16px',
-            backgroundColor: '#FFFFFF',
-            color: '#334155',
-            border: '1px solid #CBD5E1',
-            borderRadius: '8px',
-            fontWeight: 600,
-            fontSize: '13px',
-            cursor: loading ? 'not-allowed' : 'pointer',
-          }}
-        >
-          Làm mới danh sách
-        </button>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => {
+              setShowHistory(true);
+              void loadPaymentHistory();
+            }}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: '#FFF7ED',
+              color: '#C2410C',
+              border: '1px solid #FDBA74',
+              borderRadius: '8px',
+              fontWeight: 700,
+              fontSize: '13px',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <span>📜</span> Lịch sử thanh toán
+            {historyList.length > 0 && (
+              <span
+                style={{
+                  padding: '1px 7px',
+                  borderRadius: '9999px',
+                  backgroundColor: '#EA580C',
+                  color: '#FFFFFF',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                }}
+              >
+                {historyList.length}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => loadInvoices(false)}
+            disabled={loading}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: '#FFFFFF',
+              color: '#334155',
+              border: '1px solid #CBD5E1',
+              borderRadius: '8px',
+              fontWeight: 600,
+              fontSize: '13px',
+              cursor: loading ? 'not-allowed' : 'pointer',
+            }}
+          >
+            Làm mới danh sách
+          </button>
+        </div>
       </div>
 
       {/* Cảnh báo lỗi */}

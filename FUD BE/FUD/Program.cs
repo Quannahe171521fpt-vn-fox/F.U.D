@@ -342,6 +342,8 @@ builder.Services.AddHostedService<FUD.Services.Keeping.KeepingPeriodCloseHostedS
 builder.Services.AddScoped<FUD.Services.Interfaces.Payments.IPaymentTransactionFactory, FUD.Services.Payments.PaymentTransactionFactory>();
 builder.Services.AddScoped<FUD.Services.Interfaces.Payments.IRoomFeeInvoiceService, FUD.Services.Payments.RoomFeeInvoiceService>();
 builder.Services.AddScoped<FUD.Services.Interfaces.Payments.IStudentPaymentService, FUD.Services.Payments.StudentPaymentService>();
+// Job quét định kỳ hóa đơn sắp đến hạn (trong vòng 3 ngày) để gửi email + thông báo nhắc nhở sinh viên
+builder.Services.AddHostedService<FUD.Services.Payments.InvoiceDueReminderHostedService>();
 
 // ── Booking Room DI ──
 builder.Services.AddScoped<FUD.Repositories.Interfaces.Booking.IBookingRepository, FUD.Repositories.Booking.BookingRepository>();

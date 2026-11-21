@@ -89,6 +89,13 @@ namespace FUD.Repositories.Keeping
                 .AnyAsync(i => i.StudentId == studentId && i.Status == "Unpaid");
         }
 
+        /// <summary>
+        /// Các trạng thái Booking_Request (Keeping) được coi là "đã giữ phòng" cho kỳ kế tiếp:
+        /// vừa tạo (chờ thanh toán), chờ duyệt, đã duyệt/hoàn tất. Đơn Cancelled/Rejected/Expired không tính.
+        /// </summary>
+        private static readonly string[] ActiveKeepingStatuses =
+            { "Pending Payment", "Pending", "Approved", "Completed" };
+
         public async Task<bool> HasCompletedKeepingRequestAsync(int studentId, int termId)
         {
             // Theo thiết kế DB, lượt giữ phòng nằm ở Booking_Requests (BookingKind = 'Keeping').
@@ -97,7 +104,7 @@ namespace FUD.Repositories.Keeping
                 .AnyAsync(b => b.StudentId == studentId
                             && b.TermId == termId
                             && b.BookingKind == "Keeping"
-                            && b.Status == "Approved");
+                            && ActiveKeepingStatuses.Contains(b.Status));
         }
 
         public async Task<BookingRequest?> GetCompletedKeepingRequestAsync(int studentId, int termId)
@@ -111,7 +118,7 @@ namespace FUD.Repositories.Keeping
                 .FirstOrDefaultAsync(b => b.StudentId == studentId
                                        && b.TermId == termId
                                        && b.BookingKind == "Keeping"
-                                       && b.Status == "Approved");
+                                       && ActiveKeepingStatuses.Contains(b.Status));
         }
 
         public async Task<Request?> GetKeepingRequestByIdAsync(int requestId)

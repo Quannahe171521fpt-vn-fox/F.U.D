@@ -42,5 +42,24 @@ namespace FUD.Services.Interfaces.Payments
         /// về lại Overdue (nếu quá hạn) hoặc Unpaid.
         /// </summary>
         Task<PaymentCancelResultDto> CancelTransactionAsync(int studentId, int transactionId, CancelPaymentDto? dto);
+
+        /// <summary>
+        /// Kiểm tra trạng thái giao dịch (dùng cho Frontend polling chờ SePay Webhook).
+        /// Nếu đã Success thì trả kèm thông tin biên lai PaymentSuccessDto.
+        /// </summary>
+        Task<PaymentTransactionStatusDto> GetTransactionStatusAsync(int studentId, int transactionId);
+
+        /// <summary>
+        /// Xử lý Webhook tiền vào từ SePay (Test Mode &amp; Live Mode).
+        /// Tự động đối soát nội dung chuyển khoản / số tiền và gạch nợ hóa đơn.
+        /// </summary>
+        Task<(bool Handled, string Message, PaymentSuccessDto? Receipt)> ProcessSePayWebhookAsync(
+            SePayWebhookPayloadDto payload,
+            string? authorizationHeader = null);
+
+        /// <summary>
+        /// Lấy lịch sử các giao dịch và hóa đơn đã thanh toán của sinh viên.
+        /// </summary>
+        Task<List<PaymentHistoryItemDto>> GetPaymentHistoryAsync(int studentId);
     }
 }

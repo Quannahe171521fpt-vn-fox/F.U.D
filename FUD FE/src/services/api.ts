@@ -2499,6 +2499,10 @@ export interface PaymentTransactionDto {
   method: string;
   gatewayReference: string;
   qrLink?: string | null;
+  sePayQrLink?: string | null;
+  sePayBankCode?: string;
+  sePayAccountNumber?: string;
+  sePayAccountName?: string;
   totalAmount: number;
   status: 'Processing' | 'Success' | 'Failed' | 'Cancelled' | 'Expired' | string;
   receiptNumber?: string | null;
@@ -2508,6 +2512,24 @@ export interface PaymentTransactionDto {
   callbackTime?: string | null;
   invoices: TransactionInvoiceDto[];
   remainingSeconds: number;
+}
+
+export interface PaymentTransactionStatusDto {
+  transactionId: number;
+  status: string;
+  remainingSeconds: number;
+  receipt?: PaymentSuccessDto | null;
+}
+
+export interface PaymentHistoryItemDto {
+  transactionId: number;
+  receiptNumber: string;
+  gatewayReference: string;
+  method: string;
+  totalAmount: number;
+  status: string;
+  paidTime: string;
+  invoices: TransactionInvoiceDto[];
 }
 
 export interface PaymentSuccessDto {
@@ -2629,5 +2651,96 @@ export const paymentApi = {
       },
       'Không thể hủy giao dịch thanh toán'
     ),
+
+  getTransactionStatus: (transactionId: number): Promise<PaymentTransactionStatusDto> =>
+    studentPaymentRequest<PaymentTransactionStatusDto>(
+      `${BASE_URL}/student/payments/${transactionId}/status`,
+      undefined,
+      'Không thể kiểm tra trạng thái giao dịch'
+    ),
+
+  getPaymentHistory: async (): Promise<PaymentHistoryItemDto[]> => {
+    const mergedMap = new Map<string, PaymentHistoryItemDto>();
+
+    // 1. Thử lấy từ endpoint GET /api/student/payments/history
+    try {
+      const apiHistory = await studentPaymentRequest<PaymentHistoryItemDto[]>(
+        `${BASE_URL}/student/payments/history`,
+        undefined,
+        'Không thể tải lịch sử giao dịch'
+      );
+      for (const item of apiHistory || []) {
+        mergedMap.set(item.receiptNumber || `TX-${item.transactionId}`, item);
+      }
+    } catch {
+      // Fallback nếu server chưa cập nhật endpoint /history
+    }
+
+    // 2. Gộp thêm từ bộ nhớ cache biên lai trên trình duyệt
+    try {
+      const rawCache = localStorage.getItem('fud_payment_history_cache');
+      if (rawCache) {
+        const cachedList = JSON.parse(rawCache) as PaymentHistoryItemDto[];
+        for (const item of cachedList || []) {
+          const key = item.receiptNumber || `TX-${item.transactionId}`;
+          if (!mergedMap.has(key)) {
+            mergedMap.set(key, item);
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // 3. Gộp thêm các hóa đơn có trạng thái Paid trong Lịch sử lưu trú
+    try {
+      const coveredInvIds = new Set<number>();
+      for (const h of mergedMap.values()) {
+        for (const inv of h.invoices || []) {
+          coveredInvIds.add(inv.invoiceId);
+        }
+      }
+
+      const residencies = await residencyApi.getMyHistory();
+      const details = await Promise.all(
+        (residencies || []).slice(0, 5).map((r) => residencyApi.getMyHistoryById(r.id).catch(() => null))
+      );
+      for (const det of details) {
+        if (!det?.invoices) continue;
+        for (const inv of det.invoices) {
+          if (inv.status === 'Paid' && !coveredInvIds.has(inv.id)) {
+            coveredInvIds.add(inv.id);
+            const key = `RC-INV-${inv.id}`;
+            mergedMap.set(key, {
+              transactionId: inv.id,
+              receiptNumber: key,
+              gatewayReference: inv.invoiceNumber,
+              method: 'VietQR · SePay',
+              totalAmount: inv.amount,
+              status: 'Success',
+              paidTime: inv.paidTime || inv.issuedTime,
+              invoices: [
+                {
+                  invoiceId: inv.id,
+                  invoiceNumber: inv.invoiceNumber,
+                  invoiceType: inv.invoiceType,
+                  allocatedAmount: inv.amount,
+                  dueDate: inv.dueDate,
+                  status: 'Paid',
+                  items: [],
+                },
+              ],
+            });
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    return Array.from(mergedMap.values()).sort(
+      (a, b) => new Date(b.paidTime).getTime() - new Date(a.paidTime).getTime()
+    );
+  },
 };
 
