@@ -6,6 +6,7 @@ import {
   type KeepingRequestResult,
 } from '../../services/api';
 import { formatDate, formatDateTime } from '../../utils/dateUtils';
+import { usePopup } from '../../components/PopupDialog';
 import '../../styles/violation.css';
 
 const REASON_HINTS: Record<string, string> = {
@@ -46,6 +47,7 @@ const infoGrid: React.CSSProperties = {
 };
 
 export const StudentKeepingPage: React.FC = () => {
+  const { showAlert, showConfirm, popup } = usePopup();
   const [eligibility, setEligibility] = useState<KeepingEligibility | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
@@ -71,10 +73,11 @@ export const StudentKeepingPage: React.FC = () => {
 
   const handleSubmit = async () => {
     if (!agreed) {
-      setErrorMsg('Bạn cần đồng ý với nội quy ký túc xá trước khi giữ phòng.');
+      void showAlert('Bạn cần đồng ý với nội quy ký túc xá trước khi giữ phòng.', { title: 'Chưa đồng ý nội quy' });
       return;
     }
-    if (!window.confirm('Xác nhận giữ phòng cho học kỳ kế tiếp?')) return;
+    const ok = await showConfirm('Xác nhận giữ phòng cho học kỳ kế tiếp?', { title: 'Xác nhận giữ phòng', confirmText: 'Giữ phòng' });
+    if (!ok) return;
     setSubmitting(true);
     setErrorMsg('');
     try {
@@ -95,6 +98,7 @@ export const StudentKeepingPage: React.FC = () => {
 
   return (
     <div style={{ padding: '24px 32px' }}>
+      {popup}
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 6px', color: '#0F172A' }}>
           Giữ phòng học kỳ kế tiếp

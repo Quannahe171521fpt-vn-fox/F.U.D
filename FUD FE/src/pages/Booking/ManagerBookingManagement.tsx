@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { bookingApi, type BookingRequestManagerDto } from '../../services/api';
 import { Pagination } from '../../components/Pagination';
 import { useIdleAwarePolling } from '../../utils/useIdleAwarePolling';
+import { usePopup } from '../../components/PopupDialog';
 import '../../styles/booking.css';
 import '../../styles/violation.css';
 
 const PAGE_SIZE = 10;
 
 export const ManagerBookingManagement: React.FC = () => {
+  const { showAlert, showConfirm, popup } = usePopup();
   const [requests, setRequests] = useState<BookingRequestManagerDto[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string>('');
@@ -52,9 +54,11 @@ export const ManagerBookingManagement: React.FC = () => {
   }, 5000);
 
   const handleApprove = async (id: number) => {
-    if (!window.confirm('Bạn có chắc chắn muốn PHÊ DUYỆT đơn đặt phòng này? Hệ thống sẽ tạo hồ sơ lưu trú cho sinh viên.')) {
-      return;
-    }
+    const ok = await showConfirm(
+      'Bạn có chắc chắn muốn PHÊ DUYỆT đơn đặt phòng này? Hệ thống sẽ tạo hồ sơ lưu trú cho sinh viên.',
+      { title: 'Phê duyệt đặt phòng', confirmText: 'Phê duyệt', variant: 'success' }
+    );
+    if (!ok) return;
 
     setProcessingId(id);
     setErrorMsg('');
@@ -79,7 +83,7 @@ export const ManagerBookingManagement: React.FC = () => {
     if (!rejectModalTarget) return;
 
     if (!rejectReason.trim()) {
-      alert('Vui lòng nhập lý do từ chối đơn đặt phòng.');
+      void showAlert('Vui lòng nhập lý do từ chối đơn đặt phòng.', { title: 'Thiếu lý do từ chối' });
       return;
     }
 
@@ -117,6 +121,7 @@ export const ManagerBookingManagement: React.FC = () => {
 
   return (
     <div style={{ padding: '24px 32px' }}>
+      {popup}
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 6px', color: '#0F172A' }}>
           Xét duyệt Đặt phòng KTX (Booking Approval)
