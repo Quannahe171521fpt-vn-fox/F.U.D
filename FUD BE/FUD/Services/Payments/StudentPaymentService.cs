@@ -291,6 +291,22 @@ namespace FUD.Services.Payments
                 var expiryTime = now.AddMinutes(QrExpiryMinutes);
                 var gatewayReference = await GenerateGatewayReferenceAsync();
 
+                if (_context.Database.IsRelational())
+                {
+                    var lockedCount = await _context.Invoices
+                        .Where(i => invoiceIds.Contains(i.Id)
+                                    && i.StudentId == studentId
+                                    && i.DeletedAt == null
+                                    && (i.Status == InvoiceStatuses.Unpaid || i.Status == InvoiceStatuses.Overdue))
+                        .ExecuteUpdateAsync(s => s.SetProperty(i => i.Status, InvoiceStatuses.Processing));
+
+                    if (lockedCount != invoiceIds.Count)
+                    {
+                        throw new InvalidOperationException(
+                            "PAY_409: Một hoặc nhiều hóa đơn vừa được xử lý ở phiên khác. Vui lòng tải lại danh sách.");
+                    }
+                }
+
                 var transaction = new PaymentTransaction
                 {
                     StudentId = studentId,
@@ -388,7 +404,16 @@ namespace FUD.Services.Payments
         // ============================================================
         //  3. Giả lập xác nhận thanh toán (+ side-effects)
         // ============================================================
-        public async Task<PaymentSuccessDto> MockConfirmAsync(int studentId, int transactionId, MockConfirmPaymentDto? dto)
+        public Task<PaymentSuccessDto> MockConfirmAsync(int studentId, int transactionId, MockConfirmPaymentDto? dto)
+        {
+            return ConfirmTransactionInternalAsync(studentId, transactionId, dto, null);
+        }
+
+        private async Task<PaymentSuccessDto> ConfirmTransactionInternalAsync(
+            int studentId,
+            int transactionId,
+            MockConfirmPaymentDto? dto,
+            string? gatewayPayload = null)
         {
             await using var dbTransaction = await _transactionFactory.BeginAsync();
             try
@@ -421,12 +446,42 @@ namespace FUD.Services.Payments
                 }
 
                 var now = DateTime.Now;
+                if (transaction.ExpiryTime <= now)
+                {
+                    throw new InvalidOperationException("PAY_409: Phiên giao dịch QR đã hết hạn.");
+                }
+
+                var receiptNumber = "RC-" + transaction.GatewayReference.Replace("VQR-", string.Empty);
+                var effectivePayload = string.IsNullOrWhiteSpace(gatewayPayload)
+                    ? "{\"code\":\"00\",\"desc\":\"Mock payment success\"}"
+                    : gatewayPayload;
+
+                if (_context.Database.IsRelational())
+                {
+                    var affected = await _context.PaymentTransactions
+                        .Where(t => t.Id == transactionId
+                                    && t.DeletedAt == null
+                                    && t.Status == PaymentTransactionStatuses.Processing
+                                    && t.ExpiryTime > now)
+                        .ExecuteUpdateAsync(s => s
+                            .SetProperty(t => t.Status, PaymentTransactionStatuses.Success)
+                            .SetProperty(t => t.PaidTime, now)
+                            .SetProperty(t => t.CallbackTime, now)
+                            .SetProperty(t => t.ReceiptNumber, receiptNumber)
+                            .SetProperty(t => t.GatewayPayload, effectivePayload));
+
+                    if (affected != 1)
+                    {
+                        throw new InvalidOperationException(
+                            "PAY_409: Giao dịch đã được xử lý ở phiên khác hoặc đã hết hạn.");
+                    }
+                }
 
                 transaction.Status = PaymentTransactionStatuses.Success;
                 transaction.PaidTime = now;
                 transaction.CallbackTime = now;
-                transaction.ReceiptNumber = "RC-" + transaction.GatewayReference.Replace("VQR-", string.Empty);
-                transaction.GatewayPayload = "{\"code\":\"00\",\"desc\":\"Mock payment success\"}";
+                transaction.ReceiptNumber = receiptNumber;
+                transaction.GatewayPayload = effectivePayload;
 
                 var invoiceIds = transaction.TransactionInvoices.Select(ti => ti.InvoiceId).ToList();
 
@@ -539,6 +594,21 @@ namespace FUD.Services.Payments
 
                 var now = DateTime.Now;
                 var today = DateOnly.FromDateTime(now);
+
+                if (_context.Database.IsRelational())
+                {
+                    var affected = await _context.PaymentTransactions
+                        .Where(t => t.Id == transactionId
+                                    && t.DeletedAt == null
+                                    && t.Status == PaymentTransactionStatuses.Processing)
+                        .ExecuteUpdateAsync(s => s.SetProperty(t => t.Status, PaymentTransactionStatuses.Cancelled));
+
+                    if (affected != 1)
+                    {
+                        throw new InvalidOperationException(
+                            "PAY_409: Giao dịch đã thay đổi trạng thái ở phiên khác nên không thể hủy.");
+                    }
+                }
 
                 transaction.Status = PaymentTransactionStatuses.Cancelled;
 
@@ -707,6 +777,24 @@ namespace FUD.Services.Payments
                 return (false, "Bỏ qua giao dịch không phải tiền vào (transferType != in).", null);
             }
 
+            if (payload.Id > 0)
+            {
+                var idMarkerPascal = $"\"Id\":{payload.Id}";
+                var idMarkerCamel = $"\"id\":{payload.Id}";
+                var alreadyProcessed = await _context.PaymentTransactions
+                    .AsNoTracking()
+                    .AnyAsync(t => t.DeletedAt == null
+                                   && t.Status == PaymentTransactionStatuses.Success
+                                   && t.GatewayPayload != null
+                                   && (t.GatewayPayload.Contains(idMarkerPascal)
+                                       || t.GatewayPayload.Contains(idMarkerCamel)));
+
+                if (alreadyProcessed)
+                {
+                    return (true, "Webhook đã được xử lý trước đó (idempotent).", null);
+                }
+            }
+
             var rawText = $"{payload.Code} {payload.Content} {payload.Description}".Trim();
             var normalizedText = NormalizeRef(rawText);
 
@@ -720,45 +808,37 @@ namespace FUD.Services.Payments
                 return (false, "Không có giao dịch nào đang ở trạng thái chờ thanh toán (Processing).", null);
             }
 
-            // 1. Ưu tiên khớp theo mã GatewayReference (có hoặc không có dấu gạch ngang '-').
+            // Chỉ khớp nghiêm ngặt theo mã GatewayReference (có hoặc không có dấu gạch ngang '-').
             PaymentTransaction? matched = activeTransactions.FirstOrDefault(t =>
                 (!string.IsNullOrWhiteSpace(rawText) &&
                  rawText.Contains(t.GatewayReference, StringComparison.OrdinalIgnoreCase))
                 || (!string.IsNullOrWhiteSpace(normalizedText) &&
                     normalizedText.Contains(NormalizeRef(t.GatewayReference), StringComparison.OrdinalIgnoreCase)));
 
-            // 2. Hỗ trợ SePay Test Mode: nếu người dùng bấm "Mô phỏng giao dịch" trên SePay với đúng số tiền
-            //    hoặc chỉ có 1 giao dịch đang chờ quét QR trên tài khoản test 0000000001.
-            if (matched == null && payload.TransferAmount > 0)
-            {
-                matched = activeTransactions.FirstOrDefault(t => t.TotalAmount == payload.TransferAmount);
-            }
-
-            if (matched == null &&
-                (string.Equals(payload.AccountNumber, "0000000001", StringComparison.OrdinalIgnoreCase)
-                 || string.Equals(payload.AccountNumber, "4271030639", StringComparison.OrdinalIgnoreCase)
-                 || string.Equals(payload.SubAccount, "96247FUD26", StringComparison.OrdinalIgnoreCase)))
-            {
-                matched = activeTransactions.FirstOrDefault();
-            }
-
             if (matched == null)
             {
                 return (false, "Không tìm thấy giao dịch khớp với nội dung hoặc số tiền chuyển khoản.", null);
             }
 
-            var receipt = await MockConfirmAsync(
+            if (matched.ExpiryTime <= DateTime.Now)
+            {
+                return (false, "Giao dịch QR đã hết hạn.", null);
+            }
+
+            if (payload.TransferAmount != matched.TotalAmount)
+            {
+                _logger.LogWarning(
+                    "SePay Webhook bị từ chối do lệch số tiền cho giao dịch #{TxId}: TotalAmount={TotalAmount}, TransferAmount={TransferAmount}.",
+                    matched.Id, matched.TotalAmount, payload.TransferAmount);
+                return (false, "Số tiền chuyển khoản không khớp với tổng tiền giao dịch.", null);
+            }
+
+            var serializedPayload = System.Text.Json.JsonSerializer.Serialize(payload);
+            var receipt = await ConfirmTransactionInternalAsync(
                 matched.StudentId,
                 matched.Id,
-                new MockConfirmPaymentDto { GatewayReference = matched.GatewayReference });
-
-            // Lưu thông tin payload SePay thật vào bản ghi giao dịch.
-            var confirmedTx = await _context.PaymentTransactions.FirstOrDefaultAsync(t => t.Id == matched.Id);
-            if (confirmedTx != null)
-            {
-                confirmedTx.GatewayPayload = System.Text.Json.JsonSerializer.Serialize(payload);
-                await _context.SaveChangesAsync();
-            }
+                new MockConfirmPaymentDto { GatewayReference = matched.GatewayReference },
+                serializedPayload);
 
             _logger.LogInformation(
                 "SePay Webhook đã xác nhận thành công giao dịch #{TxId} ({GatewayRef}), số tiền {Amount}.",
