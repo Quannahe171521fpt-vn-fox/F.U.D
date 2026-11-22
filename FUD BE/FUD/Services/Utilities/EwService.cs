@@ -37,6 +37,16 @@ namespace FUD.Services.Utilities
             _configuration = configuration;
         }
 
+        private async Task<int> RequireGuardDormIdAsync(int? userId)
+        {
+            if (!userId.HasValue)
+                throw new UnauthorizedAccessException("Không xác định được tài khoản bảo vệ.");
+            var guardDormId = await _ewRepo.GetGuardDormIdAsync(userId.Value);
+            if (!guardDormId.HasValue)
+                throw new UnauthorizedAccessException("Tài khoản bảo vệ chưa được phân công khu KTX.");
+            return guardDormId.Value;
+        }
+
         public async Task<IEnumerable<object>> GetUsagesAsync(
             string? blockCode,
             string? meterType,
@@ -48,13 +58,9 @@ namespace FUD.Services.Utilities
             int? userId = null,
             bool isManager = false)
         {
-            if (!isManager && userId.HasValue)
+            if (!isManager)
             {
-                var guardDormId = await _ewRepo.GetGuardDormIdAsync(userId.Value);
-                if (guardDormId.HasValue)
-                {
-                    dormId = guardDormId.Value;
-                }
+                dormId = await RequireGuardDormIdAsync(userId);
             }
 
             return await _ewRepo.GetGroupedUsagesAsync(blockCode, meterType, month, year, termId, billingPeriodId, dormId);
@@ -85,13 +91,10 @@ namespace FUD.Services.Utilities
             var allRooms = await _ewRepo.GetAllActiveRoomsWithBlockAsync();
             var readings = await _ewRepo.GetReadingsByPeriodAsync(billingPeriodId);
 
-            if (!isManager && userId.HasValue)
+            if (!isManager)
             {
-                var guardDormId = await _ewRepo.GetGuardDormIdAsync(userId.Value);
-                if (guardDormId.HasValue)
-                {
-                    allRooms = allRooms.Where(r => r.Block.DormId == guardDormId.Value).ToList();
-                }
+                var guardDormId = await RequireGuardDormIdAsync(userId);
+                allRooms = allRooms.Where(r => r.Block.DormId == guardDormId).ToList();
             }
 
             var blockGroups = allRooms
@@ -987,9 +990,9 @@ namespace FUD.Services.Utilities
         public async Task<List<ImportBatchItemDto>> GetImportBatchesAsync(int? billingPeriodId, int? userId = null, bool isManager = false)
         {
             int? dormId = null;
-            if (!isManager && userId.HasValue)
+            if (!isManager)
             {
-                dormId = await _ewRepo.GetGuardDormIdAsync(userId.Value);
+                dormId = await RequireGuardDormIdAsync(userId);
             }
 
             var batches = await _ewRepo.GetImportBatchesAsync(billingPeriodId, dormId);
@@ -1013,17 +1016,15 @@ namespace FUD.Services.Utilities
         public async Task<byte[]> GenerateExcelTemplateAsync(int? billingPeriodId, string? dormCode, string? meterType, int? userId = null, bool isManager = false)
         {
             int? guardDormId = null;
-            if (!isManager && userId.HasValue)
+            if (!isManager)
             {
+                if (!userId.HasValue)
+                    throw new UnauthorizedAccessException("Không xác định được tài khoản bảo vệ.");
                 var guard = await _ewRepo.GetGuardByUserIdAsync(userId.Value);
-                if (guard != null)
-                {
-                    guardDormId = guard.DormId;
-                    if (guard.Dorm != null)
-                    {
-                        dormCode = guard.Dorm.Code;
-                    }
-                }
+                if (guard == null || guard.DormId <= 0 || string.IsNullOrWhiteSpace(guard.Dorm?.Code))
+                    throw new UnauthorizedAccessException("Tài khoản bảo vệ chưa được phân công khu KTX.");
+                guardDormId = guard.DormId;
+                dormCode = guard.Dorm.Code;
             }
 
             BillingPeriod? period = null;

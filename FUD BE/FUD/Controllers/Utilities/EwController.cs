@@ -512,10 +512,17 @@ namespace FUD.Controllers.Utilities
         [Authorize(Roles = "Guard,Manager")]
         public async Task<IActionResult> GetImportBatches([FromQuery] int? billingPeriodId)
         {
-            var userId = GetCurrentUserId();
-            var isManager = IsManager();
-            var result = await _ewService.GetImportBatchesAsync(billingPeriodId, userId, isManager);
-            return Ok(ApiResponse<List<ImportBatchItemDto>>.Ok(result));
+            try
+            {
+                var userId = GetCurrentUserId();
+                var isManager = IsManager();
+                var result = await _ewService.GetImportBatchesAsync(billingPeriodId, userId, isManager);
+                return Ok(ApiResponse<List<ImportBatchItemDto>>.Ok(result));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
+            }
         }
 
         // ═════════════════════════════════════════════════════════════
@@ -528,11 +535,18 @@ namespace FUD.Controllers.Utilities
             [FromQuery] string? dormCode,
             [FromQuery] string? meterType)
         {
-            var userId = GetCurrentUserId();
-            var isManager = IsManager();
-            var bytes = await _ewService.GenerateExcelTemplateAsync(billingPeriodId, dormCode, meterType, userId, isManager);
-            var fileName = "Ew_Template.xlsx";
-            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+            try
+            {
+                var userId = GetCurrentUserId();
+                var isManager = IsManager();
+                var bytes = await _ewService.GenerateExcelTemplateAsync(billingPeriodId, dormCode, meterType, userId, isManager);
+                var fileName = "Ew_Template.xlsx";
+                return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
+            }
         }
 
         // ═════════════════════════════════════════════════════════════
