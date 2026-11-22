@@ -28,6 +28,9 @@ public class AuthService : IAuthService
     private readonly ILogger<AuthService> _logger;
     private readonly JwtSettings _jwtSettings;
 
+    private const int MaxFailedLoginAttempts = 5;
+    private static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
+
     private int AccessTokenMinutes => _jwtSettings.AccessTokenExpirationMinutes > 0 ? _jwtSettings.AccessTokenExpirationMinutes : 15;
     private int IdleTimeoutMinutes => _jwtSettings.IdleTimeoutMinutes > 0 ? _jwtSettings.IdleTimeoutMinutes : 30;
     private int AbsoluteSessionHours => _jwtSettings.AbsoluteSessionHours > 0 ? _jwtSettings.AbsoluteSessionHours : 24;
@@ -63,9 +66,19 @@ public class AuthService : IAuthService
             throw new UnauthorizedAccessException("Tên đăng nhập hoặc mật khẩu không chính xác.");
         }
 
+        var now = DateTime.UtcNow;
+        if (user.LockoutEnd.HasValue && user.LockoutEnd.Value > now)
+        {
+            var minutesLeft = Math.Max(1, (int)Math.Ceiling((user.LockoutEnd.Value - now).TotalMinutes));
+            throw new InvalidOperationException($"Tài khoản tạm thời bị khóa do đăng nhập sai nhiều lần. Vui lòng thử lại sau {minutesLeft} phút.");
+        }
+
         // 2. Xác minh mật khẩu
         if (string.IsNullOrEmpty(user.PasswordHash) || !_hasher.Verify(dto.Password, user.PasswordHash))
         {
+            var nextAttempts = user.FailedLoginCount + 1;
+            DateTime? lockoutUntil = nextAttempts >= MaxFailedLoginAttempts ? now.Add(LockoutDuration) : null;
+            await _userRepo.AtomicIncrementFailedLoginAsync(user.Id, lockoutUntil);
             throw new UnauthorizedAccessException("Tên đăng nhập hoặc mật khẩu không chính xác.");
         }
 
@@ -80,6 +93,11 @@ public class AuthService : IAuthService
         if (roles.Count == 1 && roles.Contains("Student"))
         {
             throw new UnauthorizedAccessException("Tài khoản sinh viên vui lòng đăng nhập bằng Google.");
+        }
+
+        if (user.FailedLoginCount > 0 || user.LockoutEnd.HasValue)
+        {
+            await _userRepo.AtomicResetFailedLoginAsync(user.Id);
         }
 
         return await GenerateAuthResultAsync(user, clientIp);

@@ -463,4 +463,124 @@ public class AuthServiceLoginTests
         await act.Should().ThrowAsync<UnauthorizedAccessException>()
                  .WithMessage("Người dùng không tồn tại hoặc đã bị khóa.");
     }
+
+    [Fact]
+    public async Task LoginWithCredentialsAsync_WhenWrongPassword_IncrementsFailedLoginCount()
+    {
+        // Arrange
+        var dto = new LoginRequestDto { Account = "manager@fpt.edu.vn", Password = "WrongPassword" };
+        var user = new User
+        {
+            Id = 201,
+            Email = "manager@fpt.edu.vn",
+            PasswordHash = "valid_hash",
+            AccountStatus = "Active",
+            FailedLoginCount = 1
+        };
+
+        _userRepoMock.Setup(r => r.GetByAccountAsync(dto.Account)).ReturnsAsync(user);
+        _hasherMock.Setup(h => h.Verify(dto.Password, user.PasswordHash)).Returns(false);
+
+        // Act
+        var act = () => _authService.LoginWithCredentialsAsync(dto, "127.0.0.1");
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        _userRepoMock.Verify(r => r.AtomicIncrementFailedLoginAsync(201, null), Times.Once);
+    }
+
+    [Fact]
+    public async Task LoginWithCredentialsAsync_OnFifthFailedAttempt_SetsLockoutEnd()
+    {
+        // Arrange
+        var dto = new LoginRequestDto { Account = "manager@fpt.edu.vn", Password = "WrongPassword" };
+        var user = new User
+        {
+            Id = 202,
+            Email = "manager@fpt.edu.vn",
+            PasswordHash = "valid_hash",
+            AccountStatus = "Active",
+            FailedLoginCount = 4
+        };
+
+        _userRepoMock.Setup(r => r.GetByAccountAsync(dto.Account)).ReturnsAsync(user);
+        _hasherMock.Setup(h => h.Verify(dto.Password, user.PasswordHash)).Returns(false);
+
+        var before = DateTime.UtcNow;
+
+        // Act
+        var act = () => _authService.LoginWithCredentialsAsync(dto, "127.0.0.1");
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        _userRepoMock.Verify(
+            r => r.AtomicIncrementFailedLoginAsync(
+                202,
+                It.Is<DateTime?>(d => d.HasValue && d.Value >= before.AddMinutes(14) && d.Value <= before.AddMinutes(16))),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task LoginWithCredentialsAsync_WhenAccountLockedOut_ThrowsInvalidOperationExceptionWithoutVerifyingPassword()
+    {
+        // Arrange
+        var dto = new LoginRequestDto { Account = "manager@fpt.edu.vn", Password = "ValidPassword123" };
+        var user = new User
+        {
+            Id = 203,
+            Email = "manager@fpt.edu.vn",
+            PasswordHash = "valid_hash",
+            AccountStatus = "Active",
+            FailedLoginCount = 5,
+            LockoutEnd = DateTime.UtcNow.AddMinutes(10)
+        };
+
+        _userRepoMock.Setup(r => r.GetByAccountAsync(dto.Account)).ReturnsAsync(user);
+
+        // Act
+        var act = () => _authService.LoginWithCredentialsAsync(dto, "127.0.0.1");
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>()
+                 .WithMessage("*tạm thời bị khóa*");
+        _hasherMock.Verify(h => h.Verify(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task LoginWithCredentialsAsync_WhenValidPasswordAfterFailures_ResetsFailedLoginCount()
+    {
+        // Arrange
+        var dto = new LoginRequestDto { Account = "manager@fpt.edu.vn", Password = "ValidPassword123" };
+        var user = new User
+        {
+            Id = 204,
+            Code = "MGR204",
+            FullName = "Manager",
+            Email = "manager@fpt.edu.vn",
+            PasswordHash = "valid_hash",
+            AccountStatus = "Active",
+            FailedLoginCount = 3,
+            UserRoleUsers = new List<UserRole>
+            {
+                new UserRole
+                {
+                    UserId = 204,
+                    RoleId = 2,
+                    Role = new Role { Id = 2, RoleName = "Manager" }
+                }
+            }
+        };
+
+        _userRepoMock.Setup(r => r.GetByAccountAsync(dto.Account)).ReturnsAsync(user);
+        _hasherMock.Setup(h => h.Verify(dto.Password, user.PasswordHash)).Returns(true);
+        _jwtGenMock.Setup(j => j.GenerateAccessToken(user, It.IsAny<IEnumerable<string>>())).Returns("jwt_token");
+        _jwtGenMock.Setup(j => j.GenerateRefreshToken()).Returns(("raw_ref", "hash_ref"));
+        _refreshRepoMock.Setup(r => r.CreateAsync(It.IsAny<RefreshToken>())).Returns(Task.CompletedTask);
+
+        // Act
+        await _authService.LoginWithCredentialsAsync(dto, "127.0.0.1");
+
+        // Assert
+        _userRepoMock.Verify(r => r.AtomicResetFailedLoginAsync(204), Times.Once);
+    }
 }

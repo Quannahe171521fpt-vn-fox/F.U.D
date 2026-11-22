@@ -475,10 +475,28 @@ var app = builder.Build();
 // Bước 1: Forwarded Headers
 var forwardedOptions = new ForwardedHeadersOptions
 {
-    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+    ForwardLimit = 1
 };
-forwardedOptions.KnownNetworks.Clear();
-forwardedOptions.KnownProxies.Clear();
+var knownProxies = builder.Configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>() ?? Array.Empty<string>();
+foreach (var proxy in knownProxies)
+{
+    if (System.Net.IPAddress.TryParse(proxy?.Trim(), out var ip))
+    {
+        forwardedOptions.KnownProxies.Add(ip);
+    }
+}
+var knownNetworks = builder.Configuration.GetSection("ForwardedHeaders:KnownNetworks").Get<string[]>() ?? Array.Empty<string>();
+foreach (var cidr in knownNetworks)
+{
+    var parts = (cidr ?? string.Empty).Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    if (parts.Length == 2
+        && System.Net.IPAddress.TryParse(parts[0], out var prefixIp)
+        && int.TryParse(parts[1], out var prefixLen))
+    {
+        forwardedOptions.KnownNetworks.Add(new Microsoft.AspNetCore.HttpOverrides.IPNetwork(prefixIp, prefixLen));
+    }
+}
 app.UseForwardedHeaders(forwardedOptions);
 
 if (app.Environment.IsDevelopment())
@@ -489,9 +507,11 @@ if (app.Environment.IsDevelopment())
 else
 {
     app.UseHsts();
+    if (builder.Configuration.GetValue<bool>("Https:EnableRedirection"))
+    {
+        app.UseHttpsRedirection();
+    }
 }
-
-// app.UseHttpsRedirection();
 
 // Bước 2: Routing
 app.UseRouting();
