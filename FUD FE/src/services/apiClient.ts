@@ -6,6 +6,7 @@ import {
   getSessionExpirationReason,
   saveSessionMeta,
 } from './sessionManager';
+import { env } from '../config/env';
 
 let memoryAccessToken: string | null = (() => {
   try {
@@ -100,7 +101,7 @@ export async function refreshAccessToken(expectedOldToken?: string): Promise<str
         return null;
       }
 
-      const res = await fetch('/api/auth/refresh', {
+      const res = await fetch(`${env.apiBaseUrl}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
       });

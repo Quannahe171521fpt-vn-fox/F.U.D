@@ -6,7 +6,8 @@ import type {
   SaveSchedulePayload,
 } from '../types/management';
 import { authFetch } from './apiClient';
-const BASE_URL = '/api';
+import { env } from '../config/env';
+const BASE_URL = env.apiBaseUrl;
 
 async function parseJsonSafe(res: Response): Promise<any> {
   const text = await res.text();
