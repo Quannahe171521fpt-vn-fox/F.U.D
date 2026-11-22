@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ewApi, type StudentTermOptionDto, type StudentEwReportDto, type StudentEwMonthlyRowDto } from '../../services/api';
+import { ewApi, navigateToStudentPayment, type StudentTermOptionDto, type StudentEwReportDto, type StudentEwMonthlyRowDto } from '../../services/api';
 import '../../styles/management.css';
 
 export const StudentEwUsagePage: React.FC = () => {
@@ -485,9 +485,29 @@ export const StudentEwUsagePage: React.FC = () => {
               boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
             }}
           >
-            <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#1E293B', marginBottom: '16px' }}>
-               Tổng kết phí phụ trội vượt định mức
-            </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#1E293B', margin: 0 }}>
+                Tổng kết phí phụ trội vượt định mức
+              </h3>
+              {(report.electricOverUsagePayment > 0 || report.waterOverUsagePayment > 0) && (
+                <button
+                  type="button"
+                  onClick={() => navigateToStudentPayment({ tabFilter: 'Utility' })}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#EA580C',
+                    color: '#FFFFFF',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  💳 Thanh toán ngay hóa đơn điện nước
+                </button>
+              )}
+            </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
               {/* Tiền điện phụ trội */}

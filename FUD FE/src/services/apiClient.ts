@@ -15,6 +15,16 @@ let memoryAccessToken: string | null = (() => {
   }
 })();
 
+let memoryImpersonationToken: string | null = null;
+
+export const setImpersonationToken = (token: string | null) => {
+  memoryImpersonationToken = token;
+};
+
+export const getImpersonationToken = (): string | null => {
+  return memoryImpersonationToken;
+};
+
 let refreshCooldownUntil = 0;
 let refreshPromise: Promise<string | null> | null = null;
 
@@ -143,15 +153,15 @@ export async function refreshAccessToken(expectedOldToken?: string): Promise<str
 export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const headers = new Headers(options.headers || {});
 
-  const token = getAccessToken();
+  const token = memoryImpersonationToken || getAccessToken();
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
 
   let res = await fetch(url, { ...options, headers, credentials: 'include' });
 
-  // Nếu gặp 401: Tự động gọi refresh token và retry 1 lần duy nhất (chỉ khi trước đó đã có token)
-  if (res.status === 401 && token) {
+  // Nếu gặp 401: Tự động gọi refresh token và retry 1 lần duy nhất (chỉ khi trước đó đã có token và KHÔNG ở chế độ impersonate)
+  if (res.status === 401 && token && !memoryImpersonationToken) {
     const latestToken = getAccessToken();
     const newToken =
       latestToken && latestToken !== token

@@ -227,4 +227,82 @@ namespace FUD.DTOs.Utilities
         public decimal? R { get; set; }
         public int Term { get; set; } = 1;
     }
+
+    // ═══════════════════════════════════════════════════════════
+    // A1, A2 — Usage Anomalies (Manager Inspect / Adjust / Confirm)
+    // ═══════════════════════════════════════════════════════════
+    public class UsageAnomalyItemDto
+    {
+        public int AnomalyId { get; set; }
+        public int ReadingId { get; set; }
+        public int? BillingPeriodId { get; set; }
+        public string BillingPeriodDisplay { get; set; } = string.Empty;
+        public int RoomId { get; set; }
+        public string RoomNumber { get; set; } = string.Empty;
+        public string BlockCode { get; set; } = string.Empty;
+        public string BlockName { get; set; } = string.Empty;
+        public string DormName { get; set; } = string.Empty;
+        public string MeterType { get; set; } = string.Empty;
+        public decimal PreviousValue { get; set; }
+        public decimal CurrentValue { get; set; }
+        public decimal Consumption { get; set; }
+        public decimal Quota { get; set; }
+        public decimal OverUsage { get; set; }
+        public string FlagReason { get; set; } = string.Empty;
+        public string Status { get; set; } = "Flagged";          // Flagged | Resolved
+        public string? Resolution { get; set; }                  // Accepted | Corrected
+        public string? ManagerNote { get; set; }
+        public string GuardName { get; set; } = string.Empty;
+        public string? GuardPhone { get; set; }
+        public DateTime CreatedTime { get; set; }
+        public DateTime? ResolvedTime { get; set; }
+        public string? ResolvedByName { get; set; }
+    }
+
+    public class ResolveAnomalyRequestDto
+    {
+        public string Action { get; set; } = "Confirm";
+        public decimal? AdjustedValue { get; set; }
+        public string? ManagerNote { get; set; }
+    }
+
+    public class ResolveAnomalyResponseDto
+    {
+        public int AnomalyId { get; set; }
+        public int ReadingId { get; set; }
+        public string Status { get; set; } = "Resolved";
+        public string Resolution { get; set; } = string.Empty;   // Accepted | Corrected
+        public decimal FinalReadingValue { get; set; }
+        public decimal FinalConsumption { get; set; }
+        public bool SurchargeCalculated { get; set; }
+        public int DebtNotificationsSent { get; set; }
+        public decimal? SharePerStudent { get; set; }
+        public string Message { get; set; } = string.Empty;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // B1 — Calculate Surcharge & Split Costs Equally
+    // ═══════════════════════════════════════════════════════════
+    public class RoomSurchargeCalculationResult
+    {
+        public int RoomId { get; set; }
+        public string RoomNumber { get; set; } = string.Empty;
+        public bool Calculated { get; set; }
+        public bool HasFlaggedReadings { get; set; }
+        public decimal TotalCost { get; set; }
+        public int NumberOfResidents { get; set; }
+        public decimal SharePerStudent { get; set; }
+        public int InvoicesCreated { get; set; }
+        public List<int> NotifiedStudentIds { get; set; } = new();
+    }
+
+    public class BillingCalculationResultDto
+    {
+        public int BillingPeriodId { get; set; }
+        public int RoomsCalculated { get; set; }
+        public int RoomsSkippedFlagged { get; set; }
+        public int InvoicesCreated { get; set; }
+        public int NotificationsSent { get; set; }
+        public string Message { get; set; } = string.Empty;
+    }
 }
