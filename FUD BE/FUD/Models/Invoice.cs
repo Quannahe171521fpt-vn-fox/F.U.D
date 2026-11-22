@@ -39,6 +39,9 @@ public partial class Invoice
 
     public string? CancelReason { get; set; }
 
+    /// <summary>Thời điểm xóa mềm (soft delete). NULL = hóa đơn còn hiệu lực.</summary>
+    public DateTime? DeletedAt { get; set; }
+
     public virtual BookingRequest? BookingRequest { get; set; }
 
     public virtual ICollection<ComplaintRequest> ComplaintRequests { get; set; } = new List<ComplaintRequest>();

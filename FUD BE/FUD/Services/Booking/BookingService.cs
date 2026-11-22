@@ -5,17 +5,26 @@ using System.Threading.Tasks;
 using FUD.DTOs.Booking;
 using FUD.Models;
 using FUD.Repositories.Interfaces.Booking;
+using FUD.Services.Interfaces;
 using FUD.Services.Interfaces.Booking;
+using FUD.Services.Interfaces.Payments;
 
 namespace FUD.Services.Booking;
 
 public class BookingService : IBookingService
 {
     private readonly IBookingRepository _bookingRepo;
+    private readonly IRoomFeeInvoiceService _roomFeeInvoiceService;
+    private readonly IInAppNotificationService? _inAppNotificationService;
 
-    public BookingService(IBookingRepository bookingRepo)
+    public BookingService(
+        IBookingRepository bookingRepo,
+        IRoomFeeInvoiceService roomFeeInvoiceService,
+        IInAppNotificationService? inAppNotificationService = null)
     {
         _bookingRepo = bookingRepo;
+        _roomFeeInvoiceService = roomFeeInvoiceService;
+        _inAppNotificationService = inAppNotificationService;
     }
 
     public async Task<BookingEligibilityResponseDto> CheckEligibilityAsync(int studentId)
@@ -201,26 +210,62 @@ public class BookingService : IBookingService
         }
 
         var now = DateTime.UtcNow.AddHours(7);
+        var paymentDeadline = now.AddHours(24);
+
+        // Đơn đặt phòng được tạo ở trạng thái 'Pending Payment':
+        // sinh viên phải thanh toán phí phòng trước, sau đó đơn mới chuyển
+        // sang 'Pending' để Ban Quản lý xét duyệt.
         var bookingRequest = new BookingRequest
         {
             StudentId = studentId,
             TermId = term.Id,
             BedId = dto.BedId,
-            BookingKind = "Booking",
+            BookingKind = BookingKindConstants.Booking,
             KeepFromResidencyId = null,
             AgreementToRegulations = true,
-            PaymentDeadline = now.AddHours(24),
-            Status = "Pending",
+            PaymentDeadline = paymentDeadline,
+            Status = BookingStatusConstants.PendingPayment,
             CancelledBySystem = false,
             CreatedTime = now
         };
 
         var created = await _bookingRepo.CreateBookingRequestAsync(bookingRequest);
+
+        // Tạo hóa đơn phí phòng (Unpaid) để sinh viên thanh toán.
+        var price = await _bookingRepo.GetBedPriceAsync(dto.BedId, term.Id);
+        if (price == null || price <= 0)
+        {
+            throw new InvalidOperationException(
+                "Chưa có bảng giá hợp lệ cho học kỳ này nên chưa thể tạo hóa đơn phí phòng. Vui lòng liên hệ Ban Quản lý.");
+        }
+
         var fullBooking = await _bookingRepo.GetBookingRequestByIdAsync(created.Id);
 
-        var price = await _bookingRepo.GetBedPriceAsync(dto.BedId, term.Id);
+        var invoice = await _roomFeeInvoiceService.CreateRoomFeeInvoiceAsync(
+            fullBooking!,
+            price.Value,
+            $"Phí phòng {fullBooking?.Bed?.BedCode} - P.{fullBooking?.Bed?.Room?.RoomNumber} ({fullBooking?.Term?.Name ?? term.Name})",
+            DateOnly.FromDateTime(paymentDeadline),
+            now);
+
+        await _roomFeeInvoiceService.SaveChangesAsync();
+
         var result = MapToBookingResponse(fullBooking!);
         result.TermPrice = price;
+        result.InvoiceId = invoice.Id;
+        result.RequiresPayment = true;
+
+        // Thông báo cho sinh viên: đã tạo hóa đơn, cần thanh toán trước khi gửi QL duyệt.
+        if (_inAppNotificationService != null)
+        {
+            await _inAppNotificationService.NotifyUserAsync(
+                studentId,
+                "Đơn đặt phòng đã được tạo - cần thanh toán phí phòng",
+                $"Đơn đặt giường {fullBooking?.Bed?.BedCode} - P.{fullBooking?.Bed?.Room?.RoomNumber} ({fullBooking?.Term?.Name}) đã được tạo. " +
+                $"Vui lòng thanh toán {price.Value:N0} đồng trước {paymentDeadline:dd/MM/yyyy HH:mm} để đơn được gửi Ban Quản lý xét duyệt.",
+                "Booking",
+                created.Id.ToString());
+        }
 
         return result;
     }
@@ -265,6 +310,26 @@ public class BookingService : IBookingService
         var updated = await _bookingRepo.GetBookingRequestByIdAsync(bookingId);
         var price = await _bookingRepo.GetBedPriceAsync(updated!.BedId, updated.TermId);
 
+        if (_inAppNotificationService != null)
+        {
+            await _inAppNotificationService.NotifyUserAsync(
+                updated.StudentId,
+                "Đơn đặt phòng đã được phê duyệt",
+                $"Đơn đặt giường {updated.Bed?.BedCode} - P.{updated.Bed?.Room?.RoomNumber} ({updated.Term?.Name}) đã được Ban Quản lý phê duyệt. Vui lòng chuẩn bị nhận phòng (Check-in).",
+                "Booking",
+                bookingId.ToString());
+
+            if (updated.Bed?.Room?.Block?.DormId is int dormId && dormId > 0)
+            {
+                await _inAppNotificationService.NotifyDormGuardsAsync(
+                    dormId,
+                    "Sinh viên mới chờ nhận phòng (Check-in)",
+                    $"Sinh viên {updated.Student?.User?.FullName} ({updated.Student?.User?.Code}) đã được duyệt vào P.{updated.Bed?.Room?.RoomNumber} - Giường {updated.Bed?.BedCode}.",
+                    "Checkin",
+                    bookingId.ToString());
+            }
+        }
+
         return new BookingRequestManagerDto
         {
             Id = updated.Id,
@@ -299,6 +364,16 @@ public class BookingService : IBookingService
         var updated = await _bookingRepo.GetBookingRequestByIdAsync(bookingId);
         var price = await _bookingRepo.GetBedPriceAsync(updated!.BedId, updated.TermId);
 
+        if (_inAppNotificationService != null)
+        {
+            await _inAppNotificationService.NotifyUserAsync(
+                updated.StudentId,
+                "Đơn đặt phòng bị từ chối",
+                $"Đơn đặt giường {updated.Bed?.BedCode} ({updated.Term?.Name}) đã bị từ chối. Lý do: {reason}",
+                "Booking",
+                bookingId.ToString());
+        }
+
         return new BookingRequestManagerDto
         {
             Id = updated.Id,
@@ -324,6 +399,11 @@ public class BookingService : IBookingService
 
     private static BookingRequestResponseDto MapToBookingResponse(BookingRequest b)
     {
+        var invoice = b.Invoices?
+            .Where(i => i.DeletedAt == null)
+            .OrderByDescending(i => i.Id)
+            .FirstOrDefault();
+
         return new BookingRequestResponseDto
         {
             RequestId = b.Id,
@@ -338,7 +418,9 @@ public class BookingService : IBookingService
             CreatedTime = b.CreatedTime,
             PaymentDeadline = b.PaymentDeadline,
             AgreementToRegulations = b.AgreementToRegulations,
-            RejectReason = b.RejectReason
+            RejectReason = b.RejectReason,
+            InvoiceId = invoice?.Id,
+            RequiresPayment = b.Status == BookingStatusConstants.PendingPayment
         };
     }
 }

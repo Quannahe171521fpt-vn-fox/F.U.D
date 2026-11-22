@@ -250,11 +250,12 @@ public class BedTransferRequestServiceTests
             .ReturnsAsync(() => capturedRequest);
 
         var sut = CreateSut();
+        var validTransferDate = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
         var result = await sut.CreateRequestAsync(student.Id, new CreateRequestDto
         {
             RequestType = "BedTransfer",
             ToBedId = 2,
-            TransferDate = new DateOnly(2026, 11, 20),
+            TransferDate = validTransferDate,
             Reason = "Chuyển sang ở gần bạn cùng lớp"
         });
 
@@ -272,7 +273,7 @@ public class BedTransferRequestServiceTests
         result.BedTransfer.Should().NotBeNull();
         result.BedTransfer!.FromBedCode.Should().Be("101L-1");
         result.BedTransfer.ToBedCode.Should().Be("201L-1");
-        result.BedTransfer.TransferDate.Should().Be(new DateOnly(2026, 11, 20));
+        result.BedTransfer.TransferDate.Should().Be(validTransferDate);
         targetBed.Status.Should().Be("Pending Transfer");
     }
 

@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using FUD.DTOs.Checkin;
 using FUD.Models;
+using FUD.Services.Interfaces;
 using FUD.Services.Interfaces.Checkin;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,10 +14,12 @@ namespace FUD.Services.Checkin
     public class CheckinService : ICheckinService
     {
         private readonly FudContext _context;
+        private readonly IInAppNotificationService? _inAppNotificationService;
 
-        public CheckinService(FudContext context)
+        public CheckinService(FudContext context, IInAppNotificationService? inAppNotificationService = null)
         {
             _context = context;
+            _inAppNotificationService = inAppNotificationService;
         }
 
         private class CheckinMetaNote
@@ -413,6 +416,17 @@ namespace FUD.Services.Checkin
                 await transaction.CommitAsync();
 
                 var saved = await GetCheckinByIdAsync(handover.Id);
+
+                if (_inAppNotificationService != null)
+                {
+                    await _inAppNotificationService.NotifyUserAsync(
+                        dto.StudentId,
+                        "Hoàn tất bàn giao nhận phòng (Check-in)",
+                        $"Biên bản bàn giao phòng {saved?.RoomNumber} - Giường {bed.BedCode} đã được Bảo vệ xác nhận hoàn tất.",
+                        "Checkin",
+                        handover.Id.ToString());
+                }
+
                 return saved!;
             }
             catch

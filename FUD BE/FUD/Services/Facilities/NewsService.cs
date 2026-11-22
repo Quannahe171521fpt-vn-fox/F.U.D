@@ -131,6 +131,7 @@ namespace FUD.Services.Facilities
             if (news == null) throw new KeyNotFoundException($"Bản tin id {id} không tồn tại");
 
             var oldVal = $"Title: {news.Title}, Status: {news.Status}";
+            var wasPublished = news.Status.Equals("Published", StringComparison.OrdinalIgnoreCase);
 
             news.Title = dto.Title.Trim();
             news.Content = dto.Content.Trim();
@@ -151,6 +152,11 @@ namespace FUD.Services.Facilities
             }
 
             await _repo.UpdateAsync(news);
+
+            if (!wasPublished && news.Status.Equals("Published", StringComparison.OrdinalIgnoreCase))
+            {
+                await NotifyStudentsAsync(news);
+            }
 
             // Replace attachments if provided
             if (dto.AttachmentUrls != null)
@@ -219,13 +225,15 @@ namespace FUD.Services.Facilities
             {
                 // Find all active students
                 var studentUserIds = await _context.Students.Select(s => s.UserId).ToListAsync();
+                var rawTitle = $"Bản tin mới: {news.Title}";
+                var safeTitle = rawTitle.Length > 200 ? rawTitle[..200] : rawTitle;
                 foreach (var uid in studentUserIds)
                 {
                     var noti = new Notification
                     {
                         UserId = uid,
                         Channel = "InApp",
-                        Title = $"Bản tin mới: {news.Title}",
+                        Title = safeTitle,
                         Content = news.Content.Length > 100 ? news.Content.Substring(0, 97) + "..." : news.Content,
                         ReferenceType = "News",
                         ReferenceId = news.Id.ToString(),

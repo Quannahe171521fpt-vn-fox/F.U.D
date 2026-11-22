@@ -25,6 +25,7 @@ public class AccountService : IAccountService
     private readonly IRefreshTokenRepository _refreshTokenRepo;
     private readonly IPasswordHasher _passwordHasher;
     private readonly INotificationService _notificationService;
+    private readonly IInAppNotificationService? _inAppNotificationService;
     private readonly IMemoryCache _cache;
     private readonly ILogger<AccountService> _logger;
 
@@ -35,7 +36,8 @@ public class AccountService : IAccountService
         IPasswordHasher passwordHasher,
         INotificationService notificationService,
         IMemoryCache cache,
-        ILogger<AccountService> logger)
+        ILogger<AccountService> logger,
+        IInAppNotificationService? inAppNotificationService = null)
     {
         _accountRepo = accountRepo;
         _historyRepo = historyRepo;
@@ -44,6 +46,7 @@ public class AccountService : IAccountService
         _notificationService = notificationService;
         _cache = cache;
         _logger = logger;
+        _inAppNotificationService = inAppNotificationService;
     }
 
     // ─────────────────────────────────────────────
@@ -175,6 +178,18 @@ public class AccountService : IAccountService
 
         InvalidateUserCache(user.Id);
 
+        if (_inAppNotificationService != null
+            && roles.Any(r => !r.RoleName.Equals(AccountConstants.Roles.Admin, StringComparison.OrdinalIgnoreCase)))
+        {
+            var rolesStr = string.Join(", ", roles.Select(r => r.RoleName));
+            await _inAppNotificationService.NotifyUserAsync(
+                user.Id,
+                "Chào mừng đến với KTX FUD",
+                $"Tài khoản {username} với vai trò [{rolesStr}] đã được tạo và kích hoạt.",
+                "Account",
+                user.Id.ToString());
+        }
+
         _logger.LogInformation("Admin {AdminId} đã tạo tài khoản {Username} với vai trò {Roles}",
             adminUserId, username, string.Join(", ", roles.Select(r => r.RoleName)));
 
@@ -280,6 +295,19 @@ public class AccountService : IAccountService
 
         // Quyền mới có hiệu lực thật: làm mới cache + buộc client làm mới token
         InvalidateUserCache(userId);
+
+        if (_inAppNotificationService != null
+            && newRoleNames.Any(r => !r.Equals(AccountConstants.Roles.Admin, StringComparison.OrdinalIgnoreCase)))
+        {
+            var oldStr = oldRoleNames.Count > 0 ? string.Join(", ", oldRoleNames) : "Chưa có";
+            var newStr = newRoleNames.Count > 0 ? string.Join(", ", newRoleNames) : "Chưa có";
+            await _inAppNotificationService.NotifyUserAsync(
+                userId,
+                "Cập nhật vai trò tài khoản",
+                $"Vai trò tài khoản {user.Code} đã được cập nhật từ [{oldStr}] thành [{newStr}].",
+                "Account",
+                userId.ToString());
+        }
 
         _logger.LogInformation("Admin {AdminId} đã {Action} vai trò cho tài khoản {UserId}: [{Old}] -> [{New}]",
             adminUserId, action, userId, string.Join(", ", oldRoleNames), string.Join(", ", newRoleNames));
@@ -436,6 +464,18 @@ public class AccountService : IAccountService
 
         _logger.LogInformation("Admin {AdminId} đã khôi phục tài khoản {UserId} (email: {Sent})",
             adminUserId, userId, sent);
+
+        if (_inAppNotificationService != null
+            && user.UserRoleUsers.Any(ur => !ur.Role.RoleName.Equals(AccountConstants.Roles.Admin, StringComparison.OrdinalIgnoreCase)))
+        {
+            await _inAppNotificationService.NotifyUserAsync(
+                userId,
+                "Tài khoản đã được khôi phục",
+                $"Tài khoản {user.Code} đã được kích hoạt hoạt động trở lại.{(string.IsNullOrWhiteSpace(reason) ? string.Empty : $" Lý do: {reason}")}",
+                "Account",
+                userId.ToString(),
+                skipEmail: true);
+        }
 
         var updated = await _accountRepo.GetByIdAsync(userId);
         return MapToDto(updated ?? user);

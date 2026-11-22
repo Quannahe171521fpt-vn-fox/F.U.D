@@ -10,20 +10,39 @@ import { BedManagement } from '../pages/FacilityManagement/BedManagement';
 import { ManagerViolationManagement } from '../pages/Violations/ManagerViolationManagement';
 import { ManagerRequestManagement } from '../pages/Requests/ManagerRequestManagement';
 import { ManagerBookingManagement } from '../pages/Booking/ManagerBookingManagement';
+import { ManagerKeepingManagement } from '../pages/Keeping/ManagerKeepingManagement';
 import { EwManagement } from '../pages/FacilityManagement/EwManagement';
+import { ImpersonateStudentPage } from '../pages/Manager/ImpersonateStudentPage';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
 import type { NewsItem, EquipmentRecord, EquipmentCatalogItem } from '../types/management';
 import { equipmentApi, newsApi, violationApi, requestApi, bookingApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useIdleAwarePolling } from '../utils/useIdleAwarePolling';
+import type { ManagerTab } from '../utils/notificationRouting';
 
-export const ManagerPortal: React.FC = () => {
+interface ManagerPortalProps {
+  activeTab?: ManagerTab;
+  onTabChange?: (tab: ManagerTab) => void;
+}
+
+export const ManagerPortal: React.FC<ManagerPortalProps> = ({
+  activeTab: controlledActiveTab,
+  onTabChange,
+}) => {
   const { currentUser, logout } = useAuth();
 
   // Sidebar navigation tabs
-  const [activeTab, setActiveTab] = useState<'equipment' | 'news' | 'pricing' | 'terms' | 'violations' | 'dorm' | 'blocks' | 'rooms' | 'beds' | 'requests' | 'ew' | 'bookings'>(() => {
+  const [internalTab, setInternalTab] = useState<ManagerTab>(() => {
     return (localStorage.getItem('fud_managerTab') as any) || 'terms';
   });
+  const activeTab = controlledActiveTab ?? internalTab;
+  const setActiveTab = (tab: ManagerTab) => {
+    if (onTabChange) {
+      onTabChange(tab);
+    } else {
+      setInternalTab(tab);
+    }
+  };
   const [pricingTargetTermId, setPricingTargetTermId] = useState<number | null>(null);
   const handleGoToPricing = (termId: number) => {
     setPricingTargetTermId(termId);
@@ -373,6 +392,12 @@ export const ManagerPortal: React.FC = () => {
           showBadgeDot: hasPendingBookings,
         },
         {
+          id: 'keeping',
+          name: 'Duyệt giữ phòng',
+          counter: 'Giữ chỗ kỳ kế tiếp',
+          showBadgeDot: hasPendingBookings,
+        },
+        {
           id: 'violations',
           name: 'Quản lý vi phạm',
           counter: 'Thẩm định & Xử lý biên bản',
@@ -383,6 +408,16 @@ export const ManagerPortal: React.FC = () => {
           name: 'Xử lý đơn yêu cầu',
           counter: 'Kháng cáo, đổi phòng, trả phòng',
           showBadgeDot: hasPendingRequests,
+        },
+      ],
+    },
+    {
+      label: 'HỖ TRỢ SINH VIÊN',
+      items: [
+        {
+          id: 'impersonate',
+          name: 'Đăng nhập thay SV',
+          counter: 'Hỗ trợ từ xa',
         },
       ],
     },
@@ -441,8 +476,12 @@ export const ManagerPortal: React.FC = () => {
           <ManagerRequestManagement />
         ) : activeTab === 'bookings' ? (
           <ManagerBookingManagement />
+        ) : activeTab === 'keeping' ? (
+          <ManagerKeepingManagement />
         ) : activeTab === 'ew' ? (
           <EwManagement />
+        ) : activeTab === 'impersonate' ? (
+          <ImpersonateStudentPage />
         ) : (
           <ManagerViolationManagement />
         )}
