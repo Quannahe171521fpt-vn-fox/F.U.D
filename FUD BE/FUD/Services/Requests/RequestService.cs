@@ -20,19 +20,22 @@ namespace FUD.Services.Requests
         private readonly IFileStorage _fileStorage;
         private readonly IEmailSender _emailSender;
         private readonly IInAppNotificationService? _inAppNotificationService;
+        private readonly Microsoft.Extensions.Configuration.IConfiguration? _configuration;
 
         public RequestService(
             IRequestRepository requestRepo,
             IViolationRepository violationRepo,
             IFileStorage fileStorage,
             IEmailSender emailSender,
-            IInAppNotificationService? inAppNotificationService = null)
+            IInAppNotificationService? inAppNotificationService = null,
+            Microsoft.Extensions.Configuration.IConfiguration? configuration = null)
         {
             _requestRepo = requestRepo;
             _violationRepo = violationRepo;
             _fileStorage = fileStorage;
             _emailSender = emailSender;
             _inAppNotificationService = inAppNotificationService;
+            _configuration = configuration;
         }
 
         public async Task<List<RequestItemDto>> GetAllRequestsAsync(string? requestType = null, string? status = null)
@@ -454,6 +457,18 @@ namespace FUD.Services.Requests
             if (dto.CurrentWaterReading < prevWater)
                 throw new InvalidOperationException($"Chỉ số nước hiện tại ({dto.CurrentWaterReading}) không được nhỏ hơn chỉ số cũ ({prevWater}).");
 
+            string? validElecUrl;
+            string? validWaterUrl;
+            try
+            {
+                validElecUrl = FUD.Services.Utilities.MeterEvidenceUrlValidator.ValidateOrNull(dto.ElectricityEvidenceImageUrl, _configuration);
+                validWaterUrl = FUD.Services.Utilities.MeterEvidenceUrlValidator.ValidateOrNull(dto.WaterEvidenceImageUrl, _configuration);
+            }
+            catch (ArgumentException ex)
+            {
+                throw new InvalidOperationException(ex.Message);
+            }
+
             var roomEquipments = await _requestRepo.GetRoomAndBedEquipmentsAsync(fromRoomId, bt.FromBedId);
             var validEquipMap = roomEquipments.ToDictionary(e => e.Id);
 
@@ -533,7 +548,8 @@ namespace FUD.Services.Requests
                     Status = "Recorded",
                     RecordedById = guardUserId,
                     RecordedTime = now,
-                    Note = trimmedNote
+                    Note = trimmedNote,
+                    EvidenceImageUrl = validElecUrl
                 },
                 new MeterReading
                 {
@@ -546,7 +562,8 @@ namespace FUD.Services.Requests
                     Status = "Recorded",
                     RecordedById = guardUserId,
                     RecordedTime = now,
-                    Note = trimmedNote
+                    Note = trimmedNote,
+                    EvidenceImageUrl = validWaterUrl
                 }
             };
 
@@ -1384,7 +1401,8 @@ namespace FUD.Services.Requests
                         StudentShareCost = shareCost,
                         ResidentCount = Math.Max(1, residentCount),
                         RecordedTime = m.RecordedTime,
-                        Note = m.Note
+                        Note = m.Note,
+                        EvidenceImageUrl = m.EvidenceImageUrl
                     };
                 })
                 .ToList();

@@ -4,6 +4,7 @@ using FUD.DTOs.Utilities;
 using FUD.Services.Interfaces.Utilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace FUD.Controllers.Utilities
 {
@@ -183,6 +184,48 @@ namespace FUD.Controllers.Utilities
             catch (ArgumentException ex)
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+        }
+
+        // ═════════════════════════════════════════════════════════════
+        // OCR: Chụp/Tải ảnh công tơ điện nước & tự nhận diện bằng AI
+        // ═════════════════════════════════════════════════════════════
+        [HttpPost("readings/scan-photo")]
+        [Authorize(Roles = "Guard,Manager")]
+        [EnableRateLimiting("MeterOcrPolicy")]
+        [RequestSizeLimit(12_000_000)]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> ScanMeterPhoto(
+            IFormFile photo,
+            [FromForm] string? expectedMeterType,
+            [FromForm] decimal? previousValue,
+            [FromForm] bool saveEvidence = true,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var result = await _ewService.ScanMeterPhotoAsync(
+                    photo,
+                    expectedMeterType,
+                    previousValue,
+                    saveEvidence,
+                    cancellationToken);
+                return Ok(ApiResponse<MeterPhotoScanResponseDto>.Ok(result));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (TimeoutException ex)
+            {
+                return StatusCode(StatusCodes.Status504GatewayTimeout, ApiResponse.Fail(ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                var statusCode = ex.Message.Contains("429", StringComparison.OrdinalIgnoreCase)
+                    ? StatusCodes.Status429TooManyRequests
+                    : StatusCodes.Status503ServiceUnavailable;
+                return StatusCode(statusCode, ApiResponse.Fail(ex.Message));
             }
         }
 

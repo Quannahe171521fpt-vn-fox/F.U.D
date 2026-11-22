@@ -1114,6 +1114,7 @@ export interface BedTransferMeterReadingDto {
   residentCount: number;
   recordedTime: string;
   note?: string;
+  evidenceImageUrl?: string;
 }
 
 export interface BedTransferInvoiceSummaryDto {
@@ -1172,6 +1173,8 @@ export interface TransferInspectionTaskDto {
 export interface SubmitTransferInspectionPayload {
   currentElectricityReading: number;
   currentWaterReading: number;
+  electricityEvidenceImageUrl?: string;
+  waterEvidenceImageUrl?: string;
   note?: string;
   items: Array<{
     equipmentId: number;
@@ -1670,8 +1673,108 @@ export interface EwReadingDetailItem {
   source: string;
   status: string;
   note?: string;
+  evidenceImageUrl?: string;
   recordedTime: string;
   recordedByName?: string;
+}
+
+export interface MeterPhotoScanResponseDto {
+  isMeterImage: boolean;
+  readingValue?: number;
+  rawDigits?: string;
+  detectedMeterType: 'Electricity' | 'Water' | 'Unknown' | string;
+  meterTypeMismatch: boolean;
+  confidence: number;
+  confidenceLevel: 'High' | 'Medium' | 'Low' | string;
+  aiNotes?: string;
+  evidenceImageUrl?: string;
+  previousValue?: number;
+  estimatedConsumption?: number;
+  validationStatus: 'Valid' | 'Warning' | 'Error' | string;
+  warnings?: string[];
+}
+
+export interface RoomReadingStatusDto {
+  roomId: number;
+  roomNumber: string;
+  hasReading: boolean;
+  currentValue?: number;
+  recordedAt?: string;
+  status?: string;
+}
+
+export interface BlockProgressItemDto {
+  blockCode: string;
+  blockName: string;
+  dormName: string;
+  electricityLeft?: RoomReadingStatusDto;
+  electricityRight?: RoomReadingStatusDto;
+  waterLeft?: RoomReadingStatusDto;
+  waterRight?: RoomReadingStatusDto;
+}
+
+export interface BlockProgressResponseDto {
+  billingPeriodId: number;
+  displayName: string;
+  totalBlocks: number;
+  completedBlocks: number;
+  missingBlocks: number;
+  blocks: BlockProgressItemDto[];
+}
+
+export interface RoomOldReadingDto {
+  roomId: number;
+  roomNumber: string;
+  oldReading: number;
+  alreadyRecorded: boolean;
+  existingCurrentValue?: number;
+  existingEvidenceImageUrl?: string;
+  existingSource?: string;
+}
+
+export interface BlockFormDataResponseDto {
+  blockCode: string;
+  billingPeriodId: number;
+  displayPeriod: string;
+  electricityLeft?: RoomOldReadingDto;
+  electricityRight?: RoomOldReadingDto;
+  waterLeft?: RoomOldReadingDto;
+  waterRight?: RoomOldReadingDto;
+}
+
+export interface ManualConfirmRequestDto {
+  billingPeriodId: number;
+  blockCode: string;
+  electricityLeftNewValue?: number;
+  electricityRightNewValue?: number;
+  waterLeftNewValue?: number;
+  waterRightNewValue?: number;
+  electricityLeftEvidenceUrl?: string;
+  electricityRightEvidenceUrl?: string;
+  waterLeftEvidenceUrl?: string;
+  waterRightEvidenceUrl?: string;
+  electricityLeftSource?: 'Manual' | 'PhotoOCR';
+  electricityRightSource?: 'Manual' | 'PhotoOCR';
+  waterLeftSource?: 'Manual' | 'PhotoOCR';
+  waterRightSource?: 'Manual' | 'PhotoOCR';
+  note?: string;
+  importOnlyValid?: boolean;
+}
+
+export interface ReadingConfirmResultDto {
+  readingId?: number;
+  roomNumber: string;
+  meterType: string;
+  status: string;
+  anomalyReason?: string;
+}
+
+export interface ManualConfirmResponseDto {
+  saved: number;
+  flagged: number;
+  skipped: number;
+  managerAlerted: boolean;
+  results: ReadingConfirmResultDto[];
 }
 
 export interface EwUsageRow {
@@ -1984,6 +2087,64 @@ export const ewApi = {
     const json = await safeParseResponse<BillingCalculationResultDto>(res);
     if (!res.ok || json.success === false) throw new Error(json.message || 'Lỗi khi tính phụ trội điện nước');
     return json.data || ({ message: json.message } as BillingCalculationResultDto);
+  },
+
+  getBlockProgress: async (billingPeriodId: number): Promise<BlockProgressResponseDto> => {
+    const res = await authFetch(`${BASE_URL}/ew/billing-periods/${billingPeriodId}/blocks`);
+    const json = await safeParseResponse<BlockProgressResponseDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải tiến độ ghi chỉ số các block');
+    return json.data;
+  },
+
+  getBlockFormData: async (blockCode: string, billingPeriodId: number): Promise<BlockFormDataResponseDto> => {
+    const query = new URLSearchParams({
+      blockCode,
+      billingPeriodId: billingPeriodId.toString(),
+    });
+    const res = await authFetch(`${BASE_URL}/ew/readings/block-form?${query.toString()}`);
+    const json = await safeParseResponse<BlockFormDataResponseDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải thông tin công tơ của block');
+    return json.data;
+  },
+
+  confirmManualReading: async (payload: ManualConfirmRequestDto): Promise<ManualConfirmResponseDto> => {
+    const res = await authFetch(`${BASE_URL}/ew/readings/manual/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<ManualConfirmResponseDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể lưu chỉ số điện nước');
+    return json.data;
+  },
+
+  scanMeterPhoto: async (
+    photo: File,
+    options?: {
+      expectedMeterType?: 'Electricity' | 'Water';
+      previousValue?: number;
+      saveEvidence?: boolean;
+    }
+  ): Promise<MeterPhotoScanResponseDto> => {
+    const form = new FormData();
+    form.append('photo', photo);
+    if (options?.expectedMeterType) {
+      form.append('expectedMeterType', options.expectedMeterType);
+    }
+    if (options?.previousValue !== undefined && !Number.isNaN(options.previousValue)) {
+      form.append('previousValue', options.previousValue.toString());
+    }
+    if (options?.saveEvidence !== undefined) {
+      form.append('saveEvidence', options.saveEvidence ? 'true' : 'false');
+    }
+
+    const res = await authFetch(`${BASE_URL}/ew/readings/scan-photo`, {
+      method: 'POST',
+      body: form,
+    });
+    const json = await safeParseResponse<MeterPhotoScanResponseDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể nhận diện chỉ số từ ảnh công tơ');
+    return json.data;
   },
 };
 

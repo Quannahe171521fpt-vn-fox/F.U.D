@@ -1,4 +1,5 @@
 using FUD.DTOs.Utilities;
+using Microsoft.AspNetCore.Http;
 
 namespace FUD.Services.Interfaces.Utilities
 {
@@ -11,10 +12,16 @@ namespace FUD.Services.Interfaces.Utilities
         Task<List<BillingPeriodLookupDto>> GetBillingPeriodsAsync();
         Task<BlockProgressResponseDto> GetBlockProgressAsync(int billingPeriodId, int? userId = null, bool isManager = false);
 
-        // ── M1, M2, M3: Manual Entry ────────────────────────────
+        // ── M1, M2, M3: Manual Entry & AI Photo Scan ────────────
         Task<BlockFormDataResponseDto> GetBlockFormDataAsync(string blockCode, int billingPeriodId, int? userId = null, bool isManager = false);
         Task<ManualPreviewResponseDto> PreviewManualReadingAsync(ManualPreviewRequestDto request, int? userId = null, bool isManager = false);
         Task<ManualConfirmResponseDto> ConfirmManualReadingAsync(int guardUserId, ManualConfirmRequestDto request, bool isManager = false);
+        Task<MeterPhotoScanResponseDto> ScanMeterPhotoAsync(
+            IFormFile photo,
+            string? expectedMeterType,
+            decimal? previousValue,
+            bool saveEvidence = true,
+            CancellationToken cancellationToken = default);
         Task<bool> UpdateReadingAsync(int id, decimal currentValue, string? note, int userId, bool isManager = false);
         Task<bool> DeleteReadingAsync(int id, int userId, bool isManager = false);
 

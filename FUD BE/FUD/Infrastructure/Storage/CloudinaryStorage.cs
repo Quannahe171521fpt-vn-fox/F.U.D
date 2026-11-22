@@ -9,12 +9,16 @@ namespace FUD.Infrastructure.Storage
 {
     public class CloudinaryStorage : IFileStorage
     {
-        private readonly Cloudinary _cloudinary;
+        private readonly Lazy<Cloudinary> _cloudinary;
 
         public CloudinaryStorage(IOptions<CloudinarySettings> config, IConfiguration configuration)
         {
             var settings = config.Value;
+            _cloudinary = new Lazy<Cloudinary>(() => CreateClient(settings, configuration));
+        }
 
+        private static Cloudinary CreateClient(CloudinarySettings settings, IConfiguration configuration)
+        {
             // Prioritize configuration from options, fallback to direct configuration keys
             var cloudName = !string.IsNullOrWhiteSpace(settings.CloudName) && settings.CloudName != "xxxx"
                 ? settings.CloudName
@@ -34,8 +38,9 @@ namespace FUD.Infrastructure.Storage
             }
 
             var account = new Account(cloudName, apiKey, apiSecret);
-            _cloudinary = new Cloudinary(account);
-            _cloudinary.Api.Secure = true;
+            var client = new Cloudinary(account);
+            client.Api.Secure = true;
+            return client;
         }
 
         public async Task<string> UploadImageAsync(IFormFile file, string folder = "violations")
@@ -53,7 +58,7 @@ namespace FUD.Infrastructure.Storage
                 Overwrite = false
             };
 
-            var uploadResult = await _cloudinary.UploadAsync(uploadParams);
+            var uploadResult = await _cloudinary.Value.UploadAsync(uploadParams);
             if (uploadResult.Error != null)
             {
                 throw new InvalidOperationException($"Lỗi tải ảnh lên Cloudinary: {uploadResult.Error.Message}");

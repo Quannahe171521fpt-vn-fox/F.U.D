@@ -80,10 +80,22 @@ if (!builder.Environment.IsDevelopment() && googleClientId.StartsWith("mock-", S
     throw new InvalidOperationException("Google:ClientId chưa được cấu hình hợp lệ trên Production!");
 }
 
-// 4. Rate Limiter Phân Vùng Theo IP
+// 4. Rate Limiter Phân Vùng Theo UserId / IP
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        context.HttpContext.Response.ContentType = "application/json; charset=utf-8";
+        var payload = System.Text.Json.JsonSerializer.Serialize(
+            ApiResponse.Fail("Bạn thao tác quá nhanh. Vui lòng thử lại sau giây lát."),
+            new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+            });
+        await context.HttpContext.Response.WriteAsync(payload, cancellationToken);
+    };
 
     options.AddPolicy("LoginPolicy", httpContext =>
     {
@@ -102,6 +114,24 @@ builder.Services.AddRateLimiter(options =>
         return RateLimitPartition.GetFixedWindowLimiter(clientIp, _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = 20,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        });
+    });
+
+    options.AddPolicy("MeterOcrPolicy", httpContext =>
+    {
+        var userId = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? httpContext.User.FindFirstValue("sub")
+            ?? httpContext.User.FindFirstValue("nameid");
+
+        var partitionKey = !string.IsNullOrWhiteSpace(userId)
+            ? $"user:{userId}"
+            : $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+
+        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 30,
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0
         });
@@ -326,6 +356,15 @@ builder.Services.AddScoped<FUD.Services.Interfaces.Facilities.IDormService, FUD.
 builder.Services.Configure<FUD.Settings.pattern.CloudinarySettings>(builder.Configuration.GetSection("Cloudinary"));
 builder.Services.AddScoped<FUD.Infrastructure.Storage.IFileStorage, FUD.Infrastructure.Storage.CloudinaryStorage>();
 
+// AI Vision OCR (Gemini)
+builder.Services.Configure<FUD.Settings.pattern.GeminiSettings>(builder.Configuration.GetSection("Gemini"));
+builder.Services.AddHttpClient<FUD.Infrastructure.AI.IMeterOcrService, FUD.Infrastructure.AI.GeminiMeterOcrService>((sp, client) =>
+{
+    var settings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<FUD.Settings.pattern.GeminiSettings>>().Value;
+    var timeoutSec = settings.TimeoutSeconds > 0 ? settings.TimeoutSeconds : 25;
+    client.Timeout = TimeSpan.FromSeconds(timeoutSec);
+});
+
 // UC22: Violations DI
 builder.Services.AddScoped<FUD.Repositories.Interfaces.Violations.IViolationRepository, FUD.Repositories.Violations.ViolationRepository>();
 builder.Services.AddScoped<FUD.Services.Interfaces.Violations.IViolationService, FUD.Services.Violations.ViolationService>();
@@ -395,10 +434,7 @@ app.UseRouting();
 // Bước 3: CORS (Đứng trước RateLimiter để mã 429 vẫn có đủ header CORS)
 app.UseCors("FrontendOnly");
 
-// Bước 4: Rate Limiter
-app.UseRateLimiter();
-
-// Bước 5: Security Headers
+// Bước 4: Security Headers
 app.Use(async (context, next) =>
 {
     context.Response.Headers.Append("X-Content-Type-Options", "nosniff");
@@ -408,8 +444,9 @@ app.Use(async (context, next) =>
     await next();
 });
 
-// Bước 6: Authentication & Authorization
+// Bước 5: Authentication -> Rate Limiter (có UserId) -> Authorization
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 
 app.MapControllers();

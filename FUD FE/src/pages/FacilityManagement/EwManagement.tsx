@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import '../../styles/facilities.css';
 import { Pagination } from '../../components/Pagination';
+import { MeterPhotoScanner } from '../../components/MeterPhotoScanner';
+import { ImageLightboxModal } from '../../components/ImageLightboxModal';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   ewApi,
   dormApi,
@@ -10,6 +13,11 @@ import {
   type EwUsageRow,
   type EwReadingDetailItem,
   type UsageAnomalyItemDto,
+  type BlockProgressResponseDto,
+  type BlockFormDataResponseDto,
+  type RoomOldReadingDto,
+  type MeterPhotoScanResponseDto,
+  type ManualConfirmRequestDto,
 } from '../../services/api';
 
 // ── Usage table row (computed) ──────────────────────────
@@ -142,12 +150,49 @@ function buildUsageRows(rawRows: EwUsageRow[]): UsageTableRow[] {
   });
 }
 
+type CaptureSlotKey = 'electricityLeft' | 'electricityRight' | 'waterLeft' | 'waterRight';
+
+interface CaptureSlotState {
+  value: string;
+  evidenceUrl?: string;
+  source?: 'Manual' | 'PhotoOCR';
+  editedManually: boolean;
+}
+
+const EMPTY_CAPTURE_SLOTS: Record<CaptureSlotKey, CaptureSlotState> = {
+  electricityLeft: { value: '', editedManually: false },
+  electricityRight: { value: '', editedManually: false },
+  waterLeft: { value: '', editedManually: false },
+  waterRight: { value: '', editedManually: false },
+};
+
 // ── Component ───────────────────────────────────────────
 export const EwManagement: React.FC = () => {
+  const { currentUser } = useAuth();
   const userRole = typeof localStorage !== 'undefined' ? localStorage.getItem('fud_userRole') : null;
   const isManager = userRole === 'Manager' || userRole === 'Admin';
+  const isGuard =
+    (currentUser?.roles || []).includes('Guard') ||
+    currentUser?.primaryRole === 'Guard' ||
+    (!isManager && userRole === 'Guard');
 
-  const [activeSection, setActiveSection] = useState<'import' | 'usage' | 'anomalies' | 'history'>('usage');
+  const [activeSection, setActiveSection] = useState<'import' | 'capture' | 'usage' | 'anomalies' | 'history'>('usage');
+
+  // ── Lightbox preview for evidence images ──
+  const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string; subtitle?: string } | null>(null);
+
+  // ── AI Photo Capture by Block (Guard) ──
+  const [blockProgress, setBlockProgress] = useState<BlockProgressResponseDto | null>(null);
+  const [progressLoading, setProgressLoading] = useState(false);
+  const [blockSearch, setBlockSearch] = useState('');
+  const [blockFilter, setBlockFilter] = useState<'all' | 'incomplete' | 'completed'>('all');
+  const [selectedBlockCode, setSelectedBlockCode] = useState<string>('');
+  const [blockFormData, setBlockFormData] = useState<BlockFormDataResponseDto | null>(null);
+  const [blockFormLoading, setBlockFormLoading] = useState(false);
+  const [captureSlots, setCaptureSlots] = useState<Record<CaptureSlotKey, CaptureSlotState>>(EMPTY_CAPTURE_SLOTS);
+  const [captureNote, setCaptureNote] = useState('');
+  const [savingBlock, setSavingBlock] = useState(false);
+  const [captureMsg, setCaptureMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // ── Billing Periods ──
   const [periods, setPeriods] = useState<BillingPeriodLookupDto[]>([]);
@@ -610,6 +655,205 @@ export const EwManagement: React.FC = () => {
     if (activeSection === 'history') loadBatches();
   }, [activeSection, loadBatches]);
 
+  // ── Load block progress & block form for AI capture tab ──
+  const isBlockComplete = useCallback((b: BlockProgressResponseDto['blocks'][number]) => {
+    const leftDone = Boolean(b.electricityLeft?.hasReading && b.waterLeft?.hasReading);
+    const hasRight = Boolean(b.electricityRight || b.waterRight);
+    const rightDone = !hasRight || Boolean(b.electricityRight?.hasReading && b.waterRight?.hasReading);
+    return leftDone && rightDone;
+  }, []);
+
+  const loadBlockForm = useCallback(async (blockCode: string, periodId: number) => {
+    setSelectedBlockCode(blockCode);
+    setBlockFormLoading(true);
+    setCaptureMsg(null);
+    try {
+      const form = await ewApi.getBlockFormData(blockCode, periodId);
+      setBlockFormData(form);
+      const initSlot = (slot?: RoomOldReadingDto): CaptureSlotState => ({
+        value: slot?.existingCurrentValue !== undefined ? String(slot.existingCurrentValue) : '',
+        evidenceUrl: slot?.existingEvidenceImageUrl,
+        source: slot?.existingSource === 'PhotoOCR' ? 'PhotoOCR' : slot?.existingSource ? 'Manual' : undefined,
+        editedManually: false,
+      });
+      setCaptureSlots({
+        electricityLeft: initSlot(form.electricityLeft),
+        electricityRight: initSlot(form.electricityRight),
+        waterLeft: initSlot(form.waterLeft),
+        waterRight: initSlot(form.waterRight),
+      });
+      setCaptureNote('');
+    } catch (err: unknown) {
+      setBlockFormData(null);
+      setCaptureMsg({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Không thể tải dữ liệu công tơ của block',
+      });
+    } finally {
+      setBlockFormLoading(false);
+    }
+  }, []);
+
+  const loadBlockProgress = useCallback(
+    async (periodId: number, autoSelectBlock?: string) => {
+      setProgressLoading(true);
+      try {
+        const data = await ewApi.getBlockProgress(periodId);
+        setBlockProgress(data);
+        const targetCode =
+          autoSelectBlock ||
+          selectedBlockCode ||
+          data.blocks.find((b) => !isBlockComplete(b))?.blockCode ||
+          data.blocks[0]?.blockCode ||
+          '';
+        if (targetCode && data.blocks.some((b) => b.blockCode === targetCode)) {
+          await loadBlockForm(targetCode, periodId);
+        } else {
+          setSelectedBlockCode('');
+          setBlockFormData(null);
+        }
+      } catch (err: unknown) {
+        setBlockProgress(null);
+        setCaptureMsg({
+          type: 'error',
+          text: err instanceof Error ? err.message : 'Không thể tải tiến độ các block',
+        });
+      } finally {
+        setProgressLoading(false);
+      }
+    },
+    [selectedBlockCode, isBlockComplete, loadBlockForm]
+  );
+
+  useEffect(() => {
+    if (activeSection === 'capture' && isGuard && selectedPeriodId) {
+      void loadBlockProgress(Number(selectedPeriodId));
+    }
+  }, [activeSection, isGuard, selectedPeriodId, loadBlockProgress]);
+
+  const filteredProgressBlocks = React.useMemo(() => {
+    if (!blockProgress) return [];
+    const q = blockSearch.trim().toLowerCase();
+    return blockProgress.blocks.filter((b) => {
+      const done = isBlockComplete(b);
+      if (blockFilter === 'completed' && !done) return false;
+      if (blockFilter === 'incomplete' && done) return false;
+      if (!q) return true;
+      return (
+        b.blockCode.toLowerCase().includes(q) ||
+        b.blockName.toLowerCase().includes(q) ||
+        b.dormName.toLowerCase().includes(q)
+      );
+    });
+  }, [blockProgress, blockSearch, blockFilter, isBlockComplete]);
+
+  const handleSlotScanned = (slotKey: CaptureSlotKey, res: MeterPhotoScanResponseDto) => {
+    setCaptureSlots((prev) => {
+      const current = prev[slotKey];
+      return {
+        ...prev,
+        [slotKey]: {
+          value: res.readingValue !== undefined ? String(res.readingValue) : current.value,
+          evidenceUrl: res.evidenceImageUrl || current.evidenceUrl,
+          source: res.evidenceImageUrl ? 'PhotoOCR' : current.source,
+          editedManually: false,
+        },
+      };
+    });
+  };
+
+  const handleSlotValueChange = (slotKey: CaptureSlotKey, nextValue: string) => {
+    setCaptureSlots((prev) => {
+      const current = prev[slotKey];
+      return {
+        ...prev,
+        [slotKey]: {
+          ...current,
+          value: nextValue,
+          source: current.evidenceUrl ? current.source : 'Manual',
+          editedManually: Boolean(current.evidenceUrl),
+        },
+      };
+    });
+  };
+
+  const handleConfirmBlockCapture = async (advanceToNext: boolean) => {
+    if (!selectedPeriodId || !selectedBlockCode || !blockFormData) return;
+
+    const parseOptional = (raw: string): number | undefined => {
+      if (raw.trim() === '') return undefined;
+      const num = parseFloat(raw);
+      return Number.isNaN(num) ? undefined : num;
+    };
+
+    const payload: ManualConfirmRequestDto = {
+      billingPeriodId: Number(selectedPeriodId),
+      blockCode: selectedBlockCode,
+      electricityLeftNewValue: blockFormData.electricityLeft ? parseOptional(captureSlots.electricityLeft.value) : undefined,
+      electricityRightNewValue: blockFormData.electricityRight ? parseOptional(captureSlots.electricityRight.value) : undefined,
+      waterLeftNewValue: blockFormData.waterLeft ? parseOptional(captureSlots.waterLeft.value) : undefined,
+      waterRightNewValue: blockFormData.waterRight ? parseOptional(captureSlots.waterRight.value) : undefined,
+      electricityLeftEvidenceUrl: captureSlots.electricityLeft.evidenceUrl,
+      electricityRightEvidenceUrl: captureSlots.electricityRight.evidenceUrl,
+      waterLeftEvidenceUrl: captureSlots.waterLeft.evidenceUrl,
+      waterRightEvidenceUrl: captureSlots.waterRight.evidenceUrl,
+      electricityLeftSource: captureSlots.electricityLeft.evidenceUrl ? 'PhotoOCR' : 'Manual',
+      electricityRightSource: captureSlots.electricityRight.evidenceUrl ? 'PhotoOCR' : 'Manual',
+      waterLeftSource: captureSlots.waterLeft.evidenceUrl ? 'PhotoOCR' : 'Manual',
+      waterRightSource: captureSlots.waterRight.evidenceUrl ? 'PhotoOCR' : 'Manual',
+      note: captureNote.trim() || undefined,
+      importOnlyValid: false,
+    };
+
+    const hasAnyValue =
+      payload.electricityLeftNewValue !== undefined ||
+      payload.electricityRightNewValue !== undefined ||
+      payload.waterLeftNewValue !== undefined ||
+      payload.waterRightNewValue !== undefined;
+
+    if (!hasAnyValue) {
+      setCaptureMsg({ type: 'error', text: 'Vui lòng chụp ảnh hoặc nhập ít nhất 1 chỉ số trước khi lưu.' });
+      return;
+    }
+
+    setSavingBlock(true);
+    setCaptureMsg(null);
+    try {
+      const res = await ewApi.confirmManualReading(payload);
+      const summary = res.managerAlerted
+        ? `Đã lưu ${res.saved} chỉ số cho block ${selectedBlockCode} (${res.flagged} chỉ số bất thường đã gửi cảnh báo Quản lý).`
+        : `Đã lưu thành công ${res.saved} chỉ số cho block ${selectedBlockCode}!`;
+
+      loadUsage();
+
+      const updatedProgress = await ewApi.getBlockProgress(Number(selectedPeriodId));
+      setBlockProgress(updatedProgress);
+
+      if (advanceToNext) {
+        const nextBlock =
+          updatedProgress.blocks.find((b) => b.blockCode !== selectedBlockCode && !isBlockComplete(b)) ||
+          updatedProgress.blocks.find((b) => b.blockCode !== selectedBlockCode);
+        if (nextBlock) {
+          await loadBlockForm(nextBlock.blockCode, Number(selectedPeriodId));
+          setCaptureMsg({ type: 'success', text: `${summary} Đã chuyển sang block ${nextBlock.blockCode}.` });
+        } else {
+          await loadBlockForm(selectedBlockCode, Number(selectedPeriodId));
+          setCaptureMsg({ type: 'success', text: `${summary} Đã hoàn tất toàn bộ block!` });
+        }
+      } else {
+        await loadBlockForm(selectedBlockCode, Number(selectedPeriodId));
+        setCaptureMsg({ type: 'success', text: summary });
+      }
+    } catch (err: unknown) {
+      setCaptureMsg({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Không thể lưu chỉ số của block',
+      });
+    } finally {
+      setSavingBlock(false);
+    }
+  };
+
   const flaggedAnomaliesCount = anomalies.filter((a) => a.status === 'Flagged').length;
 
   return (
@@ -626,11 +870,12 @@ export const EwManagement: React.FC = () => {
       </div>
 
       {/* ── Tab nav ── */}
-      <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid #E2E8F0', marginBottom: 24 }}>
+      <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid #E2E8F0', marginBottom: 24, flexWrap: 'wrap' }}>
         {(
           isManager
             ? ([
                 { key: 'usage', label: 'Bảng theo dõi sử dụng' },
+                ...(isGuard ? [{ key: 'capture' as const, label: 'Chụp ảnh công tơ (AI)' }] : []),
                 {
                   key: 'anomalies',
                   label: `Cảnh báo bất thường${flaggedAnomaliesCount > 0 ? ` (${flaggedAnomaliesCount})` : ''}`,
@@ -640,6 +885,7 @@ export const EwManagement: React.FC = () => {
               ] as const)
             : ([
                 { key: 'usage', label: 'Bảng theo dõi sử dụng' },
+                ...(isGuard ? [{ key: 'capture' as const, label: 'Chụp ảnh công tơ (AI)' }] : []),
                 { key: 'import', label: 'Import chỉ số Excel' },
                 { key: 'history', label: 'Lịch sử import' },
               ] as const)
@@ -663,6 +909,459 @@ export const EwManagement: React.FC = () => {
           </button>
         ))}
       </div>
+
+      {/* ════════════════════════════════════════════════
+          SECTION: CHỤP ẢNH CÔNG TƠ (AI) — GUARD
+          ════════════════════════════════════════════════ */}
+      {activeSection === 'capture' && isGuard && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          {/* Period & Progress header */}
+          <div
+            style={{
+              background: '#fff',
+              border: '1px solid #E2E8F0',
+              borderRadius: 12,
+              padding: '16px 20px',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 16,
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', flex: 1, minWidth: 260 }}>
+              <div style={{ minWidth: 240, flex: 1, maxWidth: 360 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
+                  Kỳ thanh toán
+                </label>
+                <select
+                  value={selectedPeriodId}
+                  onChange={(e) => {
+                    const nextId = e.target.value ? Number(e.target.value) : '';
+                    setSelectedPeriodId(nextId);
+                    setSelectedBlockCode('');
+                    setBlockFormData(null);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    border: '1px solid #CBD5E1',
+                    fontSize: 13,
+                    background: '#fff',
+                  }}
+                >
+                  <option value="">-- Chọn kỳ thanh toán --</option>
+                  {periods.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.displayName} ({p.termName}) — {p.status === 'Open' ? 'Đang mở' : 'Đã đóng'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {selectedPeriod && (
+                <span
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: 20,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    background: selectedPeriod.status === 'Open' ? '#DCFCE7' : '#FEE2E2',
+                    color: selectedPeriod.status === 'Open' ? '#15803D' : '#DC2626',
+                    marginTop: 18,
+                  }}
+                >
+                  {selectedPeriod.status === 'Open' ? 'Kỳ đang mở' : 'Kỳ đã đóng'}
+                </span>
+              )}
+            </div>
+
+            {blockProgress && (
+              <div style={{ minWidth: 230 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, color: '#0F172A', marginBottom: 6 }}>
+                  <span>Tiến độ ghi chỉ số</span>
+                  <span style={{ color: '#D97026' }}>
+                    {blockProgress.completedBlocks}/{blockProgress.totalBlocks} block
+                  </span>
+                </div>
+                <div style={{ width: '100%', height: 8, background: '#E2E8F0', borderRadius: 99, overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      width: `${blockProgress.totalBlocks > 0 ? Math.round((blockProgress.completedBlocks / blockProgress.totalBlocks) * 100) : 0}%`,
+                      height: '100%',
+                      background: '#D97026',
+                      transition: 'width 0.2s ease',
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {isClosed && selectedPeriod && (
+            <div
+              style={{
+                padding: '12px 16px',
+                borderRadius: 10,
+                background: '#FEF2F2',
+                border: '1px solid #FECACA',
+                color: '#DC2626',
+                fontWeight: 600,
+                fontSize: 13,
+              }}
+            >
+              Kỳ thanh toán này đã đóng — chức năng chụp ảnh &amp; lưu chỉ số đã được khóa.
+            </div>
+          )}
+
+          {captureMsg && (
+            <div
+              style={{
+                padding: '12px 16px',
+                borderRadius: 8,
+                background: captureMsg.type === 'success' ? '#DCFCE7' : '#FEF2F2',
+                border: `1px solid ${captureMsg.type === 'success' ? '#86EFAC' : '#FECACA'}`,
+                color: captureMsg.type === 'success' ? '#15803D' : '#DC2626',
+                fontSize: 13,
+                fontWeight: 600,
+              }}
+            >
+              {captureMsg.text}
+            </div>
+          )}
+
+          {/* Main 2-column capture workspace */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 300px) minmax(0, 1fr)', gap: 18, alignItems: 'start' }}>
+            {/* Left: Block list */}
+            <div
+              style={{
+                background: '#fff',
+                border: '1px solid #E2E8F0',
+                borderRadius: 12,
+                padding: 14,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
+              <input
+                type="text"
+                value={blockSearch}
+                onChange={(e) => setBlockSearch(e.target.value)}
+                placeholder="Tìm mã Block / KTX..."
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  border: '1px solid #CBD5E1',
+                  fontSize: 13,
+                  boxSizing: 'border-box',
+                }}
+              />
+
+              <div style={{ display: 'flex', gap: 6 }}>
+                {(
+                  [
+                    { id: 'all', label: 'Tất cả' },
+                    { id: 'incomplete', label: 'Chưa đủ' },
+                    { id: 'completed', label: 'Đã đủ' },
+                  ] as const
+                ).map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setBlockFilter(f.id)}
+                    style={{
+                      flex: 1,
+                      padding: '5px 6px',
+                      borderRadius: 6,
+                      border: blockFilter === f.id ? '1px solid #D97026' : '1px solid #E2E8F0',
+                      background: blockFilter === f.id ? '#FFF7ED' : '#F8FAFC',
+                      color: blockFilter === f.id ? '#C2410C' : '#475569',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ maxHeight: 520, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {progressLoading ? (
+                  <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#94A3B8' }}>
+                    Đang tải danh sách block...
+                  </div>
+                ) : filteredProgressBlocks.length === 0 ? (
+                  <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#94A3B8' }}>
+                    Không có block phù hợp.
+                  </div>
+                ) : (
+                  filteredProgressBlocks.map((b) => {
+                    const done = isBlockComplete(b);
+                    const isSelected = b.blockCode === selectedBlockCode;
+                    return (
+                      <button
+                        key={`${b.dormName}-${b.blockCode}`}
+                        type="button"
+                        onClick={() => {
+                          if (selectedPeriodId) {
+                            void loadBlockForm(b.blockCode, Number(selectedPeriodId));
+                          }
+                        }}
+                        style={{
+                          width: '100%',
+                          textAlign: 'left',
+                          padding: '10px 12px',
+                          borderRadius: 8,
+                          border: isSelected ? '2px solid #D97026' : '1px solid #E2E8F0',
+                          background: isSelected ? '#FFF7ED' : '#FFFFFF',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 8,
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: '#0F172A' }}>
+                            Block {b.blockCode}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#64748B' }}>{b.dormName || b.blockName}</div>
+                        </div>
+                        <span
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: 10,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            background: done ? '#DCFCE7' : '#FEF3C7',
+                            color: done ? '#15803D' : '#B45309',
+                          }}
+                        >
+                          {done ? 'Đủ' : 'Thiếu'}
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Right: 4 meter cards for selected block */}
+            <div
+              style={{
+                background: '#fff',
+                border: '1px solid #E2E8F0',
+                borderRadius: 12,
+                padding: 20,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 16,
+              }}
+            >
+              {blockFormLoading ? (
+                <div style={{ padding: 40, textAlign: 'center', color: '#94A3B8', fontSize: 14 }}>
+                  Đang tải công tơ của block {selectedBlockCode}...
+                </div>
+              ) : !blockFormData ? (
+                <div style={{ padding: 40, textAlign: 'center', color: '#94A3B8', fontSize: 14 }}>
+                  Chọn một Block ở cột bên trái để bắt đầu chụp ảnh công tơ.
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#0F172A' }}>
+                        Block {blockFormData.blockCode} — {blockFormData.displayPeriod}
+                      </h3>
+                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
+                        Chụp ảnh công tơ để AI tự điền chỉ số, kiểm tra lại rồi bấm Xác nhận lưu.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+                    {(
+                      [
+                        { key: 'electricityLeft' as const, title: 'Điện phòng Trái', meterType: 'Electricity' as const, unit: 'kWh', slot: blockFormData.electricityLeft },
+                        { key: 'electricityRight' as const, title: 'Điện phòng Phải', meterType: 'Electricity' as const, unit: 'kWh', slot: blockFormData.electricityRight },
+                        { key: 'waterLeft' as const, title: 'Nước phòng Trái', meterType: 'Water' as const, unit: 'm³', slot: blockFormData.waterLeft },
+                        { key: 'waterRight' as const, title: 'Nước phòng Phải', meterType: 'Water' as const, unit: 'm³', slot: blockFormData.waterRight },
+                      ]
+                    )
+                      .filter((item): item is typeof item & { slot: RoomOldReadingDto } => Boolean(item.slot))
+                      .map(({ key, title, meterType, unit, slot }) => {
+                        const state = captureSlots[key];
+                        const isElec = meterType === 'Electricity';
+                        const parsedNew = state.value.trim() === '' ? undefined : parseFloat(state.value);
+                        const consumption = parsedNew !== undefined && !Number.isNaN(parsedNew) ? parsedNew - slot.oldReading : undefined;
+                        const isNegative = consumption !== undefined && consumption < 0;
+                        const isZero = consumption !== undefined && consumption === 0;
+
+                        return (
+                          <div
+                            key={`${blockFormData.blockCode}-${key}`}
+                            style={{
+                              border: `1px solid ${isElec ? '#FED7AA' : '#BFDBFE'}`,
+                              background: isElec ? '#FFFBF5' : '#F8FBFF',
+                              borderRadius: 10,
+                              padding: 14,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 10,
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                              <div>
+                                <div style={{ fontWeight: 700, fontSize: 14, color: isElec ? '#C2410C' : '#1D4ED8' }}>
+                                  {title} ({slot.roomNumber})
+                                </div>
+                                <div style={{ fontSize: 12, color: '#64748B' }}>
+                                  Chỉ số cũ: <strong>{slot.oldReading} {unit}</strong>
+                                </div>
+                              </div>
+                              <span
+                                style={{
+                                  padding: '2px 8px',
+                                  borderRadius: 10,
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  background: state.evidenceUrl ? '#ECFDF5' : slot.alreadyRecorded ? '#EFF6FF' : '#F1F5F9',
+                                  color: state.evidenceUrl ? '#047857' : slot.alreadyRecorded ? '#1D4ED8' : '#64748B',
+                                }}
+                              >
+                                {state.evidenceUrl
+                                  ? state.editedManually
+                                    ? 'AI + Đã sửa tay'
+                                    : 'AI Camera'
+                                  : slot.alreadyRecorded
+                                    ? 'Đã ghi trước đó'
+                                    : 'Chưa ghi'}
+                              </span>
+                            </div>
+
+                            <MeterPhotoScanner
+                              key={`${blockFormData.blockCode}-${key}-${slot.roomId}`}
+                              expectedMeterType={meterType}
+                              previousValue={slot.oldReading}
+                              saveEvidence
+                              disabled={isClosed || savingBlock}
+                              label={slot.roomNumber}
+                              existingImageUrl={state.evidenceUrl || slot.existingEvidenceImageUrl}
+                              onScanned={(res) => handleSlotScanned(key, res)}
+                            />
+
+                            <div>
+                              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>
+                                Chỉ số mới ({unit})
+                              </label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                disabled={isClosed || savingBlock}
+                                value={state.value}
+                                onChange={(e) => handleSlotValueChange(key, e.target.value)}
+                                placeholder={`Nhập >= ${slot.oldReading}`}
+                                style={{
+                                  width: '100%',
+                                  padding: '8px 10px',
+                                  borderRadius: 7,
+                                  border: isNegative ? '1px solid #EF4444' : isZero ? '1px solid #F59E0B' : '1px solid #CBD5E1',
+                                  background: isNegative ? '#FEF2F2' : '#FFFFFF',
+                                  fontSize: 14,
+                                  fontWeight: 700,
+                                  color: '#0F172A',
+                                  boxSizing: 'border-box',
+                                }}
+                              />
+                              {consumption !== undefined && (
+                                <div
+                                  style={{
+                                    marginTop: 4,
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    color: isNegative ? '#DC2626' : isZero ? '#B45309' : '#047857',
+                                  }}
+                                >
+                                  Tiêu thụ dự kiến: {consumption.toFixed(2)} {unit}
+                                  {isNegative ? ' (Nhỏ hơn chỉ số cũ!)' : isZero ? ' (Bằng 0 — kiểm tra lại)' : ''}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+
+                  {/* Shared note & Save buttons */}
+                  <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
+                        Ghi chú chung cho Block (tùy chọn)
+                      </label>
+                      <input
+                        type="text"
+                        disabled={isClosed || savingBlock}
+                        value={captureNote}
+                        onChange={(e) => setCaptureNote(e.target.value)}
+                        placeholder="VD: Đồng hồ kính hơi mờ, đã đối chiếu trực tiếp..."
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          borderRadius: 8,
+                          border: '1px solid #CBD5E1',
+                          fontSize: 13,
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        disabled={isClosed || savingBlock}
+                        onClick={() => void handleConfirmBlockCapture(false)}
+                        style={{
+                          padding: '9px 18px',
+                          borderRadius: 8,
+                          border: '1px solid #D97026',
+                          background: '#FFF7ED',
+                          color: '#C2410C',
+                          fontWeight: 700,
+                          fontSize: 13,
+                          cursor: isClosed || savingBlock ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {savingBlock ? 'Đang lưu...' : 'Xác nhận lưu Block'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isClosed || savingBlock}
+                        onClick={() => void handleConfirmBlockCapture(true)}
+                        style={{
+                          padding: '9px 20px',
+                          borderRadius: 8,
+                          border: 'none',
+                          background: isClosed || savingBlock ? '#94A3B8' : '#D97026',
+                          color: '#FFFFFF',
+                          fontWeight: 700,
+                          fontSize: 13,
+                          cursor: isClosed || savingBlock ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {savingBlock ? 'Đang lưu...' : 'Lưu & sang Block tiếp theo →'}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ════════════════════════════════════════════════
           SECTION: BẢNG SỬ DỤNG
@@ -2185,7 +2884,7 @@ export const EwManagement: React.FC = () => {
                 );
 
                 return (
-                  <div style={{ border: '1px solid #E2E8F0', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ border: '1px solid #E2E8F0', borderRadius: 8, overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
                         <tr style={{ background: '#F8FAFC' }}>
@@ -2194,6 +2893,8 @@ export const EwManagement: React.FC = () => {
                           <th style={{ padding: '8px 10px', textAlign: 'right', color: '#475569', borderBottom: '1px solid #E2E8F0' }}>Chỉ số cũ</th>
                           <th style={{ padding: '8px 10px', textAlign: 'right', color: '#475569', borderBottom: '1px solid #E2E8F0', width: 110 }}>Chỉ số mới</th>
                           <th style={{ padding: '8px 10px', textAlign: 'right', color: '#475569', borderBottom: '1px solid #E2E8F0' }}>Tiêu thụ</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'center', color: '#475569', borderBottom: '1px solid #E2E8F0' }}>Nguồn</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'center', color: '#475569', borderBottom: '1px solid #E2E8F0' }}>Ảnh công tơ</th>
                           <th style={{ padding: '8px 10px', textAlign: 'center', color: '#475569', borderBottom: '1px solid #E2E8F0' }}>Trạng thái</th>
                           <th style={{ padding: '8px 10px', textAlign: 'left', color: '#475569', borderBottom: '1px solid #E2E8F0' }}>Người ghi</th>
                           <th style={{ padding: '8px 10px', textAlign: 'left', color: '#475569', borderBottom: '1px solid #E2E8F0' }}>Thời gian</th>
@@ -2266,6 +2967,59 @@ export const EwManagement: React.FC = () => {
                                 {isEditing && !isNaN(parseFloat(editReadingValue))
                                   ? (parseFloat(editReadingValue) - m.previousValue).toFixed(2)
                                   : m.consumption.toFixed(2)}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                                <span
+                                  style={{
+                                    display: 'inline-block',
+                                    padding: '2px 7px',
+                                    borderRadius: 6,
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    background: m.source === 'PhotoOCR' ? '#ECFDF5' : m.source === 'Import' ? '#EFF6FF' : '#F1F5F9',
+                                    color: m.source === 'PhotoOCR' ? '#047857' : m.source === 'Import' ? '#1D4ED8' : '#475569',
+                                  }}
+                                >
+                                  {m.source === 'PhotoOCR'
+                                    ? 'AI Camera'
+                                    : m.source === 'Import'
+                                      ? 'Excel'
+                                      : m.source === 'Handover'
+                                        ? 'Bàn giao'
+                                        : 'Nhập tay'}
+                                </span>
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                {m.evidenceImageUrl ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setLightboxImage({
+                                        url: m.evidenceImageUrl!,
+                                        title: `Ảnh công tơ phòng ${m.roomNumber} (${(m.meterType || '').toLowerCase().includes('electric') ? 'Điện' : 'Nước'})`,
+                                        subtitle: `Chỉ số: ${m.previousValue.toFixed(2)} → ${m.currentValue.toFixed(2)}`,
+                                      })
+                                    }
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 4,
+                                      padding: '3px 8px',
+                                      borderRadius: 6,
+                                      border: '1px solid #BFDBFE',
+                                      background: '#EFF6FF',
+                                      color: '#1D4ED8',
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      cursor: 'pointer',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    Xem ảnh
+                                  </button>
+                                ) : (
+                                  <span style={{ color: '#94A3B8' }}>—</span>
+                                )}
                               </td>
                               <td style={{ padding: '8px 10px', textAlign: 'center' }}>
                                 <span
@@ -2380,6 +3134,13 @@ export const EwManagement: React.FC = () => {
           </div>
         </div>
       )}
+
+      <ImageLightboxModal
+        imageUrl={lightboxImage?.url ?? null}
+        title={lightboxImage?.title}
+        subtitle={lightboxImage?.subtitle}
+        onClose={() => setLightboxImage(null)}
+      />
     </div>
   );
 };
