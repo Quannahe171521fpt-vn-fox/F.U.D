@@ -134,7 +134,7 @@ public class AuthService : IAuthService
             throw new UnauthorizedAccessException("Tài khoản chưa được kích hoạt trong hệ thống KTX. Vui lòng liên hệ Ban Quản lý.");
         }
 
-        if (user.AccountStatus == "Banned" || user.AccountStatus == "Locked")
+        if (!string.Equals(user.AccountStatus, AccountConstants.Statuses.Active, StringComparison.OrdinalIgnoreCase))
         {
             throw new UnauthorizedAccessException("Tài khoản của bạn đã bị khóa.");
         }
@@ -249,7 +249,7 @@ public class AuthService : IAuthService
     public async Task<UserInfoDto> GetCurrentUserAsync(int userId)
     {
         var user = await _userRepo.GetByIdAsync(userId);
-        if (user == null || user.AccountStatus == "Banned" || user.AccountStatus == "Locked")
+        if (user == null || !string.Equals(user.AccountStatus, AccountConstants.Statuses.Active, StringComparison.OrdinalIgnoreCase))
             throw new UnauthorizedAccessException("Người dùng không tồn tại hoặc đã bị khóa.");
 
         var roles = user.UserRoleUsers.Select(ur => ur.Role.RoleName).ToList();

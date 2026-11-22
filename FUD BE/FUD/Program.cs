@@ -274,9 +274,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                         cache.Set(cacheKey, accountStatus, TimeSpan.FromSeconds(60));
                     }
 
-                    if (accountStatus == "Banned" || accountStatus == "Locked" || accountStatus == "NotFound")
+                    if (!string.Equals(accountStatus, AccountConstants.Statuses.Active, StringComparison.OrdinalIgnoreCase))
                     {
-                        context.Fail("Tài khoản của bạn đã bị khóa hoặc không tồn tại.");
+                        context.Fail("Tài khoản của bạn chưa được kích hoạt, đã bị tạm ngưng hoặc không tồn tại.");
                         return;
                     }
 

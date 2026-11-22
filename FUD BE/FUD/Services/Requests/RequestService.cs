@@ -10,6 +10,7 @@ using FUD.Repositories.Interfaces.Requests;
 using FUD.Repositories.Interfaces.Violations;
 using FUD.Services.Interfaces;
 using FUD.Services.Interfaces.Requests;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace FUD.Services.Requests
 {
@@ -21,6 +22,7 @@ namespace FUD.Services.Requests
         private readonly IEmailSender _emailSender;
         private readonly IInAppNotificationService? _inAppNotificationService;
         private readonly Microsoft.Extensions.Configuration.IConfiguration? _configuration;
+        private readonly IMemoryCache? _cache;
 
         public RequestService(
             IRequestRepository requestRepo,
@@ -28,7 +30,8 @@ namespace FUD.Services.Requests
             IFileStorage fileStorage,
             IEmailSender emailSender,
             IInAppNotificationService? inAppNotificationService = null,
-            Microsoft.Extensions.Configuration.IConfiguration? configuration = null)
+            Microsoft.Extensions.Configuration.IConfiguration? configuration = null,
+            IMemoryCache? cache = null)
         {
             _requestRepo = requestRepo;
             _violationRepo = violationRepo;
@@ -36,6 +39,7 @@ namespace FUD.Services.Requests
             _emailSender = emailSender;
             _inAppNotificationService = inAppNotificationService;
             _configuration = configuration;
+            _cache = cache;
         }
 
         public async Task<List<RequestItemDto>> GetAllRequestsAsync(string? requestType = null, string? status = null)
@@ -708,6 +712,7 @@ namespace FUD.Services.Requests
                             studentUser.SuspendedById = managerId;
                             studentUser.SuspensionReason = $"Bị đình chỉ nội trú theo quyết định kỷ luật biên bản {violation.Code} ({violation.FinalLevel})";
                             await _requestRepo.UpdateUserAsync(studentUser);
+                            _cache?.Remove($"user_status_{studentUser.Id}");
                         }
                         else if (violation.Status == "Dismissed" || (violation.Status == "Finalized" && !string.IsNullOrEmpty(violation.FinalLevel) && !violation.FinalLevel.Contains("Đình chỉ")))
                         {
@@ -718,6 +723,7 @@ namespace FUD.Services.Requests
                                 studentUser.SuspendedById = null;
                                 studentUser.SuspensionReason = null;
                                 await _requestRepo.UpdateUserAsync(studentUser);
+                                _cache?.Remove($"user_status_{studentUser.Id}");
                             }
                         }
                     }

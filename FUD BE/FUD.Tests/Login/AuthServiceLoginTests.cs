@@ -399,4 +399,68 @@ public class AuthServiceLoginTests
         _userRepoMock.Verify(r => r.GetByEmailAsync(It.IsAny<string>()), Times.Never);
         _userRepoMock.Verify(r => r.GetByGoogleIdAsync(It.IsAny<string>()), Times.Never);
     }
+
+    [Fact]
+    public async Task GetCurrentUserAsync_WhenAccountStatusSuspended_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        var user = new User
+        {
+            Id = 101,
+            Code = "HE170101",
+            FullName = "Suspended Student",
+            Email = "suspended@fpt.edu.vn",
+            AccountStatus = AccountConstants.Statuses.Suspended,
+            UserRoleUsers = new List<UserRole>
+            {
+                new UserRole
+                {
+                    UserId = 101,
+                    RoleId = 4,
+                    Role = new Role { Id = 4, RoleName = "Student" }
+                }
+            }
+        };
+
+        _userRepoMock.Setup(r => r.GetByIdAsync(101)).ReturnsAsync(user);
+
+        // Act
+        var act = () => _authService.GetCurrentUserAsync(101);
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>()
+                 .WithMessage("Người dùng không tồn tại hoặc đã bị khóa.");
+    }
+
+    [Fact]
+    public async Task GetCurrentUserAsync_WhenAccountStatusPending_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        var user = new User
+        {
+            Id = 102,
+            Code = "HE170102",
+            FullName = "Pending Student",
+            Email = "pending@fpt.edu.vn",
+            AccountStatus = AccountConstants.Statuses.Pending,
+            UserRoleUsers = new List<UserRole>
+            {
+                new UserRole
+                {
+                    UserId = 102,
+                    RoleId = 4,
+                    Role = new Role { Id = 4, RoleName = "Student" }
+                }
+            }
+        };
+
+        _userRepoMock.Setup(r => r.GetByIdAsync(102)).ReturnsAsync(user);
+
+        // Act
+        var act = () => _authService.GetCurrentUserAsync(102);
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>()
+                 .WithMessage("Người dùng không tồn tại hoặc đã bị khóa.");
+    }
 }

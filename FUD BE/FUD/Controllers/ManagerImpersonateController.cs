@@ -134,7 +134,7 @@ public class ManagerImpersonateController : ControllerBase
         if (student == null)
             return NotFound(ApiResponse.Fail("Sinh viên không tồn tại hoặc không còn hoạt động trên hệ thống."));
 
-        if (student.AccountStatus == "Banned" || student.AccountStatus == "Locked")
+        if (!string.Equals(student.AccountStatus, AccountConstants.Statuses.Active, StringComparison.OrdinalIgnoreCase))
         {
             return BadRequest(ApiResponse.Fail($"Tài khoản sinh viên đang ở trạng thái {student.AccountStatus}, không thể đăng nhập hộ."));
         }

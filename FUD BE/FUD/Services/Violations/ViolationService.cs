@@ -5,6 +5,7 @@ using FUD.Models;
 using FUD.Repositories.Interfaces.Violations;
 using FUD.Services.Interfaces;
 using FUD.Services.Interfaces.Violations;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace FUD.Services.Violations
 {
@@ -14,17 +15,20 @@ namespace FUD.Services.Violations
         private readonly IFileStorage _fileStorage;
         private readonly IEmailSender _emailSender;
         private readonly IInAppNotificationService? _inAppNotificationService;
+        private readonly IMemoryCache? _cache;
 
         public ViolationService(
             IViolationRepository violationRepo,
             IFileStorage fileStorage,
             IEmailSender emailSender,
-            IInAppNotificationService? inAppNotificationService = null)
+            IInAppNotificationService? inAppNotificationService = null,
+            IMemoryCache? cache = null)
         {
             _violationRepo = violationRepo;
             _fileStorage = fileStorage;
             _emailSender = emailSender;
             _inAppNotificationService = inAppNotificationService;
+            _cache = cache;
         }
 
         public async Task<List<ViolationTypeDto>> GetViolationTypesAsync()
@@ -241,6 +245,7 @@ namespace FUD.Services.Violations
                         studentUser.SuspendedById = v.EvaluatedById;
                         studentUser.SuspensionReason = $"Bị đình chỉ nội trú theo quyết định kỷ luật biên bản {v.Code} ({v.FinalLevel})";
                         await _violationRepo.UpdateUserAsync(studentUser);
+                        _cache?.Remove($"user_status_{studentUser.Id}");
                     }
                 }
 
@@ -322,6 +327,7 @@ namespace FUD.Services.Violations
                         studentUser.SuspendedById = v.EvaluatedById;
                         studentUser.SuspensionReason = $"Bị đình chỉ nội trú theo quyết định kỷ luật biên bản {v.Code} ({v.FinalLevel})";
                         await _violationRepo.UpdateUserAsync(studentUser);
+                        _cache?.Remove($"user_status_{studentUser.Id}");
                     }
                 }
 
@@ -475,6 +481,7 @@ namespace FUD.Services.Violations
             studentUser.SuspendedById = null;
             studentUser.SuspensionReason = null;
             await _violationRepo.UpdateUserAsync(studentUser);
+            _cache?.Remove($"user_status_{studentUser.Id}");
 
             if (_inAppNotificationService != null)
             {
