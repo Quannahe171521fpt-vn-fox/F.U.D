@@ -3,6 +3,7 @@ import { requestApi, navigateToStudentPayment, type RequestItemDto } from '../..
 import { REQUEST_STATUS_LABELS, REQUEST_STATUS_COLORS, REQUEST_TYPE_LABELS, type DBRequestStatus } from './SubmitRequestPage';
 import { Pagination } from '../../components/Pagination';
 import { removeVietnameseTones } from '../../utils/textUtils';
+import { toSafeHref } from '../../utils/urlUtils';
 import { useIdleAwarePolling } from '../../utils/useIdleAwarePolling';
 import '../../styles/violation.css';
 
@@ -569,11 +570,15 @@ export const StudentRequestListPage: React.FC<StudentRequestListPageProps> = ({ 
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: 6 }}>Minh chứng đính kèm:</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: '8px' }}>
-                  {selectedRequest.complaint.evidences.map((url: string, i: number) => (
-                    <a key={i} href={url} target="_blank" rel="noreferrer">
-                      <img src={url} alt="evidence" style={{ width: '100%', height: '65px', objectFit: 'cover', borderRadius: '6px' }} />
-                    </a>
-                  ))}
+                  {selectedRequest.complaint.evidences.map((url: string, i: number) => {
+                    const safeUrl = toSafeHref(url);
+                    if (!safeUrl) return null;
+                    return (
+                      <a key={i} href={safeUrl} target="_blank" rel="noopener noreferrer">
+                        <img src={safeUrl} alt="evidence" style={{ width: '100%', height: '65px', objectFit: 'cover', borderRadius: '6px' }} />
+                      </a>
+                    );
+                  })}
                 </div>
               </div>
             )}

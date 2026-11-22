@@ -366,6 +366,8 @@ namespace FUD.Services.Violations
             return query.Select(MapToDto).ToList();
         }
 
+        private static string Enc(string? v) => System.Net.WebUtility.HtmlEncode(v ?? string.Empty);
+
         // UC23: Quản lý đánh giá mức độ vi phạm ban đầu, gửi thông báo & set hạn gửi request
         public async Task<ViolationItemDto> EvaluateViolationAsync(int violationId, int managerUserId, EvaluateViolationRequestDto request)
         {
@@ -411,9 +413,9 @@ namespace FUD.Services.Violations
                     _ = _emailSender.SendEmailAsync(
                         studentEmail,
                         $"[KTX FUD] Thông báo bác bỏ biên bản vi phạm {violation.Code}",
-                        $@"<h3>Kính gửi sinh viên {dismissedUpdated?.Student?.User?.FullName},</h3>
-                           <p>Ban Quản lý KTX FUD thông báo biên bản vi phạm <strong>{violation.Code}</strong> đã được <strong>BÁC BỎ</strong>.</p>
-                           <p><strong>Lý do:</strong> {request.ManagerNote}</p>
+                        $@"<h3>Kính gửi sinh viên {Enc(dismissedUpdated?.Student?.User?.FullName)},</h3>
+                           <p>Ban Quản lý KTX FUD thông báo biên bản vi phạm <strong>{Enc(violation.Code)}</strong> đã được <strong>BÁC BỎ</strong>.</p>
+                           <p><strong>Lý do:</strong> {Enc(request.ManagerNote)}</p>
                            <p>Hồ sơ này không ghi nhận kỷ luật vào tài khoản của bạn.</p>
                            <br/><p>Trân trọng,<br/>Ban Quản lý Ký túc xá FUD</p>"
                     );
@@ -452,13 +454,13 @@ namespace FUD.Services.Violations
                 _ = _emailSender.SendEmailAsync(
                     email,
                     $"[KTX FUD] Thông báo xử lý vi phạm kỷ luật {violation.Code}",
-                    $@"<h3>Kính gửi sinh viên {updated?.Student?.User?.FullName},</h3>
-                       <p>Ban Quản lý KTX FUD thông báo về việc xử lý biên bản vi phạm <strong>{violation.Code}</strong> của bạn như sau:</p>
+                    $@"<h3>Kính gửi sinh viên {Enc(updated?.Student?.User?.FullName)},</h3>
+                       <p>Ban Quản lý KTX FUD thông báo về việc xử lý biên bản vi phạm <strong>{Enc(violation.Code)}</strong> của bạn như sau:</p>
                        <ul>
-                         <li><strong>Hành vi vi phạm:</strong> {updated?.ViolationType?.Name}</li>
-                         <li><strong>Mức độ đánh giá:</strong> <span style='color:red;font-weight:bold;'>{request.InitialLevel}</span></li>
+                         <li><strong>Hành vi vi phạm:</strong> {Enc(updated?.ViolationType?.Name)}</li>
+                         <li><strong>Mức độ đánh giá:</strong> <span style='color:red;font-weight:bold;'>{Enc(request.InitialLevel)}</span></li>
                          <li><strong>Thời điểm vi phạm:</strong> {updated?.OccurrenceTime:dd/MM/yyyy HH:mm}</li>
-                         <li><strong>Ghi chú từ BQL:</strong> {request.ManagerNote ?? "Không có"}</li>
+                         <li><strong>Ghi chú từ BQL:</strong> {Enc(request.ManagerNote ?? "Không có")}</li>
                        </ul>
                        <p>Nếu bạn thấy quyết định này chưa thỏa đáng, vui lòng truy cập hệ thống và gửi <strong>Đơn khiếu nại (Request)</strong> trong vòng 24 giờ tới.</p>
                        <br/><p>Trân trọng,<br/>Ban Quản lý Ký túc xá FUD</p>"
@@ -498,9 +500,9 @@ namespace FUD.Services.Violations
                 _ = _emailSender.SendEmailAsync(
                     studentUser.Email,
                     "[KTX FUD] Thông báo Mở khóa quyền nội trú & Giữ phòng",
-                    $@"<h3>Kính gửi sinh viên {studentUser.FullName},</h3>
+                    $@"<h3>Kính gửi sinh viên {Enc(studentUser.FullName)},</h3>
                        <p>Ban Quản lý Ký túc xá FUD xin thông báo: Quyền đăng ký nội trú, giữ chỗ và book phòng của bạn đã được <strong>MỞ KHÓA</strong> thành công.</p>
-                       <p><strong>Ghi chú từ BQL:</strong> {note ?? "Đã hoàn thành thời hạn đình chỉ hoặc có quyết định xóa kỷ luật."}</p>
+                       <p><strong>Ghi chú từ BQL:</strong> {Enc(note ?? "Đã hoàn thành thời hạn đình chỉ hoặc có quyết định xóa kỷ luật.")}</p>
                        <br/><p>Trân trọng,<br/>Ban Quản lý Ký túc xá FUD</p>"
                 );
             }

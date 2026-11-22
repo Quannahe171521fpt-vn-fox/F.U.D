@@ -367,4 +367,51 @@ public class ViolationManagementServiceTests
         // Assert
         await act.Should().ThrowAsync<UnauthorizedAccessException>();
     }
+
+    [Fact]
+    public async Task EvaluateViolationAsync_WhenManagerNoteContainsHtmlTags_EncodesHtmlInEmailBody()
+    {
+        // Arrange
+        var sut = CreateSut();
+        var studentUser = new User { Id = 105, FullName = "Nguyen <script>alert(1)</script>", Email = "se105@fpt.edu.vn" };
+        var student = new Student { UserId = 105, User = studentUser };
+        var violationType = new ViolationType { Id = 1, Name = "Vi phạm <b>nội quy</b>" };
+
+        var violation = new Violation
+        {
+            Id = 95,
+            Code = "VIO-95",
+            StudentId = 105,
+            Student = student,
+            ViolationType = violationType,
+            Status = "Recorded",
+            OccurrenceTime = DateTime.UtcNow,
+            ViolationEvidences = new List<ViolationEvidence>()
+        };
+
+        _violationRepoMock.Setup(r => r.GetViolationByIdAsync(95)).ReturnsAsync(violation);
+        _violationRepoMock.Setup(r => r.UpdateViolationAsync(It.IsAny<Violation>())).Returns(Task.CompletedTask);
+
+        string? capturedBody = null;
+        _emailSenderMock
+            .Setup(e => e.SendEmailAsync("se105@fpt.edu.vn", It.IsAny<string>(), It.IsAny<string>()))
+            .Callback<string, string, string>((_, _, body) => capturedBody = body)
+            .Returns(Task.CompletedTask);
+
+        var request = new EvaluateViolationRequestDto
+        {
+            InitialLevel = "Cảnh cáo",
+            ManagerNote = "<img src=x onerror=alert(2)>"
+        };
+
+        // Act
+        await sut.EvaluateViolationAsync(95, managerUserId: 2, request);
+
+        // Assert
+        capturedBody.Should().NotBeNull();
+        capturedBody.Should().Contain("&lt;img src=x onerror=alert(2)&gt;");
+        capturedBody.Should().Contain("&lt;script&gt;alert(1)&lt;/script&gt;");
+        capturedBody.Should().NotContain("<img src=x onerror=alert(2)>");
+        capturedBody.Should().NotContain("<script>alert(1)</script>");
+    }
 }

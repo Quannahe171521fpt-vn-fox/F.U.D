@@ -24,6 +24,8 @@ namespace FUD.Services.Requests
         private readonly Microsoft.Extensions.Configuration.IConfiguration? _configuration;
         private readonly IMemoryCache? _cache;
 
+        private static string Enc(string? v) => System.Net.WebUtility.HtmlEncode(v ?? string.Empty);
+
         public RequestService(
             IRequestRepository requestRepo,
             IViolationRepository violationRepo,
@@ -739,14 +741,14 @@ namespace FUD.Services.Requests
                         var body = $@"
 <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
     <h2 style='color: #ea580c;'>Kết quả xử lý Đơn khiếu nại</h2>
-    <p>Xin chào <strong>{studentName}</strong>,</p>
-    <p>Ban Quản lý Ký túc xá đã hoàn tất xem xét và phản hồi đơn khiếu nại của bạn đối với biên bản vi phạm <strong>{violation.Code}</strong>.</p>
+    <p>Xin chào <strong>{Enc(studentName)}</strong>,</p>
+    <p>Ban Quản lý Ký túc xá đã hoàn tất xem xét và phản hồi đơn khiếu nại của bạn đối với biên bản vi phạm <strong>{Enc(violation.Code)}</strong>.</p>
     <div style='background: #f8fafc; border-left: 4px solid #ea580c; padding: 12px; margin: 16px 0;'>
-        <p><strong>Biên bản:</strong> {violation.Code}</p>
-        <p><strong>Lỗi vi phạm:</strong> {violation.ViolationType?.Name}</p>
-        <p><strong>Trạng thái kết luận:</strong> {statusVi}</p>
-        <p><strong>Mức độ chính thức:</strong> {violation.FinalLevel ?? "Đã hủy bỏ"}</p>
-        <p><strong>Phản hồi từ Ban Quản lý:</strong> {dto.Note ?? "Không có"}</p>
+        <p><strong>Biên bản:</strong> {Enc(violation.Code)}</p>
+        <p><strong>Lỗi vi phạm:</strong> {Enc(violation.ViolationType?.Name)}</p>
+        <p><strong>Trạng thái kết luận:</strong> {Enc(statusVi)}</p>
+        <p><strong>Mức độ chính thức:</strong> {Enc(violation.FinalLevel ?? "Đã hủy bỏ")}</p>
+        <p><strong>Phản hồi từ Ban Quản lý:</strong> {Enc(dto.Note ?? "Không có")}</p>
     </div>
     <p>Vui lòng đăng nhập hệ thống F.U.D để xem chi tiết đầy đủ hồ sơ của bạn.</p>
     <hr style='border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;'/>
@@ -895,12 +897,12 @@ namespace FUD.Services.Requests
                     $"[KTX FUD] Thông báo từ chối đơn chuyển giường {requestCode}",
                     $@"<div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
                         <h2 style='color: #dc2626;'>Đơn chuyển giường bị từ chối</h2>
-                        <p>Xin chào <strong>{req.Student?.User?.FullName}</strong>,</p>
-                        <p>Đơn yêu cầu chuyển giường <strong>{requestCode}</strong> của bạn đã bị Ban Quản lý từ chối.</p>
+                        <p>Xin chào <strong>{Enc(req.Student?.User?.FullName)}</strong>,</p>
+                        <p>Đơn yêu cầu chuyển giường <strong>{Enc(requestCode)}</strong> của bạn đã bị Ban Quản lý từ chối.</p>
                         <div style='background: #fef2f2; border-left: 4px solid #dc2626; padding: 12px; margin: 16px 0;'>
-                            <p><strong>Giường hiện tại:</strong> {bt.FromBed?.BedCode} - P.{bt.FromBed?.Room?.RoomNumber}</p>
-                            <p><strong>Giường đăng ký chuyển:</strong> {bt.ToBed?.BedCode} - P.{bt.ToBed?.Room?.RoomNumber}</p>
-                            <p><strong>Lý do từ chối:</strong> {rejectReason}</p>
+                            <p><strong>Giường hiện tại:</strong> {Enc(bt.FromBed?.BedCode)} - P.{Enc(bt.FromBed?.Room?.RoomNumber)}</p>
+                            <p><strong>Giường đăng ký chuyển:</strong> {Enc(bt.ToBed?.BedCode)} - P.{Enc(bt.ToBed?.Room?.RoomNumber)}</p>
+                            <p><strong>Lý do từ chối:</strong> {Enc(rejectReason)}</p>
                         </div>
                         <p>Bạn vẫn tiếp tục lưu trú tại giường hiện tại.</p>
                     </div>");
@@ -1019,13 +1021,13 @@ namespace FUD.Services.Requests
                     $"[KTX FUD] Chấp thuận Bước 1 đơn chuyển giường {requestCode}",
                     $@"<div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
                         <h2 style='color: #2563eb;'>Đơn chuyển giường đã được chấp thuận Bước 1</h2>
-                        <p>Xin chào <strong>{req.Student?.User?.FullName}</strong>,</p>
-                        <p>Ban Quản lý KTX đã chấp thuận yêu cầu chuyển giường <strong>{requestCode}</strong> và phân công cán bộ Bảo vệ phối hợp kiểm tra bàn giao phòng cũ.</p>
+                        <p>Xin chào <strong>{Enc(req.Student?.User?.FullName)}</strong>,</p>
+                        <p>Ban Quản lý KTX đã chấp thuận yêu cầu chuyển giường <strong>{Enc(requestCode)}</strong> và phân công cán bộ Bảo vệ phối hợp kiểm tra bàn giao phòng cũ.</p>
                         <div style='background: #eff6ff; border-left: 4px solid #2563eb; padding: 12px; margin: 16px 0;'>
-                            <p><strong>Giường cũ:</strong> {bt.FromBed?.BedCode} - P.{bt.FromBed?.Room?.RoomNumber}</p>
-                            <p><strong>Giường mới:</strong> {bt.ToBed?.BedCode} - P.{bt.ToBed?.Room?.RoomNumber}</p>
+                            <p><strong>Giường cũ:</strong> {Enc(bt.FromBed?.BedCode)} - P.{Enc(bt.FromBed?.Room?.RoomNumber)}</p>
+                            <p><strong>Giường mới:</strong> {Enc(bt.ToBed?.BedCode)} - P.{Enc(bt.ToBed?.Room?.RoomNumber)}</p>
                             <p><strong>Ngày chuyển dự kiến:</strong> {transferDate:dd/MM/yyyy}</p>
-                            <p><strong>Bảo vệ phụ trách:</strong> {guardDisplayName} ({guard.User?.Phone ?? "N/A"})</p>
+                            <p><strong>Bảo vệ phụ trách:</strong> {Enc(guardDisplayName)} ({Enc(guard.User?.Phone ?? "N/A")})</p>
                         </div>
                         <p>Vui lòng phối hợp cùng Bảo vệ và bạn cùng phòng để kiểm tra thiết bị, chốt điện nước phòng cũ trước khi Quản lý phát hành hóa đơn và cập nhật giường mới.</p>
                     </div>");
@@ -1218,13 +1220,13 @@ namespace FUD.Services.Requests
                 $"[KTX FUD] Hoàn tất chuyển giường {requestCode} - Nhận giường mới {bt.ToBed?.BedCode}",
                 $@"<div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
                     <h2 style='color: #16a34a;'>Hoàn tất chuyển giường giữa kỳ</h2>
-                    <p>Xin chào <strong>{req.Student?.User?.FullName}</strong>,</p>
-                    <p>Ban Quản lý Ký túc xá xác nhận đã hoàn tất thủ tục chuyển giường <strong>{requestCode}</strong> cho bạn.</p>
+                    <p>Xin chào <strong>{Enc(req.Student?.User?.FullName)}</strong>,</p>
+                    <p>Ban Quản lý Ký túc xá xác nhận đã hoàn tất thủ tục chuyển giường <strong>{Enc(requestCode)}</strong> cho bạn.</p>
                     <div style='background: #f0fdf4; border-left: 4px solid #16a34a; padding: 12px; margin: 16px 0;'>
-                        <p><strong>Giường cũ (đã trả):</strong> {bt.FromBed?.BedCode} - P.{bt.FromBed?.Room?.RoomNumber} ({bt.FromBed?.Room?.Block?.Dorm?.Name})</p>
-                        <p><strong>Giường mới (đang lưu trú):</strong> {bt.ToBed?.BedCode} - P.{bt.ToBed?.Room?.RoomNumber} ({bt.ToBed?.Room?.Block?.Dorm?.Name})</p>
+                        <p><strong>Giường cũ (đã trả):</strong> {Enc(bt.FromBed?.BedCode)} - P.{Enc(bt.FromBed?.Room?.RoomNumber)} ({Enc(bt.FromBed?.Room?.Block?.Dorm?.Name)})</p>
+                        <p><strong>Giường mới (đang lưu trú):</strong> {Enc(bt.ToBed?.BedCode)} - P.{Enc(bt.ToBed?.Room?.RoomNumber)} ({Enc(bt.ToBed?.Room?.Block?.Dorm?.Name)})</p>
                         <p><strong>Ngày hiệu lực:</strong> {newCheckInDate:dd/MM/yyyy}</p>
-                        <p><strong>Hóa đơn công nợ:</strong> {invoiceCodes}</p>
+                        <p><strong>Hóa đơn công nợ:</strong> {Enc(invoiceCodes)}</p>
                     </div>
                     <p>Vui lòng kiểm tra mục Hóa đơn / Yêu cầu trên hệ thống F.U.D để hoàn tất thanh toán đúng hạn.</p>
                 </div>");

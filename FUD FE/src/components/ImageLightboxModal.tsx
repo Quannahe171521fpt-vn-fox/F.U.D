@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { toSafeHref } from '../utils/urlUtils';
 
 export interface ImageLightboxModalProps {
   imageUrl: string | null;
@@ -29,7 +30,8 @@ export const ImageLightboxModal: React.FC<ImageLightboxModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [imageUrl, onClose]);
 
-  if (!imageUrl || typeof document === 'undefined') {
+  const safeImageUrl = toSafeHref(imageUrl, true);
+  if (!safeImageUrl || typeof document === 'undefined') {
     return null;
   }
 
@@ -84,7 +86,7 @@ export const ImageLightboxModal: React.FC<ImageLightboxModalProps> = ({
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <a
-              href={imageUrl}
+              href={safeImageUrl}
               target="_blank"
               rel="noopener noreferrer"
               style={{
@@ -132,7 +134,7 @@ export const ImageLightboxModal: React.FC<ImageLightboxModalProps> = ({
           }}
         >
           <img
-            src={imageUrl}
+            src={safeImageUrl}
             alt={title || 'Ảnh công tơ điện nước'}
             style={{
               maxWidth: '92vw',

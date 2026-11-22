@@ -69,11 +69,34 @@ namespace FUD.Services.Facilities
             return items.Select(MapToDto);
         }
 
+        private static (string SafeUrl, string Extension) ValidateAndNormalizeAttachmentUrl(string? rawUrl)
+        {
+            var trimmed = (rawUrl ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(trimmed)
+                || !Uri.TryCreate(trimmed, UriKind.Absolute, out var uri)
+                || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException("URL tệp đính kèm không hợp lệ (chỉ chấp nhận đường dẫn https://).");
+            }
+
+            var ext = Path.GetExtension(uri.AbsolutePath).TrimStart('.').ToLowerInvariant();
+            return (trimmed, ext);
+        }
+
         public async Task<NewsDto> CreateAsync(CreateNewsDto dto, int? userId = null)
         {
             if (string.IsNullOrWhiteSpace(dto.Title) || string.IsNullOrWhiteSpace(dto.Content))
             {
                 throw new ArgumentException("Tiêu đề và nội dung bản tin không được để trống (Empty title or content)");
+            }
+
+            var validatedAttachments = new List<(string SafeUrl, string Extension)>();
+            if (dto.AttachmentUrls != null && dto.AttachmentUrls.Count > 0)
+            {
+                foreach (var url in dto.AttachmentUrls)
+                {
+                    validatedAttachments.Add(ValidateAndNormalizeAttachmentUrl(url));
+                }
             }
 
             var isPublish = dto.Action?.Equals("Publish", StringComparison.OrdinalIgnoreCase) == true
@@ -93,15 +116,14 @@ namespace FUD.Services.Facilities
             var created = await _repo.AddAsync(news);
 
             // Add attachments
-            if (dto.AttachmentUrls != null && dto.AttachmentUrls.Count > 0)
+            if (validatedAttachments.Count > 0)
             {
-                foreach (var url in dto.AttachmentUrls)
+                foreach (var (safeUrl, ext) in validatedAttachments)
                 {
-                    var ext = Path.GetExtension(url).TrimStart('.').ToLower();
                     await _repo.AddAttachmentAsync(new NewsAttachment
                     {
                         NewsId = created.Id,
-                        FileUrl = url,
+                        FileUrl = safeUrl,
                         FileType = ext
                     });
                 }
@@ -161,14 +183,17 @@ namespace FUD.Services.Facilities
             // Replace attachments if provided
             if (dto.AttachmentUrls != null)
             {
+                var validatedAttachments = dto.AttachmentUrls
+                    .Select(ValidateAndNormalizeAttachmentUrl)
+                    .ToList();
+
                 await _repo.RemoveAttachmentsByNewsIdAsync(id);
-                foreach (var url in dto.AttachmentUrls)
+                foreach (var (safeUrl, ext) in validatedAttachments)
                 {
-                    var ext = Path.GetExtension(url).TrimStart('.').ToLower();
                     await _repo.AddAttachmentAsync(new NewsAttachment
                     {
                         NewsId = id,
-                        FileUrl = url,
+                        FileUrl = safeUrl,
                         FileType = ext
                     });
                 }

@@ -4,6 +4,7 @@ import { Pagination } from '../../components/Pagination';
 import { ImageLightboxModal } from '../../components/ImageLightboxModal';
 import { formatDateTime } from '../../utils/dateUtils';
 import { removeVietnameseTones } from '../../utils/textUtils';
+import { toSafeHref } from '../../utils/urlUtils';
 import { useIdleAwarePolling } from '../../utils/useIdleAwarePolling';
 import {
   type DBRequestType,
@@ -703,11 +704,15 @@ export const ManagerRequestManagement: React.FC = () => {
                   <div style={{ marginTop: 8 }}>
                     <div style={{ fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: 4 }}>Minh chứng sinh viên đính kèm:</div>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                      {selectedRequest.complaint.evidences.map((url, idx) => (
-                        <a key={idx} href={url} target="_blank" rel="noreferrer">
-                          <img src={url} alt="complaint-evidence" style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #CBD5E1' }} />
-                        </a>
-                      ))}
+                      {selectedRequest.complaint.evidences.map((url, idx) => {
+                        const safeUrl = toSafeHref(url);
+                        if (!safeUrl) return null;
+                        return (
+                          <a key={idx} href={safeUrl} target="_blank" rel="noopener noreferrer">
+                            <img src={safeUrl} alt="complaint-evidence" style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #CBD5E1' }} />
+                          </a>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
