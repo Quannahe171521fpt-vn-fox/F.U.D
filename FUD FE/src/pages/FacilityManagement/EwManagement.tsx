@@ -3,11 +3,13 @@ import '../../styles/facilities.css';
 import { Pagination } from '../../components/Pagination';
 import {
   ewApi,
+  dormApi,
   type BillingPeriodLookupDto,
   type ExcelPreviewResponseDto,
   type ImportBatchItemDto,
   type EwUsageRow,
   type EwReadingDetailItem,
+  type UsageAnomalyItemDto,
 } from '../../services/api';
 
 // ── Usage table row (computed) ──────────────────────────
@@ -142,12 +144,27 @@ function buildUsageRows(rawRows: EwUsageRow[]): UsageTableRow[] {
 
 // ── Component ───────────────────────────────────────────
 export const EwManagement: React.FC = () => {
-  const [activeSection, setActiveSection] = useState<'import' | 'usage' | 'history'>('usage');
+  const userRole = typeof localStorage !== 'undefined' ? localStorage.getItem('fud_userRole') : null;
+  const isManager = userRole === 'Manager' || userRole === 'Admin';
+
+  const [activeSection, setActiveSection] = useState<'import' | 'usage' | 'anomalies' | 'history'>('usage');
 
   // ── Billing Periods ──
   const [periods, setPeriods] = useState<BillingPeriodLookupDto[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState<number | ''>('');
   const [periodsLoading, setPeriodsLoading] = useState(false);
+
+  // ── Anomalies & Billing Calculation (Manager) ──
+  const [anomalies, setAnomalies] = useState<UsageAnomalyItemDto[]>([]);
+  const [anomaliesLoading, setAnomaliesLoading] = useState(false);
+  const [anomalyStatusFilter, setAnomalyStatusFilter] = useState<string>('Flagged');
+  const [resolvingAnomaly, setResolvingAnomaly] = useState<UsageAnomalyItemDto | null>(null);
+  const [resolveAction, setResolveAction] = useState<'Confirm' | 'Adjust'>('Confirm');
+  const [resolveValue, setResolveValue] = useState<string>('');
+  const [resolveNote, setResolveNote] = useState<string>('');
+  const [resolveLoading, setResolveLoading] = useState(false);
+  const [anomalyMsg, setAnomalyMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [calcLoading, setCalcLoading] = useState(false);
 
   // ── Import ──
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -161,7 +178,9 @@ export const EwManagement: React.FC = () => {
   const [usageRows, setUsageRows] = useState<UsageTableRow[]>([]);
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError] = useState<string | null>(null);
+  const [dormOptions, setDormOptions] = useState<string[]>(['Dom A', 'Dom B']);
   const [usageFilter, setUsageFilter] = useState({
+    dormName: '',
     termId: '',
     billingPeriodId: '',
     blockCode: '',
@@ -169,6 +188,32 @@ export const EwManagement: React.FC = () => {
     month: '',
     year: '',
   });
+
+  useEffect(() => {
+    dormApi
+      .getAll({ status: 'Active', pageSize: 50 })
+      .then((res) => {
+        if (res?.items && res.items.length > 0) {
+          const names = Array.from(new Set(res.items.map((d) => d.name).filter(Boolean)));
+          if (names.length > 0) setDormOptions(names);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const availableDorms = React.useMemo(() => {
+    const set = new Set<string>(dormOptions);
+    for (const r of usageRows) {
+      if (r.dormName) set.add(r.dormName);
+    }
+    return Array.from(set).sort();
+  }, [dormOptions, usageRows]);
+
+  const filteredUsageRows = React.useMemo(() => {
+    if (!usageFilter.dormName) return usageRows;
+    const target = usageFilter.dormName.trim().toLowerCase();
+    return usageRows.filter((r) => (r.dormName || '').trim().toLowerCase() === target);
+  }, [usageRows, usageFilter.dormName]);
 
   // ── Pagination ──
   const [page, setPage] = useState(1);
@@ -178,11 +223,11 @@ export const EwManagement: React.FC = () => {
     setPage(1);
   }, [usageFilter]);
 
-  const totalCount = usageRows.length;
+  const totalCount = filteredUsageRows.length;
   const paginatedUsageRows = React.useMemo(() => {
     const startIndex = (page - 1) * pageSize;
-    return usageRows.slice(startIndex, startIndex + pageSize);
-  }, [usageRows, page, pageSize]);
+    return filteredUsageRows.slice(startIndex, startIndex + pageSize);
+  }, [filteredUsageRows, page, pageSize]);
 
   // ── Modal Detail ──
   const [detailGroup, setDetailGroup] = useState<BlockUsageGroup | null>(null);
@@ -366,11 +411,17 @@ export const EwManagement: React.FC = () => {
       }
     }
 
-    // Re-evaluate validity
+    // Re-evaluate validity (bao gồm kiểm tra vượt quá 1000 số điện / 50 số nước sau khi trừ định mức)
+    const isElecRow = (row.meterType || '').toLowerCase().includes('elec') || (row.meterType || '').toLowerCase().includes('điện');
+    const rowQuota = isElecRow ? 200 : 12;
+    const rowSpikeThreshold = isElecRow ? 1000 : 50;
+
     const leftBelow = row.leftValue !== undefined && row.leftValue < row.leftOldReading;
     const rightBelow = row.rightValue !== undefined && row.rightValue < row.rightOldReading;
     const leftZero = row.leftValue !== undefined && row.leftValue === row.leftOldReading;
     const rightZero = row.rightValue !== undefined && row.rightValue === row.rightOldReading;
+    const leftSpike = row.leftValue !== undefined && (row.leftConsumption - rowQuota) > rowSpikeThreshold;
+    const rightSpike = row.rightValue !== undefined && (row.rightConsumption - rowQuota) > rowSpikeThreshold;
 
     if (leftBelow || rightBelow) {
       row.status = 'Warning';
@@ -378,6 +429,11 @@ export const EwManagement: React.FC = () => {
     } else if (leftZero || rightZero) {
       row.status = 'Warning';
       row.flagReason = 'Mức tiêu thụ bằng 0';
+    } else if (leftSpike || rightSpike) {
+      row.status = 'Warning';
+      row.flagReason = isElecRow
+        ? `Tiêu thụ điện vượt > 1,000 kWh sau khi trừ định mức (${leftSpike ? 'Phòng L' : ''} ${rightSpike ? 'Phòng R' : ''}), nghi vấn dùng thiết bị cấm (bếp từ...)`
+        : `Tiêu thụ nước vượt > 50 m³ sau khi trừ định mức (${leftSpike ? 'Phòng L' : ''} ${rightSpike ? 'Phòng R' : ''}), nghi vấn rò rỉ nước`;
     } else if (row.leftValue === undefined || row.rightValue === undefined) {
       row.status = 'Warning';
       row.flagReason = 'Chưa nhập đủ chỉ số';
@@ -426,6 +482,7 @@ export const EwManagement: React.FC = () => {
       setImportFile(null);
       if (fileRef.current) fileRef.current.value = '';
       loadUsage();
+      if (isManager) loadAnomalies();
     } catch (err: any) {
       setImportMsg({ type: 'error', text: err.message });
     } finally {
@@ -460,6 +517,82 @@ export const EwManagement: React.FC = () => {
     }
   }, [activeSection, loadUsage]);
 
+  // ── Load anomalies (Manager) ──
+  const loadAnomalies = useCallback(async () => {
+    if (!isManager) return;
+    setAnomaliesLoading(true);
+    try {
+      const data = await ewApi.getAnomalies({
+        billingPeriodId: selectedPeriodId ? Number(selectedPeriodId) : undefined,
+        status: anomalyStatusFilter || undefined,
+      });
+      setAnomalies(data);
+    } catch {
+      setAnomalies([]);
+    } finally {
+      setAnomaliesLoading(false);
+    }
+  }, [isManager, selectedPeriodId, anomalyStatusFilter]);
+
+  useEffect(() => {
+    if (isManager) {
+      loadAnomalies();
+    }
+  }, [isManager, loadAnomalies]);
+
+  const handleOpenResolveModal = (item: UsageAnomalyItemDto, defaultAction: 'Confirm' | 'Adjust') => {
+    setResolvingAnomaly(item);
+    setResolveAction(defaultAction);
+    setResolveValue(item.currentValue.toString());
+    setResolveNote(item.managerNote || '');
+    setAnomalyMsg(null);
+  };
+
+  const handleSubmitResolveAnomaly = async () => {
+    if (!resolvingAnomaly) return;
+    setResolveLoading(true);
+    setAnomalyMsg(null);
+    try {
+      let adjVal: number | undefined = undefined;
+      if (resolveAction === 'Adjust') {
+        adjVal = parseFloat(resolveValue);
+        if (isNaN(adjVal) || adjVal < 0) {
+          setAnomalyMsg({ type: 'error', text: 'Vui lòng nhập chỉ số điều chỉnh hợp lệ (>= 0)' });
+          setResolveLoading(false);
+          return;
+        }
+      }
+      const res = await ewApi.resolveAnomaly(resolvingAnomaly.anomalyId, {
+        action: resolveAction,
+        adjustedValue: adjVal,
+        managerNote: resolveNote,
+      });
+      setAnomalyMsg({ type: 'success', text: res.message });
+      setResolvingAnomaly(null);
+      await loadAnomalies();
+      loadUsage();
+    } catch (err: any) {
+      setAnomalyMsg({ type: 'error', text: err.message || 'Lỗi khi xử lý cảnh báo bất thường' });
+    } finally {
+      setResolveLoading(false);
+    }
+  };
+
+  const handleCalculateSurcharges = async () => {
+    if (!selectedPeriodId) return;
+    setCalcLoading(true);
+    setAnomalyMsg(null);
+    try {
+      const res = await ewApi.calculatePeriodSurcharges(Number(selectedPeriodId));
+      setAnomalyMsg({ type: 'success', text: res.message });
+      loadUsage();
+    } catch (err: any) {
+      setAnomalyMsg({ type: 'error', text: err.message || 'Lỗi khi tính phụ trội điện nước' });
+    } finally {
+      setCalcLoading(false);
+    }
+  };
+
   // ── Load batches ──
   const loadBatches = useCallback(async () => {
     setBatchLoading(true);
@@ -477,6 +610,8 @@ export const EwManagement: React.FC = () => {
     if (activeSection === 'history') loadBatches();
   }, [activeSection, loadBatches]);
 
+  const flaggedAnomaliesCount = anomalies.filter((a) => a.status === 'Flagged').length;
+
   return (
     <div className="facilities-container" style={{ padding: '24px 32px' }}>
       {/* ── Header ── */}
@@ -492,11 +627,23 @@ export const EwManagement: React.FC = () => {
 
       {/* ── Tab nav ── */}
       <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid #E2E8F0', marginBottom: 24 }}>
-        {([
-          { key: 'usage', label: 'Bảng theo dõi sử dụng' },
-          { key: 'import', label: 'Import chỉ số Excel' },
-          { key: 'history', label: 'Lịch sử import' },
-        ] as const).map((tab) => (
+        {(
+          isManager
+            ? ([
+                { key: 'usage', label: 'Bảng theo dõi sử dụng' },
+                {
+                  key: 'anomalies',
+                  label: `Cảnh báo bất thường${flaggedAnomaliesCount > 0 ? ` (${flaggedAnomaliesCount})` : ''}`,
+                },
+                { key: 'import', label: 'Import chỉ số Excel' },
+                { key: 'history', label: 'Lịch sử import' },
+              ] as const)
+            : ([
+                { key: 'usage', label: 'Bảng theo dõi sử dụng' },
+                { key: 'import', label: 'Import chỉ số Excel' },
+                { key: 'history', label: 'Lịch sử import' },
+              ] as const)
+        ).map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveSection(tab.key)}
@@ -535,6 +682,30 @@ export const EwManagement: React.FC = () => {
               alignItems: 'flex-end',
             }}
           >
+            {/* 0. Ký túc xá (Dorm) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Dorm</label>
+              <select
+                value={usageFilter.dormName}
+                onChange={(e) => setUsageFilter((prev) => ({ ...prev, dormName: e.target.value }))}
+                style={{
+                  padding: '8px 12px',
+                  border: '1px solid #CBD5E1',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  minWidth: 145,
+                  background: '#fff',
+                }}
+              >
+                <option value="">Tất cả Dorm</option>
+                {availableDorms.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* 1. Học kỳ */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <label style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Học kỳ</label>
@@ -642,10 +813,10 @@ export const EwManagement: React.FC = () => {
             </button>
 
             {/* 6. Xóa bộ lọc */}
-            {(usageFilter.termId || usageFilter.billingPeriodId || usageFilter.blockCode || usageFilter.meterType || usageFilter.month || usageFilter.year) && (
+            {(usageFilter.dormName || usageFilter.termId || usageFilter.billingPeriodId || usageFilter.blockCode || usageFilter.meterType || usageFilter.month || usageFilter.year) && (
               <button
                 onClick={() => {
-                  setUsageFilter({ termId: '', billingPeriodId: '', blockCode: '', meterType: '', month: '', year: '' });
+                  setUsageFilter({ dormName: '', termId: '', billingPeriodId: '', blockCode: '', meterType: '', month: '', year: '' });
                 }}
                 style={{
                   padding: '8px 16px',
@@ -664,7 +835,7 @@ export const EwManagement: React.FC = () => {
 
           {/* Kết quả banner */}
           <div style={{ fontSize: '18px', fontWeight: 700, color: '#1D4ED8', margin: '4px 0 0 2px' }}>
-            Kết quả: <span style={{ fontWeight: 800 }}>{usageRows.length}</span>
+            Kết quả: <span style={{ fontWeight: 800 }}>{filteredUsageRows.length}</span>
           </div>
 
           {/* Usage table */}
@@ -683,7 +854,7 @@ export const EwManagement: React.FC = () => {
               <div style={{ padding: 40, color: '#94a3b8', textAlign: 'center' }}>
                 <p style={{ margin: 0, fontSize: 14 }}>Đang tải danh sách chỉ số từ máy chủ...</p>
               </div>
-            ) : usageRows.length === 0 ? (
+            ) : filteredUsageRows.length === 0 ? (
               <div style={{ padding: 40, color: '#94a3b8', textAlign: 'center' }}>
                 Không tìm thấy dữ liệu phù hợp. Hãy điều chỉnh bộ lọc hoặc chọn kỳ thanh toán khác.
               </div>
@@ -718,10 +889,7 @@ export const EwManagement: React.FC = () => {
                     <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '6%' }}>
                       Đơn vị
                     </th>
-                    <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '4%' }}>
-                      Reset
-                    </th>
-                    <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '7%' }}>
+                    <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '11%' }}>
                       Thao tác
                     </th>
                   </tr>
@@ -816,9 +984,6 @@ export const EwManagement: React.FC = () => {
                         </td>
                         <td style={{ padding: '12px 14px', textAlign: 'center', color: '#64748B' }}>
                           {row.donvi}
-                        </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'center', color: '#94A3B8' }}>
-                          —
                         </td>
                         <td style={{ padding: '12px 14px', textAlign: 'center' }}>
                           <button
@@ -1082,7 +1247,7 @@ export const EwManagement: React.FC = () => {
                       }}
                     >
                       <span>
-                        💡 <strong>Chỉnh sửa trực tiếp:</strong> Bạn có thể gõ sửa trực tiếp chỉ số tại cột <strong>Giá trị L</strong> và <strong>Giá trị R</strong> bên dưới. Mức tiêu thụ sẽ được tự động tính toán lại tức thì trước khi bạn bấm <strong>Xác nhận lưu</strong>.
+                        <strong>Chỉnh sửa trực tiếp:</strong> Bạn có thể gõ sửa trực tiếp chỉ số tại cột <strong>Giá trị L</strong> và <strong>Giá trị R</strong> bên dưới. Mức tiêu thụ sẽ được tự động tính toán lại tức thì trước khi bạn bấm <strong>Xác nhận lưu</strong>.
                       </span>
                     </div>
 
@@ -1256,6 +1421,480 @@ export const EwManagement: React.FC = () => {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════
+          SECTION: CẢNH BÁO BẤT THƯỜNG (MANAGER ADJUST / CONFIRM)
+          ════════════════════════════════════════════════ */}
+      {activeSection === 'anomalies' && isManager && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Workflow Banner */}
+          <div
+            style={{
+              background: '#FFF7ED',
+              border: '1px solid #FDBA74',
+              borderRadius: 12,
+              padding: '14px 18px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 12,
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#9A3412', marginBottom: 4 }}>
+                Quy trình xử lý cảnh báo bất thường (Điện vượt &gt; 1,000 kWh / Nước vượt &gt; 50 m³ sau định mức)
+              </div>
+              <div style={{ fontSize: 13, color: '#C2410C', lineHeight: 1.5 }}>
+                1. Quản lý liên hệ trực tiếp Bảo vệ tòa nhà để lên kiểm tra phòng (kiểm tra rò rỉ nước / thiết bị cấm như bếp từ).
+                <br />
+                2. Sau khi Bảo vệ báo kết quả: bấm <strong>Xác nhận (Confirm)</strong> nếu sinh viên dùng thật, hoặc <strong>Điều chỉnh (Adjust)</strong> nếu do rò rỉ/nhập sai. Hệ thống sẽ tự động tính phụ trội, chia đều chi phí và gửi thông báo công nợ cho sinh viên.
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <select
+                value={selectedPeriodId}
+                onChange={(e) => setSelectedPeriodId(e.target.value ? Number(e.target.value) : '')}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  border: '1px solid #CBD5E1',
+                  background: '#fff',
+                  fontSize: 13,
+                  fontWeight: 600,
+                }}
+              >
+                <option value="">Tất cả kỳ thanh toán</option>
+                {periods.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.displayName} ({p.termName})
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={anomalyStatusFilter}
+                onChange={(e) => setAnomalyStatusFilter(e.target.value)}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  border: '1px solid #CBD5E1',
+                  background: '#fff',
+                  fontSize: 13,
+                  fontWeight: 600,
+                }}
+              >
+                <option value="">Tất cả trạng thái</option>
+                <option value="Flagged">Đang chờ xử lý (Flagged)</option>
+                <option value="Resolved">Đã xử lý (Resolved)</option>
+              </select>
+
+              {selectedPeriodId && (
+                <button
+                  onClick={handleCalculateSurcharges}
+                  disabled={calcLoading}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: '#D97026',
+                    color: '#fff',
+                    fontWeight: 700,
+                    fontSize: 13,
+                    cursor: calcLoading ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {calcLoading ? 'Đang tính phí...' : 'Tính phụ trội & Gửi công nợ kỳ này'}
+                </button>
+              )}
+
+              <button
+                onClick={loadAnomalies}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  border: '1px solid #CBD5E1',
+                  background: '#fff',
+                  color: '#374151',
+                  fontWeight: 600,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                }}
+              >
+                Làm mới
+              </button>
+            </div>
+          </div>
+
+          {anomalyMsg && (
+            <div
+              style={{
+                padding: '12px 16px',
+                borderRadius: 10,
+                background: anomalyMsg.type === 'success' ? '#F0FDF4' : '#FEF2F2',
+                border: `1px solid ${anomalyMsg.type === 'success' ? '#86EFAC' : '#FCA5A5'}`,
+                color: anomalyMsg.type === 'success' ? '#166534' : '#991B1B',
+                fontWeight: 600,
+                fontSize: 13,
+              }}
+            >
+              {anomalyMsg.text}
+            </div>
+          )}
+
+          {/* Anomalies Table */}
+          <div
+            style={{
+              background: '#fff',
+              border: '1px solid #E2E8F0',
+              borderRadius: 12,
+              overflow: 'hidden',
+            }}
+          >
+            {anomaliesLoading ? (
+              <div style={{ padding: 28, textAlign: 'center', color: '#64748B' }}>
+                Đang tải danh sách cảnh báo bất thường...
+              </div>
+            ) : anomalies.length === 0 ? (
+              <div style={{ padding: 36, textAlign: 'center', color: '#64748B' }}>
+                Không có cảnh báo bất thường nào theo bộ lọc hiện tại.
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: '#F8FAFC', borderBottom: '2px solid #E2E8F0' }}>
+                      {[
+                        'KTX / Phòng',
+                        'Kỳ',
+                        'Loại',
+                        'Chỉ số cũ → mới',
+                        'Tiêu thụ (Vượt mức)',
+                        'Lý do cảnh báo',
+                        'Bảo vệ tòa (Liên hệ)',
+                        'Trạng thái',
+                        'Thao tác (Manager)',
+                      ].map((h) => (
+                        <th
+                          key={h}
+                          style={{
+                            padding: '10px 14px',
+                            textAlign: 'left',
+                            fontWeight: 700,
+                            color: '#374151',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {anomalies.map((item, idx) => {
+                      const isElec =
+                        (item.meterType || '').toLowerCase().includes('elec') ||
+                        (item.meterType || '').toLowerCase().includes('điện');
+                      const unit = isElec ? 'kWh' : 'm³';
+                      const isFlagged = item.status === 'Flagged';
+                      return (
+                        <tr
+                          key={item.anomalyId}
+                          style={{
+                            background: idx % 2 === 0 ? '#fff' : '#F8FAFC',
+                            borderBottom: '1px solid #F1F5F9',
+                          }}
+                        >
+                          <td style={{ padding: '12px 14px', fontWeight: 700, color: '#0F172A' }}>
+                            {item.dormName} — {item.roomNumber}
+                          </td>
+                          <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
+                            {item.billingPeriodDisplay || '—'}
+                          </td>
+                          <td style={{ padding: '12px 14px' }}>
+                            <span
+                              style={{
+                                padding: '3px 10px',
+                                borderRadius: 12,
+                                fontSize: 12,
+                                fontWeight: 700,
+                                background: isElec ? '#FEF3C7' : '#DBEAFE',
+                                color: isElec ? '#B45309' : '#1D4ED8',
+                              }}
+                            >
+                              {isElec ? 'Điện' : 'Nước'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 14px', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                            {item.previousValue} → <span style={{ color: '#DC2626' }}>{item.currentValue}</span>
+                          </td>
+                          <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
+                            <strong>{item.consumption} {unit}</strong>
+                            <div style={{ fontSize: 11, color: item.overUsage > 0 ? '#DC2626' : '#64748B' }}>
+                              Định mức: {item.quota} {unit} | Vượt: {item.overUsage > 0 ? `+${item.overUsage}` : 0} {unit}
+                            </div>
+                          </td>
+                          <td style={{ padding: '12px 14px', maxWidth: 280, color: '#991B1B', fontWeight: 500 }}>
+                            {item.flagReason}
+                            {item.managerNote && (
+                              <div style={{ fontSize: 11, color: '#475569', marginTop: 4 }}>
+                                Ghi chú QL: {item.managerNote}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
+                            <div style={{ fontWeight: 600, color: '#1E293B' }}>{item.guardName}</div>
+                            {item.guardPhone && (
+                              <div style={{ fontSize: 12, color: '#0284C7', fontWeight: 600 }}>
+                                SĐT: {item.guardPhone}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
+                            <span
+                              style={{
+                                padding: '4px 10px',
+                                borderRadius: 12,
+                                fontSize: 11,
+                                fontWeight: 700,
+                                background: isFlagged ? '#FEE2E2' : '#DCFCE7',
+                                color: isFlagged ? '#991B1B' : '#166534',
+                              }}
+                            >
+                              {isFlagged
+                                ? 'Chờ kiểm tra (Flagged)'
+                                : item.resolution === 'Corrected'
+                                ? 'Đã điều chỉnh (Adjusted)'
+                                : 'Đã xác nhận (Confirmed)'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
+                            {isFlagged ? (
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                <button
+                                  onClick={() => handleOpenResolveModal(item, 'Confirm')}
+                                  style={{
+                                    padding: '6px 12px',
+                                    borderRadius: 6,
+                                    border: '1px solid #16A34A',
+                                    background: '#F0FDF4',
+                                    color: '#15803D',
+                                    fontWeight: 700,
+                                    fontSize: 12,
+                                    cursor: 'pointer',
+                                  }}
+                                  title="Xác nhận chỉ số đúng (sinh viên dùng bếp từ / dùng nhiều thật) và tính phụ trội"
+                                >
+                                  Xác nhận (Confirm)
+                                </button>
+                                <button
+                                  onClick={() => handleOpenResolveModal(item, 'Adjust')}
+                                  style={{
+                                    padding: '6px 12px',
+                                    borderRadius: 6,
+                                    border: '1px solid #D97026',
+                                    background: '#FFF7ED',
+                                    color: '#C2410C',
+                                    fontWeight: 700,
+                                    fontSize: 12,
+                                    cursor: 'pointer',
+                                  }}
+                                  title="Điều chỉnh lại chỉ số (do rò rỉ nước hoặc bảo vệ ghi nhầm) rồi tính phụ trội"
+                                >
+                                  Điều chỉnh (Adjust)
+                                </button>
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: 12, color: '#64748B' }}>
+                                Đã chốt {item.resolvedByName ? `bởi ${item.resolvedByName}` : ''}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Modal Adjust or Confirm Utility Data */}
+          {resolvingAnomaly && (
+            <div
+              style={{
+                position: 'fixed',
+                inset: 0,
+                background: 'rgba(15, 23, 42, 0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1100,
+                padding: 16,
+              }}
+            >
+              <div
+                style={{
+                  background: '#fff',
+                  borderRadius: 14,
+                  maxWidth: 520,
+                  width: '100%',
+                  padding: '24px 26px',
+                  boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)',
+                }}
+              >
+                <h3 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 800, color: '#0F172A' }}>
+                  {resolveAction === 'Confirm'
+                    ? 'Xác nhận chỉ số bất thường (Confirm Utility Data)'
+                    : 'Điều chỉnh chỉ số điện/nước (Adjust Utility Data)'}
+                </h3>
+                <p style={{ margin: '0 0 16px', fontSize: 13, color: '#475569', lineHeight: 1.5 }}>
+                  Phòng <strong>{resolvingAnomaly.roomNumber}</strong> ({resolvingAnomaly.dormName}) —{' '}
+                  <strong>{resolvingAnomaly.meterType === 'Electricity' ? 'Điện' : 'Nước'}</strong> ({resolvingAnomaly.billingPeriodDisplay})
+                  <br />
+                  <span style={{ color: '#B91C1C' }}>Cảnh báo: {resolvingAnomaly.flagReason}</span>
+                </p>
+
+                <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+                  <button
+                    type="button"
+                    onClick={() => setResolveAction('Confirm')}
+                    style={{
+                      flex: 1,
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: resolveAction === 'Confirm' ? '2px solid #16A34A' : '1px solid #CBD5E1',
+                      background: resolveAction === 'Confirm' ? '#F0FDF4' : '#fff',
+                      color: resolveAction === 'Confirm' ? '#15803D' : '#475569',
+                      fontWeight: 700,
+                      fontSize: 13,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Giữ nguyên chỉ số (Confirm)
+                    <div style={{ fontSize: 11, fontWeight: 500, marginTop: 2 }}>
+                      SV dùng nhiều thật / dùng bếp từ
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setResolveAction('Adjust')}
+                    style={{
+                      flex: 1,
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: resolveAction === 'Adjust' ? '2px solid #D97026' : '1px solid #CBD5E1',
+                      background: resolveAction === 'Adjust' ? '#FFF7ED' : '#fff',
+                      color: resolveAction === 'Adjust' ? '#C2410C' : '#475569',
+                      fontWeight: 700,
+                      fontSize: 13,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Sửa lại chỉ số (Adjust)
+                    <div style={{ fontSize: 11, fontWeight: 500, marginTop: 2 }}>
+                      Do rò rỉ nước / bảo vệ ghi nhầm
+                    </div>
+                  </button>
+                </div>
+
+                <div style={{ marginBottom: 14, fontSize: 13, color: '#334155' }}>
+                  Chỉ số kỳ trước: <strong>{resolvingAnomaly.previousValue}</strong> | Chỉ số bảo vệ nhập:{' '}
+                  <strong>{resolvingAnomaly.currentValue}</strong> (Tiêu thụ: <strong>{resolvingAnomaly.consumption}</strong>)
+                </div>
+
+                {resolveAction === 'Adjust' && (
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 6 }}>
+                      Chỉ số mới sau khi kiểm tra (&ge; {resolvingAnomaly.previousValue}) *
+                    </label>
+                    <input
+                      type="number"
+                      value={resolveValue}
+                      onChange={(e) => setResolveValue(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: 8,
+                        border: '1px solid #CBD5E1',
+                        fontSize: 14,
+                        fontWeight: 600,
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                )}
+
+                <div style={{ marginBottom: 18 }}>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 6 }}>
+                    Ghi chú kết quả kiểm tra từ Bảo vệ
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={resolveNote}
+                    onChange={(e) => setResolveNote(e.target.value)}
+                    placeholder={
+                      resolveAction === 'Confirm'
+                        ? 'VD: Đã gọi bảo vệ kiểm tra phòng, xác nhận sinh viên sử dụng bếp từ nấu ăn...'
+                        : 'VD: Bảo vệ kiểm tra phát hiện rò rỉ van nước nhà vệ sinh, điều chỉnh lại chỉ số...'
+                    }
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: 8,
+                      border: '1px solid #CBD5E1',
+                      fontSize: 13,
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => setResolvingAnomaly(null)}
+                    disabled={resolveLoading}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: '1px solid #CBD5E1',
+                      background: '#fff',
+                      color: '#475569',
+                      fontWeight: 600,
+                      fontSize: 13,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSubmitResolveAnomaly}
+                    disabled={resolveLoading}
+                    style={{
+                      padding: '8px 18px',
+                      borderRadius: 8,
+                      border: 'none',
+                      background: resolveAction === 'Confirm' ? '#16A34A' : '#D97026',
+                      color: '#fff',
+                      fontWeight: 700,
+                      fontSize: 13,
+                      cursor: resolveLoading ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {resolveLoading
+                      ? 'Đang xử lý...'
+                      : resolveAction === 'Confirm'
+                      ? 'Xác nhận & Tính phụ trội'
+                      : 'Lưu điều chỉnh & Tính phụ trội'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

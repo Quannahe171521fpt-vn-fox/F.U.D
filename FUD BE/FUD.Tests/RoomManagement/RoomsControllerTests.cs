@@ -341,6 +341,78 @@ public class RoomsControllerTests
 
     #endregion
 
+    #region Update - Active Room Guard Tests
+
+    [Fact]
+    public async Task Update_WhenRoomIsActive_Returns409Conflict()
+    {
+        // Arrange
+        const int roomId = 10;
+        var dto = new UpdateRoomDto { RoomNumber = "101L", RoomTypeId = 1, FloorLevel = 1 };
+        _roomServiceMock
+            .Setup(s => s.UpdateAsync(roomId, dto))
+            .ThrowsAsync(new InvalidOperationException("Không thể chỉnh sửa phòng khi đang có sinh viên cư trú. Vui lòng chuyển sinh viên trước."));
+        var sut = CreateSut();
+
+        // Act
+        var result = await sut.Update(roomId, dto);
+
+        // Assert
+        var conflictResult = result.Should().BeOfType<ConflictObjectResult>().Subject;
+        conflictResult.StatusCode.Should().Be(StatusCodes.Status409Conflict);
+
+        var response = conflictResult.Value.Should().BeOfType<ApiResponse>().Subject;
+        response.Success.Should().BeFalse();
+        response.Message.Should().Contain("sinh viên cư trú");
+    }
+
+    [Fact]
+    public async Task Update_WhenRoomIsEmptyAndMaintenance_Returns200Ok()
+    {
+        // Arrange — Phòng trống (không ai ở), dù Active hay Maintenance đều được sửa
+        const int roomId = 20;
+        var dto = new UpdateRoomDto { RoomNumber = "102L", RoomTypeId = 1, FloorLevel = 2 };
+        var updatedDto = CreateSampleRoomDto(roomId, roomNumber: "102L", status: "Maintenance");
+        _roomServiceMock.Setup(s => s.UpdateAsync(roomId, dto)).ReturnsAsync(updatedDto);
+        var sut = CreateSut();
+
+        // Act
+        var result = await sut.Update(roomId, dto);
+
+        // Assert
+        var okResult = result.Should().BeOfType<OkObjectResult>().Subject;
+        okResult.StatusCode.Should().Be(StatusCodes.Status200OK);
+
+        var response = okResult.Value.Should().BeOfType<ApiResponse<object>>().Subject;
+        response.Success.Should().BeTrue();
+        response.Message.Should().Be("Cập nhật phòng thành công");
+    }
+
+    [Fact]
+    public async Task Update_WhenRoomNumberDuplicateOnFloor_Returns409Conflict()
+    {
+        // Arrange — Tầng đó đã có phòng cùng tên
+        const int roomId = 30;
+        var dto = new UpdateRoomDto { RoomNumber = "301L", RoomTypeId = 1, FloorLevel = 3 };
+        _roomServiceMock
+            .Setup(s => s.UpdateAsync(roomId, dto))
+            .ThrowsAsync(new InvalidOperationException("Phòng '301L' đã tồn tại ở tầng 3 trong block này"));
+        var sut = CreateSut();
+
+        // Act
+        var result = await sut.Update(roomId, dto);
+
+        // Assert
+        var conflictResult = result.Should().BeOfType<ConflictObjectResult>().Subject;
+        conflictResult.StatusCode.Should().Be(StatusCodes.Status409Conflict);
+
+        var response = conflictResult.Value.Should().BeOfType<ApiResponse>().Subject;
+        response.Success.Should().BeFalse();
+        response.Message.Should().Contain("tầng 3");
+    }
+
+    #endregion
+
     #region GetRoomTypes Tests
 
     [Fact]

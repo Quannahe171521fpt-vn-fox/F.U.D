@@ -101,8 +101,9 @@ export const RoomManagement: React.FC = () => {
   // Handlers
   const openCreate = () => {
     setEditingRoom(null);
+    const defaultBlock = blocks[0];
     setFormData({
-      blockId: blocks[0]?.id || 1,
+      blockId: defaultBlock?.id || 1,
       roomTypeId: roomTypes[0]?.id || 1,
       roomNumber: '',
       floorLevel: 1,
@@ -117,7 +118,7 @@ export const RoomManagement: React.FC = () => {
       blockId: room.blockId,
       roomTypeId: room.roomTypeId,
       roomNumber: room.roomNumber,
-      floorLevel: room.floorLevel ?? '',
+      floorLevel: room.floorLevel ?? 1,
     });
     setFormError(null);
     setShowModal(true);
@@ -136,8 +137,14 @@ export const RoomManagement: React.FC = () => {
       setFormError('Vui lòng chọn loại phòng');
       return;
     }
-    if (formData.floorLevel !== '' && (formData.floorLevel < 1 || formData.floorLevel > 50)) {
-      setFormError('Số tầng phải từ 1 đến 50');
+    const activeBlockId = editingRoom ? editingRoom.blockId : formData.blockId;
+    const currentBlock = blocks.find(b => b.id === activeBlockId);
+    const maxFloors = currentBlock?.numberOfFloors && currentBlock.numberOfFloors > 0
+      ? currentBlock.numberOfFloors
+      : null;
+
+    if (maxFloors && (formData.floorLevel === '' || formData.floorLevel < 1 || formData.floorLevel > maxFloors)) {
+      setFormError(`Số tầng không hợp lệ. ${currentBlock?.name || 'Block này'} chỉ có từ tầng 1 đến tầng ${maxFloors}`);
       return;
     }
 
@@ -338,8 +345,14 @@ export const RoomManagement: React.FC = () => {
                     <td style={{ textAlign: 'center' }}>
                       <button
                         type="button"
-                        className="btn-tbl-action"
-                        onClick={() => openEdit(room)}
+                        className={`btn-tbl-action${!room.isEditable ? ' btn-tbl-action-disabled' : ''}`}
+                        onClick={() => room.isEditable && openEdit(room)}
+                        disabled={!room.isEditable}
+                        title={
+                          !room.isEditable
+                            ? `Phòng đang có ${room.occupiedBeds} sinh viên cư trú — không thể chỉnh sửa`
+                            : 'Chỉnh sửa thông tin phòng'
+                        }
                       >
                         Sửa
                       </button>
@@ -374,15 +387,24 @@ export const RoomManagement: React.FC = () => {
 
               {!editingRoom && (
                 <div className="facilities-form-group">
-                  <label className="facilities-form-label">Block<span className="required">*</span></label>
+                  <label className="facilities-form-label">Block <span className="required">*</span></label>
                   <select
                     className="facilities-form-input"
                     value={formData.blockId}
-                    onChange={e => setFormData(f => ({ ...f, blockId: Number(e.target.value) }))}
+                    onChange={e => {
+                      const newBlockId = Number(e.target.value);
+                      const targetBlock = blocks.find(b => b.id === newBlockId);
+                      const maxF = targetBlock?.numberOfFloors && targetBlock.numberOfFloors > 0 ? targetBlock.numberOfFloors : 1;
+                      setFormData(f => ({
+                        ...f,
+                        blockId: newBlockId,
+                        floorLevel: (typeof f.floorLevel === 'number' && f.floorLevel > maxF) ? 1 : (f.floorLevel || 1),
+                      }));
+                    }}
                   >
                     {blocks.map(b => (
                       <option key={b.id} value={b.id}>
-                        {b.name} ({b.dormName || b.code}) - {b.genderType === 'Male' ? 'Block Nam' : 'Block Nữ'}
+                        {b.name} ({b.dormName || b.code}) - {b.genderType === 'Male' ? 'Block Nam' : 'Block Nữ'}{b.numberOfFloors ? ` (${b.numberOfFloors} tầng)` : ''}
                       </option>
                     ))}
                   </select>
@@ -393,7 +415,7 @@ export const RoomManagement: React.FC = () => {
                 <div className="facilities-form-group">
                   <label className="facilities-form-label">Block</label>
                   <input className="facilities-form-input" value={editingRoom.blockName} disabled />
-                  <span className="facilities-form-hint">Không thể chuyển phòng sang BLock khác sau khi tạo</span>
+                  <span className="facilities-form-hint">Không thể chuyển phòng sang Block khác sau khi tạo</span>
                 </div>
               )}
 
@@ -422,18 +444,39 @@ export const RoomManagement: React.FC = () => {
                 />
               </div>
 
-              <div className="facilities-form-group">
-                <label className="facilities-form-label">Tầng</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={50}
-                  className="facilities-form-input"
-                  placeholder="Ví dụ: 1"
-                  value={formData.floorLevel}
-                  onChange={e => setFormData(f => ({ ...f, floorLevel: e.target.value === '' ? '' : Number(e.target.value) }))}
-                />
-              </div>
+              {/* Floor Dropdown theo số tầng của Block */}
+              {(() => {
+                const activeBlockId = editingRoom ? editingRoom.blockId : formData.blockId;
+                const currentBlock = blocks.find(b => b.id === activeBlockId);
+                const maxFloors = currentBlock?.numberOfFloors && currentBlock.numberOfFloors > 0
+                  ? currentBlock.numberOfFloors
+                  : 1;
+                const floorOptions = Array.from({ length: maxFloors }, (_, i) => i + 1);
+
+                return (
+                  <div className="facilities-form-group">
+                    <label className="facilities-form-label">
+                      Tầng <span className="required">*</span>
+                      {currentBlock?.numberOfFloors ? (
+                        <span className="facilities-form-hint" style={{ marginLeft: 8 }}>
+                          ({currentBlock.name} có {currentBlock.numberOfFloors} tầng)
+                        </span>
+                      ) : null}
+                    </label>
+                    <select
+                      className="facilities-form-input"
+                      value={formData.floorLevel || 1}
+                      onChange={e => setFormData(f => ({ ...f, floorLevel: Number(e.target.value) }))}
+                    >
+                      {floorOptions.map(floor => (
+                        <option key={floor} value={floor}>
+                          Tầng {floor}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              })()}
             </div>
             <div className="facilities-modal-footer">
               <button type="button" className="btn-fud-secondary" onClick={() => setShowModal(false)} disabled={isSaving}>
