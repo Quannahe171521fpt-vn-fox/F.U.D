@@ -35,10 +35,10 @@ namespace FUD.Controllers.Keeping
                 var result = await _keepingService.GetPendingForManagerAsync();
                 return Ok(ApiResponse<List<KeepingRequestManagerDto>>.Ok(result));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse.Fail($"Đã xảy ra lỗi khi tải danh sách yêu cầu giữ phòng: {ex.Message}"));
+                    ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -74,10 +74,10 @@ namespace FUD.Controllers.Keeping
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse.Fail($"Đã xảy ra lỗi khi phê duyệt yêu cầu giữ phòng: {ex.Message}"));
+                    ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -111,10 +111,10 @@ namespace FUD.Controllers.Keeping
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse.Fail($"Đã xảy ra lỗi khi từ chối yêu cầu giữ phòng: {ex.Message}"));
+                    ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 

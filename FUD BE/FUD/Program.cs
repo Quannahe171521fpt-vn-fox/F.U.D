@@ -24,18 +24,15 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.Tokens;
 
 // 0. Load biến môi trường từ file .env trước khi khởi tạo WebApplicationBuilder
+var aspnetEnv = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+                ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+                ?? "Production";
 var currentDirEnv = Path.Combine(Directory.GetCurrentDirectory(), ".env");
-
-var baseDirEnv = Path.Combine(AppContext.BaseDirectory, ".env");
 if (File.Exists(currentDirEnv))
 {
     DotNetEnv.Env.Load(currentDirEnv);
 }
-else if (File.Exists(baseDirEnv))
-{
-    DotNetEnv.Env.Load(baseDirEnv);
-}
-else
+else if (string.Equals(aspnetEnv, "Development", StringComparison.OrdinalIgnoreCase))
 {
     DotNetEnv.Env.TraversePath().Load();
 }
@@ -80,10 +77,22 @@ if (!builder.Environment.IsDevelopment() && googleClientId.StartsWith("mock-", S
     throw new InvalidOperationException("Google:ClientId chưa được cấu hình hợp lệ trên Production!");
 }
 
-// 4. Rate Limiter Phân Vùng Theo IP
+// 4. Rate Limiter Phân Vùng Theo UserId / IP
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        context.HttpContext.Response.ContentType = "application/json; charset=utf-8";
+        var payload = System.Text.Json.JsonSerializer.Serialize(
+            ApiResponse.Fail("Bạn thao tác quá nhanh. Vui lòng thử lại sau giây lát."),
+            new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+            });
+        await context.HttpContext.Response.WriteAsync(payload, cancellationToken);
+    };
 
     options.AddPolicy("LoginPolicy", httpContext =>
     {
@@ -102,6 +111,35 @@ builder.Services.AddRateLimiter(options =>
         return RateLimitPartition.GetFixedWindowLimiter(clientIp, _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = 20,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        });
+    });
+
+    options.AddPolicy("MeterOcrPolicy", httpContext =>
+    {
+        var userId = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? httpContext.User.FindFirstValue("sub")
+            ?? httpContext.User.FindFirstValue("nameid");
+
+        var partitionKey = !string.IsNullOrWhiteSpace(userId)
+            ? $"user:{userId}"
+            : $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+
+        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 30,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        });
+    });
+
+    options.AddPolicy("SePayWebhookPolicy", httpContext =>
+    {
+        var clientIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(clientIp, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 60,
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0
         });
@@ -144,13 +182,6 @@ builder.Services.AddCors(options =>
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
-    });
-
-    options.AddPolicy("AllowAll", policy =>
-    {
-        policy.AllowAnyOrigin()
-              .AllowAnyHeader()
-              .AllowAnyMethod();
     });
 });
 
@@ -233,9 +264,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                         cache.Set(cacheKey, accountStatus, TimeSpan.FromSeconds(60));
                     }
 
-                    if (accountStatus == "Banned" || accountStatus == "Locked" || accountStatus == "NotFound")
+                    if (!string.Equals(accountStatus, AccountConstants.Statuses.Active, StringComparison.OrdinalIgnoreCase))
                     {
-                        context.Fail("Tài khoản của bạn đã bị khóa hoặc không tồn tại.");
+                        context.Fail("Tài khoản của bạn chưa được kích hoạt, đã bị tạm ngưng hoặc không tồn tại.");
                         return;
                     }
 
@@ -252,6 +283,60 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                     }
 
                     var dbRoles = cachedRoles;
+                    var isImpersonation = string.Equals(
+                        context.Principal?.FindFirstValue("imp"),
+                        "true",
+                        StringComparison.OrdinalIgnoreCase);
+
+                    if (isImpersonation)
+                    {
+                        var managerIdStr = context.Principal?.FindFirstValue("impersonated_by");
+                        if (!int.TryParse(managerIdStr, out var managerId) || managerId <= 0)
+                        {
+                            context.Fail("Phiên đăng nhập hộ không hợp lệ.");
+                            return;
+                        }
+
+                        var managerStatusKey = $"user_status_{managerId}";
+                        if (!cache.TryGetValue<string>(managerStatusKey, out var managerStatus))
+                        {
+                            var managerUser = await dbContext.Users.AsNoTracking()
+                                .Where(u => u.Id == managerId && u.DeletedAt == null)
+                                .Select(u => new { u.AccountStatus })
+                                .FirstOrDefaultAsync();
+
+                            managerStatus = managerUser?.AccountStatus ?? "NotFound";
+                            cache.Set(managerStatusKey, managerStatus, TimeSpan.FromSeconds(60));
+                        }
+
+                        var managerRolesKey = $"user_roles_{managerId}";
+                        if (!cache.TryGetValue<string[]>(managerRolesKey, out var managerRoles) || managerRoles == null)
+                        {
+                            managerRoles = (await dbContext.UserRoles.AsNoTracking()
+                                .Where(ur => ur.UserId == managerId)
+                                .Select(ur => ur.Role.RoleName)
+                                .ToListAsync()).ToArray();
+
+                            cache.Set(managerRolesKey, managerRoles, TimeSpan.FromSeconds(60));
+                        }
+
+                        if (!string.Equals(managerStatus, AccountConstants.Statuses.Active, StringComparison.OrdinalIgnoreCase)
+                            || !managerRoles.Contains("Manager"))
+                        {
+                            context.Fail("Tài khoản quản lý tạo phiên đăng nhập hộ không còn hiệu lực.");
+                            return;
+                        }
+
+                        if (!dbRoles.Contains("Student")
+                            || dbRoles.Any(r => r is "Admin" or "Manager" or "Guard"))
+                        {
+                            context.Fail("Tài khoản mục tiêu không hợp lệ cho phiên đăng nhập hộ.");
+                            return;
+                        }
+
+                        dbRoles = new[] { "Student" };
+                    }
+
                     var dbIdentity = context.Principal?.Identity as System.Security.Claims.ClaimsIdentity;
                     if (dbIdentity != null)
                     {
@@ -326,6 +411,15 @@ builder.Services.AddScoped<FUD.Services.Interfaces.Facilities.IDormService, FUD.
 builder.Services.Configure<FUD.Settings.pattern.CloudinarySettings>(builder.Configuration.GetSection("Cloudinary"));
 builder.Services.AddScoped<FUD.Infrastructure.Storage.IFileStorage, FUD.Infrastructure.Storage.CloudinaryStorage>();
 
+// AI Vision OCR (Gemini)
+builder.Services.Configure<FUD.Settings.pattern.GeminiSettings>(builder.Configuration.GetSection("Gemini"));
+builder.Services.AddHttpClient<FUD.Infrastructure.AI.IMeterOcrService, FUD.Infrastructure.AI.GeminiMeterOcrService>((sp, client) =>
+{
+    var settings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<FUD.Settings.pattern.GeminiSettings>>().Value;
+    var timeoutSec = settings.TimeoutSeconds > 0 ? settings.TimeoutSeconds : 25;
+    client.Timeout = TimeSpan.FromSeconds(timeoutSec);
+});
+
 // UC22: Violations DI
 builder.Services.AddScoped<FUD.Repositories.Interfaces.Violations.IViolationRepository, FUD.Repositories.Violations.ViolationRepository>();
 builder.Services.AddScoped<FUD.Services.Interfaces.Violations.IViolationService, FUD.Services.Violations.ViolationService>();
@@ -354,16 +448,6 @@ builder.Services.AddScoped<FUD.Services.Interfaces.Requests.IRequestService, FUD
 builder.Services.AddScoped<FUD.Services.Interfaces.Checkin.ICheckinService, FUD.Services.Checkin.CheckinService>();
 builder.Services.AddScoped<IResidencyService, ResidencyService>();
 
-builder.Services.AddControllers()
-    .AddJsonOptions(opts =>
-    {
-        opts.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
-        opts.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
-        opts.JsonSerializerOptions.Converters.Add(new FUD.Common.FlexibleStringConverter());
-    });
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-
 var app = builder.Build();
 
 
@@ -371,11 +455,52 @@ var app = builder.Build();
 // Bước 1: Forwarded Headers
 var forwardedOptions = new ForwardedHeadersOptions
 {
-    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+    ForwardLimit = 1
 };
-forwardedOptions.KnownNetworks.Clear();
-forwardedOptions.KnownProxies.Clear();
+var knownProxies = builder.Configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>() ?? Array.Empty<string>();
+foreach (var proxy in knownProxies)
+{
+    if (System.Net.IPAddress.TryParse(proxy?.Trim(), out var ip))
+    {
+        forwardedOptions.KnownProxies.Add(ip);
+    }
+}
+var knownNetworks = builder.Configuration.GetSection("ForwardedHeaders:KnownNetworks").Get<string[]>() ?? Array.Empty<string>();
+foreach (var cidr in knownNetworks)
+{
+    var parts = (cidr ?? string.Empty).Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    if (parts.Length == 2
+        && System.Net.IPAddress.TryParse(parts[0], out var prefixIp)
+        && int.TryParse(parts[1], out var prefixLen))
+    {
+        forwardedOptions.KnownNetworks.Add(new Microsoft.AspNetCore.HttpOverrides.IPNetwork(prefixIp, prefixLen));
+    }
+}
 app.UseForwardedHeaders(forwardedOptions);
+
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var feature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        if (feature?.Error != null)
+        {
+            logger.LogError(feature.Error, "Unhandled exception (TraceId: {TraceId})", context.TraceIdentifier);
+        }
+
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        context.Response.ContentType = "application/json; charset=utf-8";
+        var msg = app.Environment.IsDevelopment() && feature?.Error != null
+            ? $"Lỗi hệ thống (Dev): {feature.Error.Message}"
+            : $"Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau (Mã tra cứu: {context.TraceIdentifier}).";
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            ApiResponse.Fail(msg),
+            new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+        await context.Response.WriteAsync(json);
+    });
+});
 
 if (app.Environment.IsDevelopment())
 {
@@ -385,9 +510,11 @@ if (app.Environment.IsDevelopment())
 else
 {
     app.UseHsts();
+    if (builder.Configuration.GetValue<bool>("Https:EnableRedirection"))
+    {
+        app.UseHttpsRedirection();
+    }
 }
-
-// app.UseHttpsRedirection();
 
 // Bước 2: Routing
 app.UseRouting();
@@ -395,10 +522,7 @@ app.UseRouting();
 // Bước 3: CORS (Đứng trước RateLimiter để mã 429 vẫn có đủ header CORS)
 app.UseCors("FrontendOnly");
 
-// Bước 4: Rate Limiter
-app.UseRateLimiter();
-
-// Bước 5: Security Headers
+// Bước 4: Security Headers
 app.Use(async (context, next) =>
 {
     context.Response.Headers.Append("X-Content-Type-Options", "nosniff");
@@ -408,8 +532,9 @@ app.Use(async (context, next) =>
     await next();
 });
 
-// Bước 6: Authentication & Authorization
+// Bước 5: Authentication -> Rate Limiter (có UserId) -> Authorization
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 
 app.MapControllers();

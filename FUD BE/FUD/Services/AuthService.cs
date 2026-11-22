@@ -28,6 +28,9 @@ public class AuthService : IAuthService
     private readonly ILogger<AuthService> _logger;
     private readonly JwtSettings _jwtSettings;
 
+    private const int MaxFailedLoginAttempts = 5;
+    private static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
+
     private int AccessTokenMinutes => _jwtSettings.AccessTokenExpirationMinutes > 0 ? _jwtSettings.AccessTokenExpirationMinutes : 15;
     private int IdleTimeoutMinutes => _jwtSettings.IdleTimeoutMinutes > 0 ? _jwtSettings.IdleTimeoutMinutes : 30;
     private int AbsoluteSessionHours => _jwtSettings.AbsoluteSessionHours > 0 ? _jwtSettings.AbsoluteSessionHours : 24;
@@ -63,9 +66,19 @@ public class AuthService : IAuthService
             throw new UnauthorizedAccessException("Tên đăng nhập hoặc mật khẩu không chính xác.");
         }
 
+        var now = DateTime.UtcNow;
+        if (user.LockoutEnd.HasValue && user.LockoutEnd.Value > now)
+        {
+            var minutesLeft = Math.Max(1, (int)Math.Ceiling((user.LockoutEnd.Value - now).TotalMinutes));
+            throw new InvalidOperationException($"Tài khoản tạm thời bị khóa do đăng nhập sai nhiều lần. Vui lòng thử lại sau {minutesLeft} phút.");
+        }
+
         // 2. Xác minh mật khẩu
         if (string.IsNullOrEmpty(user.PasswordHash) || !_hasher.Verify(dto.Password, user.PasswordHash))
         {
+            var nextAttempts = user.FailedLoginCount + 1;
+            DateTime? lockoutUntil = nextAttempts >= MaxFailedLoginAttempts ? now.Add(LockoutDuration) : null;
+            await _userRepo.AtomicIncrementFailedLoginAsync(user.Id, lockoutUntil);
             throw new UnauthorizedAccessException("Tên đăng nhập hoặc mật khẩu không chính xác.");
         }
 
@@ -82,15 +95,31 @@ public class AuthService : IAuthService
             throw new UnauthorizedAccessException("Tài khoản sinh viên vui lòng đăng nhập bằng Google.");
         }
 
+        if (user.FailedLoginCount > 0 || user.LockoutEnd.HasValue)
+        {
+            await _userRepo.AtomicResetFailedLoginAsync(user.Id);
+        }
+
         return await GenerateAuthResultAsync(user, clientIp);
     }
 
     public async Task<(AuthResponseDto Response, string RawRefreshToken, DateTime CookieExpiresAt)> LoginWithGoogleAsync(GoogleLoginRequestDto dto, string clientIp)
     {
+        var expectedClientId = _config["Google:ClientId"];
+        if (string.IsNullOrWhiteSpace(expectedClientId))
+        {
+            _logger.LogError("Google:ClientId is not configured.");
+            throw new UnauthorizedAccessException("Xác thực Google chưa được cấu hình hợp lệ.");
+        }
+
+        if (string.IsNullOrWhiteSpace(dto?.IdToken))
+        {
+            throw new UnauthorizedAccessException("Xác thực Google không hợp lệ hoặc đã hết hạn.");
+        }
+
         string email;
         string subject;
         bool emailVerified;
-        var expectedClientId = _config["Google:ClientId"];
 
         try
         {
@@ -105,31 +134,8 @@ public class AuthService : IAuthService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "GoogleJsonWebSignature.ValidateAsync failed, attempting local JWT claim validation fallback");
-            try
-            {
-                var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
-                var jwt = handler.ReadJwtToken(dto.IdToken);
-                var iss = jwt.Issuer;
-                var audMatch = string.IsNullOrWhiteSpace(expectedClientId) ||
-                               jwt.Audiences.Any(a => string.Equals(a, expectedClientId, StringComparison.OrdinalIgnoreCase));
-                var issMatch = iss == "accounts.google.com" || iss == "https://accounts.google.com";
-
-                email = jwt.Claims.FirstOrDefault(c => c.Type == "email")?.Value ?? string.Empty;
-                subject = jwt.Claims.FirstOrDefault(c => c.Type == "sub")?.Value ?? string.Empty;
-                var verifiedClaim = jwt.Claims.FirstOrDefault(c => c.Type == "email_verified")?.Value;
-                emailVerified = string.Equals(verifiedClaim, "true", StringComparison.OrdinalIgnoreCase) || verifiedClaim == "1";
-
-                if (!audMatch || !issMatch || string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(subject))
-                {
-                    throw new UnauthorizedAccessException("Token Google không khớp ClientId hoặc thiếu thông tin định danh.");
-                }
-            }
-            catch (Exception fallbackEx)
-            {
-                _logger.LogWarning(fallbackEx, "Google token fallback validation failed");
-                throw new UnauthorizedAccessException("Xác thực Google không hợp lệ hoặc đã hết hạn.");
-            }
+            _logger.LogWarning(ex, "GoogleJsonWebSignature.ValidateAsync failed");
+            throw new UnauthorizedAccessException("Xác thực Google không hợp lệ hoặc đã hết hạn.");
         }
 
         if (!emailVerified)
@@ -138,7 +144,7 @@ public class AuthService : IAuthService
         email = email.ToLowerInvariant();
 
         // Tìm User theo GoogleId hoặc Email
-        var user = await _userRepo.GetByGoogleIdAsync(subject) 
+        var user = await _userRepo.GetByGoogleIdAsync(subject)
                    ?? await _userRepo.GetByEmailAsync(email);
 
         if (user == null)
@@ -146,9 +152,15 @@ public class AuthService : IAuthService
             throw new UnauthorizedAccessException("Tài khoản chưa được kích hoạt trong hệ thống KTX. Vui lòng liên hệ Ban Quản lý.");
         }
 
-        if (user.AccountStatus == "Banned" || user.AccountStatus == "Locked")
+        if (!string.Equals(user.AccountStatus, AccountConstants.Statuses.Active, StringComparison.OrdinalIgnoreCase))
         {
             throw new UnauthorizedAccessException("Tài khoản của bạn đã bị khóa.");
+        }
+
+        var roles = user.UserRoleUsers.Select(ur => ur.Role.RoleName).ToList();
+        if (!roles.Contains("Student") || roles.Any(r => r is "Admin" or "Manager" or "Guard"))
+        {
+            throw new UnauthorizedAccessException("Chỉ tài khoản sinh viên mới được đăng nhập bằng Google.");
         }
 
         // Liên kết GoogleId nếu trước đó chỉ có Email
@@ -255,7 +267,7 @@ public class AuthService : IAuthService
     public async Task<UserInfoDto> GetCurrentUserAsync(int userId)
     {
         var user = await _userRepo.GetByIdAsync(userId);
-        if (user == null || user.AccountStatus == "Banned" || user.AccountStatus == "Locked")
+        if (user == null || !string.Equals(user.AccountStatus, AccountConstants.Statuses.Active, StringComparison.OrdinalIgnoreCase))
             throw new UnauthorizedAccessException("Người dùng không tồn tại hoặc đã bị khóa.");
 
         var roles = user.UserRoleUsers.Select(ur => ur.Role.RoleName).ToList();

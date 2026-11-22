@@ -35,6 +35,7 @@ namespace FUD.Controllers.Facilities
         }
 
         [HttpPost]
+        [Authorize(Roles = "Manager,Admin")]
         public async Task<IActionResult> Create([FromBody] CreateRoomDto dto)
         {
             if (!ModelState.IsValid)
@@ -53,6 +54,7 @@ namespace FUD.Controllers.Facilities
         }
 
         [HttpPut("{id:int}")]
+        [Authorize(Roles = "Manager,Admin")]
         public async Task<IActionResult> Update(int id, [FromBody] UpdateRoomDto dto)
         {
             if (!ModelState.IsValid)
@@ -68,6 +70,7 @@ namespace FUD.Controllers.Facilities
         }
 
         [HttpPatch("{id:int}/status")]
+        [Authorize(Roles = "Manager,Admin")]
         public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateRoomStatusDto dto)
         {
             if (!ModelState.IsValid)

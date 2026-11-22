@@ -6,6 +6,8 @@ import {
   type TransferInspectionTaskDto,
 } from '../../services/api';
 import { formatDateTime } from '../../utils/dateUtils';
+import { MeterPhotoScanner } from '../../components/MeterPhotoScanner';
+import { ImageLightboxModal } from '../../components/ImageLightboxModal';
 import '../../styles/checkin.css';
 import '../../styles/violation.css';
 
@@ -40,6 +42,9 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
 
   const [currElectricity, setCurrElectricity] = useState<string>('0');
   const [currWater, setCurrWater] = useState<string>('0');
+  const [elecEvidenceUrl, setElecEvidenceUrl] = useState<string>('');
+  const [waterEvidenceUrl, setWaterEvidenceUrl] = useState<string>('');
+  const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string; subtitle?: string } | null>(null);
   const [note, setNote] = useState('');
   const [witnessConfirmed, setWitnessConfirmed] = useState(false);
 
@@ -74,6 +79,8 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
     if (submitting) return;
     setSelectedTask(null);
     setModalError('');
+    setElecEvidenceUrl('');
+    setWaterEvidenceUrl('');
   };
 
   useEffect(() => {
@@ -96,6 +103,8 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
     setWitnessConfirmed(false);
     setCurrElectricity(String(task.previousElectricityReading ?? 0));
     setCurrWater(String(task.previousWaterReading ?? 0));
+    setElecEvidenceUrl('');
+    setWaterEvidenceUrl('');
 
     if (!task.handoverCompleted) {
       setLoadingEquip(true);
@@ -172,6 +181,8 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
       const updated = await requestApi.submitTransferInspection(selectedTask.requestId, {
         currentElectricityReading: elecVal,
         currentWaterReading: waterVal,
+        electricityEvidenceImageUrl: elecEvidenceUrl || undefined,
+        waterEvidenceImageUrl: waterEvidenceUrl || undefined,
         note: note.trim() || undefined,
         items: equipments.map((eq) => ({
           equipmentId: eq.equipmentId,
@@ -425,6 +436,7 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
                             <th>Tiêu thụ phòng</th>
                             <th>Đơn giá</th>
                             <th>Chia {selectedTask.activeResidentCount} SV trong phòng</th>
+                            <th>Ảnh công tơ</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -436,6 +448,34 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
                               <td>{mr.consumption}</td>
                               <td>{formatVnd(mr.unitPrice)}</td>
                               <td style={{ fontWeight: 700, color: '#0369A1' }}>{formatVnd(mr.studentShareCost)}</td>
+                              <td>
+                                {mr.evidenceImageUrl ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setLightboxImage({
+                                        url: mr.evidenceImageUrl!,
+                                        title: `Ảnh công tơ ${mr.meterType === 'Electricity' ? 'Điện' : 'Nước'} — P.${selectedTask.fromRoomNumber}`,
+                                        subtitle: `Chỉ số: ${mr.previousValue} → ${mr.currentValue}`,
+                                      })
+                                    }
+                                    style={{
+                                      padding: '3px 9px',
+                                      borderRadius: 6,
+                                      border: '1px solid #BFDBFE',
+                                      background: '#EFF6FF',
+                                      color: '#1D4ED8',
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    Xem ảnh
+                                  </button>
+                                ) : (
+                                  <span style={{ color: '#94A3B8' }}>—</span>
+                                )}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -516,6 +556,24 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
                       <div style={{ fontSize: 12, color: '#64748B', marginBottom: 8 }}>
                         Chỉ số gần nhất: <strong>{selectedTask.previousElectricityReading} kWh</strong> · Đơn giá: <strong>{formatVnd(selectedTask.electricityUnitPrice)}/kWh</strong>
                       </div>
+                      <div style={{ marginBottom: 10 }}>
+                        <MeterPhotoScanner
+                          expectedMeterType="Electricity"
+                          previousValue={selectedTask.previousElectricityReading}
+                          saveEvidence
+                          disabled={submitting}
+                          label={`P.${selectedTask.fromRoomNumber}`}
+                          existingImageUrl={elecEvidenceUrl || undefined}
+                          onScanned={(res) => {
+                            if (res.readingValue !== undefined) {
+                              setCurrElectricity(String(res.readingValue));
+                            }
+                            if (res.evidenceImageUrl) {
+                              setElecEvidenceUrl(res.evidenceImageUrl);
+                            }
+                          }}
+                        />
+                      </div>
                       <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
                         Chỉ số điện hiện tại (kWh) <span style={{ color: '#DC2626' }}>*</span>
                       </label>
@@ -539,6 +597,24 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
                       </div>
                       <div style={{ fontSize: 12, color: '#64748B', marginBottom: 8 }}>
                         Chỉ số gần nhất: <strong>{selectedTask.previousWaterReading} m³</strong> · Đơn giá: <strong>{formatVnd(selectedTask.waterUnitPrice)}/m³</strong>
+                      </div>
+                      <div style={{ marginBottom: 10 }}>
+                        <MeterPhotoScanner
+                          expectedMeterType="Water"
+                          previousValue={selectedTask.previousWaterReading}
+                          saveEvidence
+                          disabled={submitting}
+                          label={`P.${selectedTask.fromRoomNumber}`}
+                          existingImageUrl={waterEvidenceUrl || undefined}
+                          onScanned={(res) => {
+                            if (res.readingValue !== undefined) {
+                              setCurrWater(String(res.readingValue));
+                            }
+                            if (res.evidenceImageUrl) {
+                              setWaterEvidenceUrl(res.evidenceImageUrl);
+                            }
+                          }}
+                        />
                       </div>
                       <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
                         Chỉ số nước hiện tại (m³) <span style={{ color: '#DC2626' }}>*</span>
@@ -706,6 +782,13 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
           </div>
         </div>
       )}
+
+      <ImageLightboxModal
+        imageUrl={lightboxImage?.url ?? null}
+        title={lightboxImage?.title}
+        subtitle={lightboxImage?.subtitle}
+        onClose={() => setLightboxImage(null)}
+      />
     </div>
   );
 };

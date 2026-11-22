@@ -1,7 +1,4 @@
 export const TOKEN_KEY = 'fud_accessToken';
-export const USER_KEY = 'fud_currentUser';
-export const ROLE_KEY = 'fud_userRole';
-export const VIEW_KEY = 'fud_currentView';
 export const LAST_ACTIVITY_KEY = 'fud_lastActivityAt';
 export const SESSION_META_KEY = 'fud_sessionMeta';
 
@@ -22,7 +19,6 @@ export interface SessionMeta {
 export type CrossTabAuthMessage = {
   type: 'LOGOUT' | 'EXPIRED' | 'TOKEN_UPDATED';
   reason?: SessionExpirationReason;
-  token?: string | null;
   at: number;
 };
 
@@ -183,12 +179,38 @@ export function isUserIdleForPolling(graceMs: number = POLLING_IDLE_GRACE_MS): b
   return Date.now() - lastActivityMs >= graceMs;
 }
 
+export function clearLegacyAuthKeys(): void {
+  safeRemoveItem(TOKEN_KEY);
+  safeRemoveItem('fud_currentUser');
+  safeRemoveItem('fud_userRole');
+  safeRemoveItem('fud_currentView');
+}
+
+export function clearPaymentClientCaches(): void {
+  safeRemoveItem('fud_payment_history_cache');
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        if (key && key.startsWith('fud_active_qr_tx_')) {
+          keysToRemove.push(key);
+        }
+      }
+      for (const key of keysToRemove) {
+        sessionStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // storage unavailable
+  }
+}
+
 export function clearSessionStorage(): void {
   lastRecordedMemoryMs = 0;
   safeRemoveItem(TOKEN_KEY);
-  safeRemoveItem(USER_KEY);
-  safeRemoveItem(ROLE_KEY);
-  safeRemoveItem(VIEW_KEY);
+  clearLegacyAuthKeys();
+  clearPaymentClientCaches();
   safeRemoveItem(LAST_ACTIVITY_KEY);
   safeRemoveItem(SESSION_META_KEY);
 }
@@ -244,7 +266,6 @@ export function subscribeCrossTabAuth(handler: (msg: CrossTabAuthMessage) => voi
     handler({
       type: candidate.type,
       reason: candidate.reason,
-      token: candidate.token,
       at: candidate.at,
     });
   };
@@ -273,10 +294,7 @@ export function subscribeCrossTabAuth(handler: (msg: CrossTabAuthMessage) => voi
       return;
     }
 
-    if (
-      (event.key === TOKEN_KEY && event.newValue === null) ||
-      event.key === null
-    ) {
+    if (event.key === null) {
       if (Date.now() < suppressTokenNullFallbackUntil) return;
       deliver({ type: 'LOGOUT', at: Date.now() });
     }

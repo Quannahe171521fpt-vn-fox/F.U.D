@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { requestApi, violationApi, type GuardLookupDto, type RequestItemDto } from '../../services/api';
 import { Pagination } from '../../components/Pagination';
+import { ImageLightboxModal } from '../../components/ImageLightboxModal';
 import { formatDateTime } from '../../utils/dateUtils';
 import { removeVietnameseTones } from '../../utils/textUtils';
+import { toSafeHref } from '../../utils/urlUtils';
 import { useIdleAwarePolling } from '../../utils/useIdleAwarePolling';
 import {
   type DBRequestType,
@@ -20,6 +22,7 @@ export const ManagerRequestManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [meterLightbox, setMeterLightbox] = useState<{ url: string; title: string; subtitle?: string } | null>(null);
 
   // Lọc
   const [filterType, setFilterType] = useState<string>('');
@@ -701,11 +704,15 @@ export const ManagerRequestManagement: React.FC = () => {
                   <div style={{ marginTop: 8 }}>
                     <div style={{ fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: 4 }}>Minh chứng sinh viên đính kèm:</div>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                      {selectedRequest.complaint.evidences.map((url, idx) => (
-                        <a key={idx} href={url} target="_blank" rel="noreferrer">
-                          <img src={url} alt="complaint-evidence" style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #CBD5E1' }} />
-                        </a>
-                      ))}
+                      {selectedRequest.complaint.evidences.map((url, idx) => {
+                        const safeUrl = toSafeHref(url);
+                        if (!safeUrl) return null;
+                        return (
+                          <a key={idx} href={safeUrl} target="_blank" rel="noopener noreferrer">
+                            <img src={safeUrl} alt="complaint-evidence" style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #CBD5E1' }} />
+                          </a>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -791,6 +798,32 @@ export const ManagerRequestManagement: React.FC = () => {
                                 </div>
                                 <div>Chỉ số: {mr.previousValue} → <strong>{mr.currentValue}</strong> (Dùng: {mr.consumption})</div>
                                 <div>Phí chia {mr.residentCount} SV: <strong style={{ color: '#0369A1' }}>{mr.studentShareCost.toLocaleString('vi-VN')} đ</strong></div>
+                                {mr.evidenceImageUrl && (
+                                  <div style={{ marginTop: 6 }}>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setMeterLightbox({
+                                          url: mr.evidenceImageUrl!,
+                                          title: `Ảnh công tơ ${mr.meterType === 'Electricity' ? 'Điện' : 'Nước'} — P.${bt.fromRoomNumber}`,
+                                          subtitle: `Chỉ số: ${mr.previousValue} → ${mr.currentValue}`,
+                                        })
+                                      }
+                                      style={{
+                                        padding: '3px 9px',
+                                        borderRadius: 6,
+                                        border: '1px solid #BFDBFE',
+                                        background: '#EFF6FF',
+                                        color: '#1D4ED8',
+                                        fontSize: 11,
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      Xem ảnh công tơ
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -1167,6 +1200,13 @@ export const ManagerRequestManagement: React.FC = () => {
           </div>
         </div>
       )}
+
+      <ImageLightboxModal
+        imageUrl={meterLightbox?.url ?? null}
+        title={meterLightbox?.title}
+        subtitle={meterLightbox?.subtitle}
+        onClose={() => setMeterLightbox(null)}
+      />
     </div>
   );
 };

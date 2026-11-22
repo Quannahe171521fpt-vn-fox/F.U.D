@@ -3,6 +3,7 @@ import { violationApi, type ViolationItem } from '../../services/api';
 import { Pagination } from '../../components/Pagination';
 import { formatDateTime, formatDate } from '../../utils/dateUtils';
 import { removeVietnameseTones } from '../../utils/textUtils';
+import { toSafeHref } from '../../utils/urlUtils';
 import { useIdleAwarePolling } from '../../utils/useIdleAwarePolling';
 import '../../styles/violation.css';
 
@@ -375,11 +376,15 @@ export const ViolationListPage: React.FC = () => {
                   <td style={{ padding: '10px' }}>
                     {v.evidences && v.evidences.length > 0 ? (
                       <div style={{ display: 'flex', gap: 4 }}>
-                        {v.evidences.slice(0, 2).map((e, idx) => (
-                          <a key={e.id || idx} href={e.fileUrl} target="_blank" rel="noreferrer" title="Xem ảnh">
-                            <img src={e.fileUrl} alt="MC" style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 4, border: '1px solid #cbd5e1' }} />
-                          </a>
-                        ))}
+                        {v.evidences.slice(0, 2).map((e, idx) => {
+                          const safeUrl = toSafeHref(e.fileUrl);
+                          if (!safeUrl) return null;
+                          return (
+                            <a key={e.id || idx} href={safeUrl} target="_blank" rel="noopener noreferrer" title="Xem ảnh">
+                              <img src={safeUrl} alt="MC" style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 4, border: '1px solid #cbd5e1' }} />
+                            </a>
+                          );
+                        })}
                       </div>
                     ) : <span style={{ color: '#94a3b8', fontSize: 11 }}>—</span>}
                   </td>
@@ -452,11 +457,15 @@ export const ViolationListPage: React.FC = () => {
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: 6 }}>Ảnh minh chứng đã tải lên:</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: '8px' }}>
-                  {selectedViolation.evidences.map((ev, i) => (
-                    <a key={i} href={ev.fileUrl} target="_blank" rel="noreferrer">
-                      <img src={ev.fileUrl} alt="evidence" style={{ width: '100%', height: '70px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-                    </a>
-                  ))}
+                  {selectedViolation.evidences.map((ev, i) => {
+                    const safeUrl = toSafeHref(ev.fileUrl);
+                    if (!safeUrl) return null;
+                    return (
+                      <a key={i} href={safeUrl} target="_blank" rel="noopener noreferrer">
+                        <img src={safeUrl} alt="evidence" style={{ width: '100%', height: '70px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+                      </a>
+                    );
+                  })}
                 </div>
               </div>
             )}

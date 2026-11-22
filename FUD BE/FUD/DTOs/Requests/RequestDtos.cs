@@ -140,6 +140,7 @@ namespace FUD.DTOs.Requests
         public int ResidentCount { get; set; }
         public DateTime RecordedTime { get; set; }
         public string? Note { get; set; }
+        public string? EvidenceImageUrl { get; set; }
     }
 
     public class BedTransferInvoiceSummaryDto
@@ -202,6 +203,8 @@ namespace FUD.DTOs.Requests
     {
         public decimal CurrentElectricityReading { get; set; }
         public decimal CurrentWaterReading { get; set; }
+        public string? ElectricityEvidenceImageUrl { get; set; }
+        public string? WaterEvidenceImageUrl { get; set; }
         public string? Note { get; set; }
         public List<TransferInspectionItemInputDto> Items { get; set; } = new();
     }

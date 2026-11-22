@@ -5,9 +5,11 @@ using FUD.Common;
 using FUD.DTOs.Auth;
 using FUD.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Hosting;
 
 namespace FUD.Controllers;
 
@@ -16,10 +18,12 @@ namespace FUD.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly IWebHostEnvironment? _env;
 
-    public AuthController(IAuthService authService)
+    public AuthController(IAuthService authService, IWebHostEnvironment? env = null)
     {
         _authService = authService;
+        _env = env;
     }
 
     [HttpPost("login")]
@@ -123,7 +127,7 @@ public class AuthController : ControllerBase
     private CookieOptions GetCookieOptions(DateTime? expires = null) => new()
     {
         HttpOnly = true,
-        Secure = HttpContext.Request.IsHttps,
+        Secure = (_env != null && !_env.IsDevelopment()) || HttpContext.Request.IsHttps,
         SameSite = SameSiteMode.Lax,
         Path = "/api/auth",
         Expires = expires.HasValue ? new DateTimeOffset(DateTime.SpecifyKind(expires.Value, DateTimeKind.Utc)) : null

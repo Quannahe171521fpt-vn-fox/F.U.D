@@ -1,21 +1,50 @@
 using FUD.DTOs.Utilities;
+using FUD.Infrastructure.AI;
 using FUD.Infrastructure.Excel;
+using FUD.Infrastructure.Storage;
 using FUD.Models;
 using FUD.Repositories.Interfaces.Utilities;
 using FUD.Services.Interfaces;
 using FUD.Services.Interfaces.Utilities;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 
 namespace FUD.Services.Utilities
 {
     public class EwService : IEwService
     {
+        private const long MaxPhotoSizeBytes = 10L * 1024 * 1024;
+        private const decimal ElectricSpikeThreshold = 1500m;
+        private const decimal WaterSpikeThreshold = 100m;
+
         private readonly IEwRepository _ewRepo;
         private readonly IInAppNotificationService? _inAppNotificationService;
+        private readonly IMeterOcrService? _meterOcrService;
+        private readonly IFileStorage? _fileStorage;
+        private readonly IConfiguration? _configuration;
 
-        public EwService(IEwRepository ewRepo, IInAppNotificationService? inAppNotificationService = null)
+        public EwService(
+            IEwRepository ewRepo,
+            IInAppNotificationService? inAppNotificationService = null,
+            IMeterOcrService? meterOcrService = null,
+            IFileStorage? fileStorage = null,
+            IConfiguration? configuration = null)
         {
             _ewRepo = ewRepo;
             _inAppNotificationService = inAppNotificationService;
+            _meterOcrService = meterOcrService;
+            _fileStorage = fileStorage;
+            _configuration = configuration;
+        }
+
+        private async Task<int> RequireGuardDormIdAsync(int? userId)
+        {
+            if (!userId.HasValue)
+                throw new UnauthorizedAccessException("Không xác định được tài khoản bảo vệ.");
+            var guardDormId = await _ewRepo.GetGuardDormIdAsync(userId.Value);
+            if (!guardDormId.HasValue)
+                throw new UnauthorizedAccessException("Tài khoản bảo vệ chưa được phân công khu KTX.");
+            return guardDormId.Value;
         }
 
         public async Task<IEnumerable<object>> GetUsagesAsync(
@@ -29,13 +58,9 @@ namespace FUD.Services.Utilities
             int? userId = null,
             bool isManager = false)
         {
-            if (!isManager && userId.HasValue)
+            if (!isManager)
             {
-                var guardDormId = await _ewRepo.GetGuardDormIdAsync(userId.Value);
-                if (guardDormId.HasValue)
-                {
-                    dormId = guardDormId.Value;
-                }
+                dormId = await RequireGuardDormIdAsync(userId);
             }
 
             return await _ewRepo.GetGroupedUsagesAsync(blockCode, meterType, month, year, termId, billingPeriodId, dormId);
@@ -66,13 +91,10 @@ namespace FUD.Services.Utilities
             var allRooms = await _ewRepo.GetAllActiveRoomsWithBlockAsync();
             var readings = await _ewRepo.GetReadingsByPeriodAsync(billingPeriodId);
 
-            if (!isManager && userId.HasValue)
+            if (!isManager)
             {
-                var guardDormId = await _ewRepo.GetGuardDormIdAsync(userId.Value);
-                if (guardDormId.HasValue)
-                {
-                    allRooms = allRooms.Where(r => r.Block.DormId == guardDormId.Value).ToList();
-                }
+                var guardDormId = await RequireGuardDormIdAsync(userId);
+                allRooms = allRooms.Where(r => r.Block.DormId == guardDormId).ToList();
             }
 
             var blockGroups = allRooms
@@ -151,9 +173,23 @@ namespace FUD.Services.Utilities
 
                 if (isCompleted) completedCount++;
 
+                string displayBlockCode;
+                if (bg.Key.BaseRoom.StartsWith(bg.Key.BlockCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    displayBlockCode = bg.Key.BaseRoom;
+                }
+                else if (bg.Key.BlockCode.EndsWith(bg.Key.BaseRoom, StringComparison.OrdinalIgnoreCase))
+                {
+                    displayBlockCode = bg.Key.BlockCode;
+                }
+                else
+                {
+                    displayBlockCode = $"{bg.Key.BlockCode}{bg.Key.BaseRoom}";
+                }
+
                 blockItems.Add(new BlockProgressItemDto
                 {
-                    BlockCode = bg.Key.BaseRoom,
+                    BlockCode = displayBlockCode,
                     BlockName = bg.Key.BlockName,
                     DormName = bg.Key.DormName,
                     ElectricityLeft = elecL,
@@ -219,7 +255,9 @@ namespace FUD.Services.Utilities
                     RoomNumber = roomL.RoomNumber,
                     OldReading = oldElec?.CurrentValue ?? 0,
                     AlreadyRecorded = curElec != null,
-                    ExistingCurrentValue = curElec?.CurrentValue
+                    ExistingCurrentValue = curElec?.CurrentValue,
+                    ExistingEvidenceImageUrl = curElec?.EvidenceImageUrl,
+                    ExistingSource = curElec?.Source
                 };
 
                 var curWater = await _ewRepo.GetReadingForPeriodAsync(period.Id, roomL.Id, "Water");
@@ -230,7 +268,9 @@ namespace FUD.Services.Utilities
                     RoomNumber = roomL.RoomNumber,
                     OldReading = oldWater?.CurrentValue ?? 0,
                     AlreadyRecorded = curWater != null,
-                    ExistingCurrentValue = curWater?.CurrentValue
+                    ExistingCurrentValue = curWater?.CurrentValue,
+                    ExistingEvidenceImageUrl = curWater?.EvidenceImageUrl,
+                    ExistingSource = curWater?.Source
                 };
             }
 
@@ -244,7 +284,9 @@ namespace FUD.Services.Utilities
                     RoomNumber = roomR.RoomNumber,
                     OldReading = oldElec?.CurrentValue ?? 0,
                     AlreadyRecorded = curElec != null,
-                    ExistingCurrentValue = curElec?.CurrentValue
+                    ExistingCurrentValue = curElec?.CurrentValue,
+                    ExistingEvidenceImageUrl = curElec?.EvidenceImageUrl,
+                    ExistingSource = curElec?.Source
                 };
 
                 var curWater = await _ewRepo.GetReadingForPeriodAsync(period.Id, roomR.Id, "Water");
@@ -255,7 +297,9 @@ namespace FUD.Services.Utilities
                     RoomNumber = roomR.RoomNumber,
                     OldReading = oldWater?.CurrentValue ?? 0,
                     AlreadyRecorded = curWater != null,
-                    ExistingCurrentValue = curWater?.CurrentValue
+                    ExistingCurrentValue = curWater?.CurrentValue,
+                    ExistingEvidenceImageUrl = curWater?.EvidenceImageUrl,
+                    ExistingSource = curWater?.Source
                 };
             }
 
@@ -354,43 +398,62 @@ namespace FUD.Services.Utilities
                     throw new UnauthorizedAccessException($"Bảo vệ không có quyền ghi nhận chỉ số cho toà/phòng '{request.BlockCode}' thuộc KTX {blockDormName}. Bạn chỉ được quản lý KTX {guardDormName}.");
                 }
             }
+            else
+            {
+                var guard = await _ewRepo.GetGuardByUserIdAsync(guardUserId);
+                if (guard == null)
+                    throw new InvalidOperationException("Chỉ tài khoản có hồ sơ Bảo vệ mới được phép ghi nhận chỉ số công tơ.");
+            }
 
             var roomL = rooms.FirstOrDefault(r => r.RoomNumber.EndsWith("L", StringComparison.OrdinalIgnoreCase)) ?? rooms.First();
-            var roomR = rooms.FirstOrDefault(r => r.RoomNumber.EndsWith("R", StringComparison.OrdinalIgnoreCase)) ?? (rooms.Count > 1 ? rooms.Last() : null);
+            var rawRoomR = rooms.FirstOrDefault(r => r.RoomNumber.EndsWith("R", StringComparison.OrdinalIgnoreCase)) ?? (rooms.Count > 1 ? rooms.Last() : null);
+            var roomR = rawRoomR != null && rawRoomR.Id != roomL?.Id ? rawRoomR : null;
 
-            var pairs = new List<(Room? Room, string MeterType, decimal? NewVal)>
+            var elecLeftUrl = MeterEvidenceUrlValidator.ValidateOrNull(request.ElectricityLeftEvidenceUrl, _configuration);
+            var elecRightUrl = MeterEvidenceUrlValidator.ValidateOrNull(request.ElectricityRightEvidenceUrl, _configuration);
+            var waterLeftUrl = MeterEvidenceUrlValidator.ValidateOrNull(request.WaterLeftEvidenceUrl, _configuration);
+            var waterRightUrl = MeterEvidenceUrlValidator.ValidateOrNull(request.WaterRightEvidenceUrl, _configuration);
+
+            var elecLeftSrc = NormalizeManualSource(request.ElectricityLeftSource);
+            var elecRightSrc = NormalizeManualSource(request.ElectricityRightSource);
+            var waterLeftSrc = NormalizeManualSource(request.WaterLeftSource);
+            var waterRightSrc = NormalizeManualSource(request.WaterRightSource);
+
+            var pairs = new List<(Room? Room, string MeterType, decimal? NewVal, string? EvidenceUrl, string? RequestedSource)>
             {
-                (roomL, "Electricity", request.ElectricityLeftNewValue),
-                (roomR, "Electricity", request.ElectricityRightNewValue),
-                (roomL, "Water", request.WaterLeftNewValue),
-                (roomR, "Water", request.WaterRightNewValue)
+                (roomL, "Electricity", request.ElectricityLeftNewValue, elecLeftUrl, elecLeftSrc),
+                (roomR, "Electricity", request.ElectricityRightNewValue, elecRightUrl, elecRightSrc),
+                (roomL, "Water", request.WaterLeftNewValue, waterLeftUrl, waterLeftSrc),
+                (roomR, "Water", request.WaterRightNewValue, waterRightUrl, waterRightSrc)
             };
+
+            if (!request.ImportOnlyValid)
+            {
+                foreach (var (room, meterType, newVal, _, _) in pairs)
+                {
+                    if (room != null && newVal.HasValue && newVal.Value < 0)
+                        throw new ArgumentException($"Chỉ số {meterType} của phòng {room.RoomNumber} không được âm");
+                }
+            }
 
             var response = new ManualConfirmResponseDto();
             var affectedRoomIds = new HashSet<int>();
 
-            foreach (var (room, meterType, newVal) in pairs)
+            foreach (var (room, meterType, newVal, evidenceUrl, requestedSource) in pairs)
             {
                 if (room == null || !newVal.HasValue) continue;
 
                 if (newVal.Value < 0)
                 {
-                    if (request.ImportOnlyValid)
+                    response.Skipped++;
+                    response.Results.Add(new ReadingConfirmResultDto
                     {
-                        response.Skipped++;
-                        response.Results.Add(new ReadingConfirmResultDto
-                        {
-                            RoomNumber = room.RoomNumber,
-                            MeterType = meterType,
-                            Status = "Skipped",
-                            AnomalyReason = "Chỉ số không được âm"
-                        });
-                        continue;
-                    }
-                    else
-                    {
-                        throw new ArgumentException($"Chỉ số {meterType} của phòng {room.RoomNumber} không được âm");
-                    }
+                        RoomNumber = room.RoomNumber,
+                        MeterType = meterType,
+                        Status = "Skipped",
+                        AnomalyReason = "Chỉ số không được âm"
+                    });
+                    continue;
                 }
 
                 var prevReading = await _ewRepo.GetLatestReadingBeforePeriodAsync(room.Id, meterType, period.TargetMonth, period.TargetYear);
@@ -399,6 +462,14 @@ namespace FUD.Services.Utilities
 
                 var existing = await _ewRepo.GetReadingForPeriodAsync(period.Id, room.Id, meterType);
                 bool isNew = (existing == null);
+
+                if (string.Equals(requestedSource, "PhotoOCR", StringComparison.Ordinal) &&
+                    evidenceUrl == null &&
+                    string.IsNullOrWhiteSpace(existing?.EvidenceImageUrl))
+                {
+                    throw new ArgumentException("Không thể gán nguồn PhotoOCR khi thiếu ảnh minh chứng hợp lệ.");
+                }
+
                 var reading = existing ?? new MeterReading
                 {
                     BillingPeriodId = period.Id,
@@ -407,11 +478,26 @@ namespace FUD.Services.Utilities
                     Source = "Manual"
                 };
 
+                bool valueChanged = !isNew && reading.CurrentValue != newVal.Value;
                 reading.PreviousValue = oldVal;
                 reading.CurrentValue = newVal.Value;
                 reading.RecordedById = guardUserId;
                 reading.RecordedTime = DateTime.UtcNow;
                 reading.Note = request.Note;
+
+                if (evidenceUrl != null)
+                {
+                    reading.EvidenceImageUrl = evidenceUrl;
+                    reading.Source = "PhotoOCR";
+                }
+                else if (isNew)
+                {
+                    reading.Source = "Manual";
+                }
+                else if (valueChanged)
+                {
+                    reading.Source = "Manual";
+                }
 
                 var (isFlagged, anomalyReason) = CheckReadingAnomaly(meterType, oldVal, newVal.Value, prevTermCons);
 
@@ -904,9 +990,9 @@ namespace FUD.Services.Utilities
         public async Task<List<ImportBatchItemDto>> GetImportBatchesAsync(int? billingPeriodId, int? userId = null, bool isManager = false)
         {
             int? dormId = null;
-            if (!isManager && userId.HasValue)
+            if (!isManager)
             {
-                dormId = await _ewRepo.GetGuardDormIdAsync(userId.Value);
+                dormId = await RequireGuardDormIdAsync(userId);
             }
 
             var batches = await _ewRepo.GetImportBatchesAsync(billingPeriodId, dormId);
@@ -930,17 +1016,15 @@ namespace FUD.Services.Utilities
         public async Task<byte[]> GenerateExcelTemplateAsync(int? billingPeriodId, string? dormCode, string? meterType, int? userId = null, bool isManager = false)
         {
             int? guardDormId = null;
-            if (!isManager && userId.HasValue)
+            if (!isManager)
             {
+                if (!userId.HasValue)
+                    throw new UnauthorizedAccessException("Không xác định được tài khoản bảo vệ.");
                 var guard = await _ewRepo.GetGuardByUserIdAsync(userId.Value);
-                if (guard != null)
-                {
-                    guardDormId = guard.DormId;
-                    if (guard.Dorm != null)
-                    {
-                        dormCode = guard.Dorm.Code;
-                    }
-                }
+                if (guard == null || guard.DormId <= 0 || string.IsNullOrWhiteSpace(guard.Dorm?.Code))
+                    throw new UnauthorizedAccessException("Tài khoản bảo vệ chưa được phân công khu KTX.");
+                guardDormId = guard.DormId;
+                dormCode = guard.Dorm.Code;
             }
 
             BillingPeriod? period = null;
@@ -1378,6 +1462,202 @@ namespace FUD.Services.Utilities
             };
         }
 
+        // ── AI Vision Meter Photo Scan ──────────────────────────
+        public async Task<MeterPhotoScanResponseDto> ScanMeterPhotoAsync(
+            IFormFile photo,
+            string? expectedMeterType,
+            decimal? previousValue,
+            bool saveEvidence = true,
+            CancellationToken cancellationToken = default)
+        {
+            if (photo == null || photo.Length == 0)
+                throw new ArgumentException("Vui lòng chụp hoặc chọn ảnh công tơ.");
+
+            if (photo.Length > MaxPhotoSizeBytes)
+                throw new ArgumentException("Ảnh tải lên không được vượt quá 10MB.");
+
+            byte[] imageBytes;
+            using (var ms = new MemoryStream())
+            {
+                using var inputStream = photo.OpenReadStream();
+                await inputStream.CopyToAsync(ms, cancellationToken);
+                imageBytes = ms.ToArray();
+            }
+
+            if (imageBytes.Length == 0)
+                throw new ArgumentException("Vui lòng chụp hoặc chọn ảnh công tơ.");
+
+            if (imageBytes.Length > MaxPhotoSizeBytes)
+                throw new ArgumentException("Ảnh tải lên không được vượt quá 10MB.");
+
+            var (detectedMime, extension) = DetectImageMimeFromMagicBytes(imageBytes);
+            if (detectedMime == null)
+                throw new ArgumentException("Chỉ chấp nhận ảnh định dạng JPG, PNG hoặc WebP hợp lệ.");
+
+            if (_meterOcrService == null)
+                throw new InvalidOperationException("Dịch vụ AI nhận diện công tơ chưa được cấu hình.");
+
+            var normalizedExpectedType = NormalizeExpectedMeterType(expectedMeterType);
+            var ocr = await _meterOcrService.ExtractMeterReadingAsync(
+                imageBytes,
+                detectedMime,
+                normalizedExpectedType,
+                cancellationToken);
+
+            var warnings = new List<string>();
+            string? evidenceUrl = null;
+
+            if (saveEvidence && ocr.IsMeterImage && _fileStorage != null)
+            {
+                try
+                {
+                    var safeFileName = $"meter-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid():N}{extension}";
+                    using var uploadStream = new MemoryStream(imageBytes, writable: false);
+                    var uploadFile = new FormFile(uploadStream, 0, imageBytes.Length, "photo", safeFileName)
+                    {
+                        Headers = new HeaderDictionary(),
+                        ContentType = detectedMime
+                    };
+                    evidenceUrl = await _fileStorage.UploadImageAsync(uploadFile, "meter-readings");
+                }
+                catch (Exception)
+                {
+                    warnings.Add("Không thể lưu ảnh minh chứng lên máy chủ ảnh, bạn vẫn có thể xác nhận chỉ số.");
+                }
+            }
+
+            var confidenceLevel = ocr.Confidence >= 0.85
+                ? "High"
+                : ocr.Confidence >= 0.60 ? "Medium" : "Low";
+
+            bool meterTypeMismatch = false;
+            decimal? estimatedConsumption = null;
+            string validationStatus;
+
+            if (!ocr.IsMeterImage || !ocr.ReadingValue.HasValue)
+            {
+                validationStatus = "Error";
+                warnings.Insert(0, "Không nhận diện được chỉ số công tơ từ ảnh. Vui lòng chụp rõ mặt số hơn hoặc nhập tay.");
+            }
+            else
+            {
+                if (normalizedExpectedType != null &&
+                    !string.Equals(ocr.DetectedMeterType, "Unknown", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(ocr.DetectedMeterType, normalizedExpectedType, StringComparison.OrdinalIgnoreCase))
+                {
+                    meterTypeMismatch = true;
+                    var detectedLabel = string.Equals(ocr.DetectedMeterType, "Water", StringComparison.OrdinalIgnoreCase)
+                        ? "Nước"
+                        : "Điện";
+                    warnings.Add($"Ảnh có vẻ là đồng hồ {detectedLabel}, không khớp với ô đang nhập.");
+                }
+
+                if (ocr.Confidence < 0.60)
+                {
+                    warnings.Add("Độ tin cậy nhận diện thấp — vui lòng đối chiếu kỹ với công tơ.");
+                }
+                else if (ocr.Confidence < 0.85)
+                {
+                    warnings.Add("Độ tin cậy trung bình — nên kiểm tra lại chữ số trước khi lưu.");
+                }
+
+                if (previousValue.HasValue)
+                {
+                    var consumption = ocr.ReadingValue.Value - previousValue.Value;
+                    estimatedConsumption = consumption;
+
+                    if (consumption < 0)
+                    {
+                        warnings.Add($"Chỉ số AI đọc ({ocr.ReadingValue.Value}) nhỏ hơn chỉ số cũ ({previousValue.Value}).");
+                    }
+                    else if (consumption == 0)
+                    {
+                        warnings.Add("Mức tiêu thụ bằng 0 — kiểm tra xem đồng hồ có kẹt hoặc chụp nhầm phòng không.");
+                    }
+                    else
+                    {
+                        var effectiveType = normalizedExpectedType ?? ocr.DetectedMeterType;
+                        if ((string.Equals(effectiveType, "Electricity", StringComparison.OrdinalIgnoreCase) && consumption > ElectricSpikeThreshold) ||
+                            (string.Equals(effectiveType, "Water", StringComparison.OrdinalIgnoreCase) && consumption > WaterSpikeThreshold))
+                        {
+                            warnings.Add($"Mức tiêu thụ tăng đột biến ({consumption}) — kiểm tra xem AI có đọc nhầm chữ số thập phân không.");
+                        }
+                    }
+                }
+
+                validationStatus = warnings.Count > 0 ? "Warning" : "Valid";
+            }
+
+            return new MeterPhotoScanResponseDto
+            {
+                IsMeterImage = ocr.IsMeterImage,
+                ReadingValue = ocr.ReadingValue,
+                RawDigits = ocr.RawDigits,
+                DetectedMeterType = ocr.DetectedMeterType,
+                MeterTypeMismatch = meterTypeMismatch,
+                Confidence = ocr.Confidence,
+                ConfidenceLevel = confidenceLevel,
+                AiNotes = ocr.Notes,
+                EvidenceImageUrl = evidenceUrl,
+                PreviousValue = previousValue,
+                EstimatedConsumption = estimatedConsumption,
+                ValidationStatus = validationStatus,
+                Warnings = warnings
+            };
+        }
+
+        private static string? NormalizeManualSource(string? source)
+        {
+            if (string.IsNullOrWhiteSpace(source))
+                return null;
+
+            var trimmed = source.Trim();
+            if (string.Equals(trimmed, "Manual", StringComparison.OrdinalIgnoreCase))
+                return "Manual";
+            if (string.Equals(trimmed, "PhotoOCR", StringComparison.OrdinalIgnoreCase))
+                return "PhotoOCR";
+
+            throw new ArgumentException($"Nguồn chỉ số '{trimmed}' không hợp lệ (chỉ chấp nhận Manual hoặc PhotoOCR).");
+        }
+
+        private static string? NormalizeExpectedMeterType(string? expectedMeterType)
+        {
+            if (string.IsNullOrWhiteSpace(expectedMeterType))
+                return null;
+
+            var trimmed = expectedMeterType.Trim();
+            if (string.Equals(trimmed, "Electricity", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(trimmed, "E", StringComparison.OrdinalIgnoreCase))
+                return "Electricity";
+
+            if (string.Equals(trimmed, "Water", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(trimmed, "W", StringComparison.OrdinalIgnoreCase))
+                return "Water";
+
+            return null;
+        }
+
+        private static (string? MimeType, string Extension) DetectImageMimeFromMagicBytes(byte[] bytes)
+        {
+            // JPEG: FF D8 FF
+            if (bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF)
+                return ("image/jpeg", ".jpg");
+
+            // PNG: 89 50 4E 47 0D 0A 1A 0A
+            if (bytes.Length >= 8 &&
+                bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47 &&
+                bytes[4] == 0x0D && bytes[5] == 0x0A && bytes[6] == 0x1A && bytes[7] == 0x0A)
+                return ("image/png", ".png");
+
+            // WebP: "RIFF" at offset 0 AND "WEBP" at offset 8
+            if (bytes.Length >= 12 &&
+                bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46 &&
+                bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50)
+                return ("image/webp", ".webp");
+
+            return (null, string.Empty);
+        }
+
         // ── Student EW Usage ────────────────────────────────────
         public async Task<List<StudentTermOptionDto>> GetStudentTermsAsync(int studentUserId)
         {
@@ -1387,6 +1667,40 @@ namespace FUD.Services.Utilities
         public async Task<StudentEwReportDto?> GetStudentEwReportAsync(int studentUserId, int? termId)
         {
             return await _ewRepo.GetStudentEwReportAsync(studentUserId, termId);
+        }
+    }
+
+    internal static class MeterEvidenceUrlValidator
+    {
+        public static string? ValidateOrNull(string? url, IConfiguration? configuration = null)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+                return null;
+
+            var trimmed = url.Trim();
+            if (trimmed.Length > 500)
+                throw new ArgumentException("Đường dẫn ảnh minh chứng công tơ không hợp lệ.");
+
+            if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) ||
+                !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(uri.Host, "res.cloudinary.com", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException("Đường dẫn ảnh minh chứng công tơ không hợp lệ.");
+            }
+
+            var path = uri.AbsolutePath;
+            if (!path.Contains("/meter-readings/", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("Đường dẫn ảnh minh chứng công tơ không hợp lệ.");
+
+            var cloudName = configuration?["Cloudinary:CloudName"] ?? configuration?["Cloudinary__CloudName"];
+            if (!string.IsNullOrWhiteSpace(cloudName) && !string.Equals(cloudName, "xxxx", StringComparison.OrdinalIgnoreCase))
+            {
+                var expectedPrefix = $"/{cloudName.Trim()}/";
+                if (!path.StartsWith(expectedPrefix, StringComparison.OrdinalIgnoreCase))
+                    throw new ArgumentException("Đường dẫn ảnh minh chứng công tơ không hợp lệ.");
+            }
+
+            return trimmed;
         }
     }
 }

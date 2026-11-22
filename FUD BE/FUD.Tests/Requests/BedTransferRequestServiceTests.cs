@@ -631,4 +631,83 @@ public class BedTransferRequestServiceTests
         capturedNoti.Should().NotBeNull();
         _emailSenderMock.Verify(e => e.SendEmailAsync(req.Student.User.Email, It.IsAny<string>(), It.IsAny<string>()), Times.Once);
     }
+
+    [Fact]
+    public async Task SubmitTransferInspectionAsync_WithValidEvidenceUrls_SavesAndReturnsEvidenceImageUrls()
+    {
+        const string elecUrl = "https://res.cloudinary.com/demo-cloud/image/upload/v1/meter-readings/elec-transfer.jpg";
+        const string waterUrl = "https://res.cloudinary.com/demo-cloud/image/upload/v1/meter-readings/water-transfer.jpg";
+
+        var req = CreateBedTransferRequestGraph("Approved");
+        req.ProcessedById = 99;
+        var guardUser = new User { Id = 201, Code = "GRD01", FullName = "Tran Bao Ve", Gender = "Male", AccountStatus = "Active" };
+        req.BedTransferRequest!.AssignedGuardId = 201;
+        req.BedTransferRequest.AssignedGuard = new Guard { UserId = 201, DormId = 1, User = guardUser };
+
+        _requestRepoMock.Setup(r => r.GetRequestByIdAsync(77)).ReturnsAsync(req);
+        _requestRepoMock.Setup(r => r.GetLatestRoomMeterReadingsAsync(1))
+            .ReturnsAsync(new Dictionary<string, decimal> { ["Electricity"] = 1000m, ["Water"] = 40m });
+        _requestRepoMock.Setup(r => r.GetRoomAndBedEquipmentsAsync(1, 1)).ReturnsAsync(new List<Equipment>());
+        _requestRepoMock.Setup(r => r.GetUtilityPricesByTermAsync(1))
+            .ReturnsAsync(new Dictionary<string, decimal> { ["Electricity"] = 3000m, ["Water"] = 15000m });
+        _requestRepoMock.Setup(r => r.GetActiveRoomResidentCountAsync(1, 1)).ReturnsAsync(2);
+
+        List<MeterReading>? capturedMeters = null;
+        _requestRepoMock.Setup(r => r.SubmitTransferInspectionAsync(
+                req,
+                It.IsAny<Handover>(),
+                It.IsAny<List<HandoverItem>>(),
+                It.IsAny<List<MeterReading>>(),
+                It.IsAny<List<(int, string, string?)>>(),
+                It.IsAny<RequestLog>(),
+                It.IsAny<List<Notification>>()))
+            .Callback<Request, Handover, List<HandoverItem>, List<MeterReading>, List<(int, string, string?)>, RequestLog, List<Notification>>(
+                (_, h, _, meters, _, _, _) =>
+                {
+                    h.Id = 301;
+                    req.Handover = h;
+                    req.BedTransferRequest!.MeterReadings = meters;
+                    capturedMeters = meters;
+                })
+            .Returns(Task.CompletedTask);
+
+        var sut = CreateSut();
+        var result = await sut.SubmitTransferInspectionAsync(77, 201, new SubmitTransferInspectionDto
+        {
+            CurrentElectricityReading = 1060m,
+            CurrentWaterReading = 45m,
+            ElectricityEvidenceImageUrl = elecUrl,
+            WaterEvidenceImageUrl = waterUrl,
+            Items = new List<TransferInspectionItemInputDto>()
+        });
+
+        capturedMeters.Should().NotBeNull();
+        capturedMeters!.Should().ContainSingle(m => m.MeterType == "Electricity" && m.EvidenceImageUrl == elecUrl && m.Source == "Handover");
+        capturedMeters.Should().ContainSingle(m => m.MeterType == "Water" && m.EvidenceImageUrl == waterUrl && m.Source == "Handover");
+        result.MeterReadings.Should().ContainSingle(m => m.MeterType == "Electricity" && m.EvidenceImageUrl == elecUrl);
+        result.MeterReadings.Should().ContainSingle(m => m.MeterType == "Water" && m.EvidenceImageUrl == waterUrl);
+    }
+
+    [Fact]
+    public async Task SubmitTransferInspectionAsync_WithInvalidEvidenceUrl_ThrowsInvalidOperationException()
+    {
+        var req = CreateBedTransferRequestGraph("Approved");
+        req.BedTransferRequest!.AssignedGuardId = 201;
+
+        _requestRepoMock.Setup(r => r.GetRequestByIdAsync(77)).ReturnsAsync(req);
+        _requestRepoMock.Setup(r => r.GetLatestRoomMeterReadingsAsync(1))
+            .ReturnsAsync(new Dictionary<string, decimal> { ["Electricity"] = 1000m, ["Water"] = 40m });
+
+        var sut = CreateSut();
+        var act = () => sut.SubmitTransferInspectionAsync(77, 201, new SubmitTransferInspectionDto
+        {
+            CurrentElectricityReading = 1060m,
+            CurrentWaterReading = 45m,
+            ElectricityEvidenceImageUrl = "javascript:alert(1)",
+            Items = new List<TransferInspectionItemInputDto>()
+        });
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*Đường dẫn ảnh minh chứng*");
+    }
 }

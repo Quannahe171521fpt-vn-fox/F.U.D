@@ -45,30 +45,6 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
 };
 
 const TX_CACHE_KEY_PREFIX = 'fud_active_qr_tx_';
-const HISTORY_CACHE_KEY = 'fud_payment_history_cache';
-
-function saveReceiptToHistoryCache(receipt: PaymentSuccessDto) {
-  try {
-    const raw = localStorage.getItem(HISTORY_CACHE_KEY);
-    const list: PaymentHistoryItemDto[] = raw ? JSON.parse(raw) : [];
-    const item: PaymentHistoryItemDto = {
-      transactionId: receipt.transactionId,
-      receiptNumber: receipt.receiptNumber,
-      gatewayReference: receipt.gatewayReference,
-      method: 'VietQR · SePay',
-      totalAmount: receipt.totalAmount,
-      status: 'Success',
-      paidTime: receipt.paidTime,
-      invoices: receipt.invoices || [],
-    };
-    const filtered = list.filter(
-      (x) => x.receiptNumber !== item.receiptNumber && x.transactionId !== item.transactionId
-    );
-    localStorage.setItem(HISTORY_CACHE_KEY, JSON.stringify([item, ...filtered].slice(0, 50)));
-  } catch {
-    // ignore
-  }
-}
 
 function saveTxToSession(tx: PaymentTransactionDto) {
   try {
@@ -323,7 +299,6 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
         if (cancelled) return;
         if (statusRes.status === 'Success' && statusRes.receipt) {
           removeTxFromSession(activeTx.id);
-          saveReceiptToHistoryCache(statusRes.receipt);
           setActiveTx(null);
           setPaymentReceipt(statusRes.receipt);
           await loadInvoices(false);

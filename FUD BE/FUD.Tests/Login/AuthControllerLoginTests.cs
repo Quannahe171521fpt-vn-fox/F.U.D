@@ -132,4 +132,48 @@ public class AuthControllerLoginTests
         apiResponse!.Success.Should().BeFalse();
         apiResponse.Message.Should().Be(rateLimitMessage);
     }
+
+    [Fact]
+    public async Task Login_WhenProductionEnvironmentAndHttpRequest_SetsSecureRefreshTokenCookie()
+    {
+        // Arrange
+        var envMock = new Mock<Microsoft.AspNetCore.Hosting.IWebHostEnvironment>();
+        envMock.SetupGet(e => e.EnvironmentName).Returns("Production");
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Scheme = "http";
+        httpContext.Request.IsHttps = false;
+        httpContext.Request.Host = new HostString("fudapi.somee.com");
+        httpContext.Connection.RemoteIpAddress = IPAddress.Parse("127.0.0.1");
+
+        var controller = new AuthController(_authServiceMock.Object, envMock.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = httpContext
+            }
+        };
+
+        var dto = new LoginRequestDto { Account = "manager@fpt.edu.vn", Password = "Password123" };
+        var authResponse = new AuthResponseDto
+        {
+            AccessToken = "prod_access_token",
+            TokenType = "Bearer",
+            ExpiresIn = 900,
+            User = new UserInfoDto { Id = 1, Code = "MGR001", FullName = "Manager", Email = "manager@fpt.edu.vn" }
+        };
+
+        _authServiceMock.Setup(s => s.LoginWithCredentialsAsync(dto, "127.0.0.1"))
+                        .ReturnsAsync((authResponse, "prod_refresh_token", DateTime.UtcNow.AddMinutes(30)));
+
+        // Act
+        var result = await controller.Login(dto);
+
+        // Assert
+        result.Should().BeOfType<OkObjectResult>();
+        var setCookieHeader = httpContext.Response.Headers["Set-Cookie"].ToString();
+        setCookieHeader.Should().Contain("fud_refresh_token=prod_refresh_token");
+        setCookieHeader.ToLowerInvariant().Should().Contain("secure");
+        setCookieHeader.ToLowerInvariant().Should().Contain("httponly");
+    }
 }

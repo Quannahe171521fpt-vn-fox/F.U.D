@@ -33,18 +33,32 @@ namespace FUD.Controllers.Violations
         /// Lấy danh sách sinh viên đang lưu trú theo phòng
         /// </summary>
         [HttpGet("room-students/{roomId:int}")]
-        [AllowAnonymous]
+        [Authorize(Roles = "Guard,Manager,Admin")]
         public async Task<IActionResult> GetStudentsByRoom(int roomId)
         {
-            var students = await _violationService.GetStudentsByRoomAsync(roomId);
-            return Ok(ApiResponse<List<RoomStudentDto>>.Ok(students));
+            try
+            {
+                var isGuardOnly = User.IsInRole("Guard") && !User.IsInRole("Manager") && !User.IsInRole("Admin");
+                int? guardUserId = isGuardOnly ? GetCurrentUserId() : null;
+                if (isGuardOnly && !guardUserId.HasValue)
+                {
+                    return Unauthorized(ApiResponse.Fail("Không xác định được danh tính cán bộ từ Token."));
+                }
+
+                var students = await _violationService.GetStudentsByRoomAsync(roomId, guardUserId);
+                return Ok(ApiResponse<List<RoomStudentDto>>.Ok(students));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
+            }
         }
 
         /// <summary>
         /// Tìm kiếm sinh viên theo MSSV hoặc mã định danh
         /// </summary>
         [HttpGet("search-student")]
-        [AllowAnonymous]
+        [Authorize(Roles = "Guard,Manager,Admin")]
         public async Task<IActionResult> SearchStudent([FromQuery] string studentCode, [FromQuery] int? roomId = null)
         {
             if (string.IsNullOrWhiteSpace(studentCode))
@@ -52,13 +66,27 @@ namespace FUD.Controllers.Violations
                 return BadRequest(ApiResponse.Fail("Vui lòng nhập MSSV để tìm kiếm."));
             }
 
-            var student = await _violationService.SearchStudentByCodeAsync(studentCode, roomId);
-            if (student == null)
+            try
             {
-                return NotFound(ApiResponse.Fail($"Không tìm thấy sinh viên với mã '{studentCode}'."));
-            }
+                var isGuardOnly = User.IsInRole("Guard") && !User.IsInRole("Manager") && !User.IsInRole("Admin");
+                int? guardUserId = isGuardOnly ? GetCurrentUserId() : null;
+                if (isGuardOnly && !guardUserId.HasValue)
+                {
+                    return Unauthorized(ApiResponse.Fail("Không xác định được danh tính cán bộ từ Token."));
+                }
 
-            return Ok(ApiResponse<RoomStudentDto>.Ok(student));
+                var student = await _violationService.SearchStudentByCodeAsync(studentCode, roomId, guardUserId);
+                if (student == null)
+                {
+                    return NotFound(ApiResponse.Fail($"Không tìm thấy sinh viên với mã '{studentCode}'."));
+                }
+
+                return Ok(ApiResponse<RoomStudentDto>.Ok(student));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
+            }
         }
 
         /// <summary>
@@ -78,8 +106,10 @@ namespace FUD.Controllers.Violations
         /// Yêu cầu xác thực Token cán bộ (Guard)
         /// </summary>
         [HttpPost("record")]
-        [Authorize]
+        [Authorize(Roles = "Guard")]
         [Consumes("multipart/form-data")]
+        [RequestSizeLimit(30 * 1024 * 1024)]
+        [RequestFormLimits(MultipartBodyLengthLimit = 30 * 1024 * 1024)]
         public async Task<IActionResult> RecordViolation([FromForm] CreateViolationRequestDto request)
         {
             try
@@ -93,13 +123,21 @@ namespace FUD.Controllers.Violations
                 var result = await _violationService.RecordViolationsAsync(request, guardUserId.Value);
                 return Ok(ApiResponse<List<ViolationItemDto>>.Ok(result, "Ghi nhận vi phạm thành công. Đã tạo biên bản lưu vào hệ thống."));
             }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
+            }
             catch (ArgumentException ex)
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (InvalidOperationException ex)
             {
-                return StatusCode(500, ApiResponse.Fail($"Lỗi khi ghi nhận vi phạm: {ex.Message}"));
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -107,14 +145,14 @@ namespace FUD.Controllers.Violations
         /// Lấy danh sách hồ sơ vi phạm (Manager xem toàn bộ, Guard chỉ xem vi phạm thuộc Dorm của mình)
         /// </summary>
         [HttpGet]
-        [Authorize]
+        [Authorize(Roles = "Guard,Manager,Admin")]
         public async Task<IActionResult> GetViolations([FromQuery] int? roomId = null, [FromQuery] int? studentId = null, [FromQuery] string? status = null)
         {
-            var isGuard = User.IsInRole("Guard");
-            int? guardUserId = null;
-            if (isGuard)
+            var isGuardOnly = User.IsInRole("Guard") && !User.IsInRole("Manager") && !User.IsInRole("Admin");
+            int? guardUserId = isGuardOnly ? GetCurrentUserId() : null;
+            if (isGuardOnly && !guardUserId.HasValue)
             {
-                guardUserId = GetCurrentUserId();
+                return Unauthorized(ApiResponse.Fail("Không xác định được danh tính cán bộ từ Token."));
             }
 
             var list = await _violationService.GetViolationsAsync(roomId, studentId, status, guardUserId);
@@ -125,22 +163,33 @@ namespace FUD.Controllers.Violations
         /// Lấy chi tiết một biên bản vi phạm
         /// </summary>
         [HttpGet("{id:int}")]
-        [Authorize]
+        [Authorize(Roles = "Student,Guard,Manager,Admin")]
         public async Task<IActionResult> GetViolationById(int id)
         {
-            var violation = await _violationService.GetViolationByIdAsync(id);
-            if (violation == null)
+            try
             {
-                return NotFound(ApiResponse.Fail("Không tìm thấy hồ sơ vi phạm."));
+                var callerUserId = GetCurrentUserId();
+                var isManagerOrAdmin = User.IsInRole("Manager") || User.IsInRole("Admin");
+                var isGuard = User.IsInRole("Guard");
+
+                var violation = await _violationService.GetViolationByIdAsync(id, callerUserId, isManagerOrAdmin, isGuard);
+                if (violation == null)
+                {
+                    return NotFound(ApiResponse.Fail("Không tìm thấy hồ sơ vi phạm."));
+                }
+                return Ok(ApiResponse<ViolationItemDto>.Ok(violation));
             }
-            return Ok(ApiResponse<ViolationItemDto>.Ok(violation));
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
+            }
         }
 
         /// <summary>
         /// UC19: Sinh viên xem danh sách thông báo vi phạm gửi tới mình
         /// </summary>
         [HttpGet("student/notices")]
-        [Authorize]
+        [Authorize(Roles = "Student")]
         public async Task<IActionResult> GetStudentNotices()
         {
             var studentUserId = GetCurrentUserId();
@@ -157,7 +206,7 @@ namespace FUD.Controllers.Violations
         /// UC21: Sinh viên tra cứu lịch sử vi phạm cá nhân
         /// </summary>
         [HttpGet("student/history")]
-        [Authorize]
+        [Authorize(Roles = "Student")]
         public async Task<IActionResult> GetStudentHistory([FromQuery] string? term = null, [FromQuery] string? status = null)
         {
             var studentUserId = GetCurrentUserId();
@@ -174,7 +223,7 @@ namespace FUD.Controllers.Violations
         /// UC23: Quản lý (Manager) đánh giá mức độ vi phạm ban đầu và gửi thông báo tới sinh viên
         /// </summary>
         [HttpPost("{id:int}/evaluate")]
-        [Authorize]
+        [Authorize(Roles = "Manager,Admin")]
         public async Task<IActionResult> EvaluateViolation(int id, [FromBody] EvaluateViolationRequestDto request)
         {
             try
@@ -192,9 +241,13 @@ namespace FUD.Controllers.Violations
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (KeyNotFoundException ex)
             {
-                return StatusCode(500, ApiResponse.Fail($"Lỗi khi đánh giá vi phạm: {ex.Message}"));
+                return NotFound(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -220,9 +273,9 @@ namespace FUD.Controllers.Violations
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Lỗi hệ thống: " + ex.Message));
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -230,7 +283,7 @@ namespace FUD.Controllers.Violations
         /// Lấy danh sách (Block) thuộc dorm của bảo vệ đang đăng nhập
         /// </summary>
         [HttpGet("guard-blocks")]
-        [Authorize]
+        [Authorize(Roles = "Guard")]
         public async Task<IActionResult> GetBlocksByGuardDorm()
         {
             var guardUserId = GetCurrentUserId();

@@ -3,6 +3,7 @@ import { violationApi, type ViolationItem } from '../../services/api';
 import { Pagination } from '../../components/Pagination';
 import { formatDateTime, formatDate } from '../../utils/dateUtils';
 import { removeVietnameseTones } from '../../utils/textUtils';
+import { toSafeHref } from '../../utils/urlUtils';
 import { useIdleAwarePolling } from '../../utils/useIdleAwarePolling';
 import '../../styles/violation.css';
 
@@ -594,11 +595,15 @@ export const ManagerViolationManagement: React.FC = () => {
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: 6 }}>Ảnh minh chứng:</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: '8px' }}>
-                  {selectedViolation.evidences.map((ev, i) => (
-                    <a key={i} href={ev.fileUrl} target="_blank" rel="noreferrer">
-                      <img src={ev.fileUrl} alt="evidence" style={{ width: '100%', height: '70px', objectFit: 'cover', borderRadius: '6px' }} />
-                    </a>
-                  ))}
+                  {selectedViolation.evidences.map((ev, i) => {
+                    const safeUrl = toSafeHref(ev.fileUrl);
+                    if (!safeUrl) return null;
+                    return (
+                      <a key={i} href={safeUrl} target="_blank" rel="noopener noreferrer">
+                        <img src={safeUrl} alt="evidence" style={{ width: '100%', height: '70px', objectFit: 'cover', borderRadius: '6px' }} />
+                      </a>
+                    );
+                  })}
                 </div>
               </div>
             )}

@@ -3,11 +3,17 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using FluentAssertions;
+using FUD.Controllers.Payments;
 using FUD.DTOs.Payments;
 using FUD.Models;
+using FUD.Services.Interfaces.Payments;
 using FUD.Services.Payments;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using Xunit;
 
 namespace FUD.Tests.Payments;
@@ -31,9 +37,13 @@ public class StudentPaymentServiceTests
         return new FudContext(options);
     }
 
-    private static StudentPaymentService CreateSut(FudContext context)
+    private static StudentPaymentService CreateSut(FudContext context, IConfiguration? config = null)
     {
-        return new StudentPaymentService(context, new PaymentTransactionFactory(context), NullLogger<StudentPaymentService>.Instance);
+        return new StudentPaymentService(
+            context,
+            new PaymentTransactionFactory(context),
+            NullLogger<StudentPaymentService>.Instance,
+            config);
     }
 
     private static Invoice CreateInvoice(
@@ -830,6 +840,450 @@ public class StudentPaymentServiceTests
 
         // Assert
         await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    #endregion
+
+    #region SePayWebhookAndMockConfirmSecurity
+
+    [Fact]
+    public async Task ProcessSePayWebhookAsync_WhenWebhookApiKeyNotConfigured_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        var context = CreateInMemoryContext();
+        var config = new ConfigurationBuilder().Build();
+        var sut = CreateSut(context, config);
+        var payload = new SePayWebhookPayloadDto
+        {
+            TransferType = "in",
+            TransferAmount = 100_000m,
+            Content = "VQR-20260101000000-0001"
+        };
+
+        // Act
+        var act = () => sut.ProcessSePayWebhookAsync(payload, "Apikey any-key");
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>()
+            .WithMessage("*chưa được cấu hình*");
+    }
+
+    [Fact]
+    public async Task ProcessSePayWebhookAsync_WhenApiKeyInvalid_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        var context = CreateInMemoryContext();
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["SePay:WebhookApiKey"] = "test-sepay-secret-key"
+            })
+            .Build();
+        var sut = CreateSut(context, config);
+        var payload = new SePayWebhookPayloadDto
+        {
+            TransferType = "in",
+            TransferAmount = 100_000m,
+            Content = "VQR-20260101000000-0001"
+        };
+
+        // Act
+        var act = () => sut.ProcessSePayWebhookAsync(payload, "Apikey wrong-key");
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>()
+            .WithMessage("*không hợp lệ*");
+    }
+
+    [Fact]
+    public async Task ProcessSePayWebhookAsync_WhenValidApikeyHeader_AcceptsAuth()
+    {
+        // Arrange
+        var context = CreateInMemoryContext();
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["SePay:WebhookApiKey"] = "test-sepay-secret-key"
+            })
+            .Build();
+        var sut = CreateSut(context, config);
+        var payload = new SePayWebhookPayloadDto
+        {
+            TransferType = "in",
+            TransferAmount = 100_000m,
+            Content = "VQR-20260101000000-0001"
+        };
+
+        // Act
+        var (handled, message, receipt) = await sut.ProcessSePayWebhookAsync(payload, "Apikey test-sepay-secret-key");
+
+        // Assert
+        handled.Should().BeFalse();
+        receipt.Should().BeNull();
+        message.Should().Contain("Processing");
+    }
+
+    [Fact]
+    public async Task MockConfirm_WhenProductionEnvironment_ReturnsNotFound()
+    {
+        // Arrange
+        var serviceMock = new Mock<IStudentPaymentService>();
+        var envMock = new Mock<IWebHostEnvironment>();
+        envMock.SetupGet(e => e.EnvironmentName).Returns("Production");
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Payments:EnableMockConfirm"] = "true"
+            })
+            .Build();
+
+        var controller = new StudentPaymentsController(serviceMock.Object, envMock.Object, config);
+
+        // Act
+        var result = await controller.MockConfirm(1, null);
+
+        // Assert
+        result.Should().BeOfType<NotFoundObjectResult>();
+        serviceMock.Verify(
+            s => s.MockConfirmAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<MockConfirmPaymentDto?>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task MockConfirm_WhenDevelopmentAndMockDisabled_ReturnsNotFound()
+    {
+        // Arrange
+        var serviceMock = new Mock<IStudentPaymentService>();
+        var envMock = new Mock<IWebHostEnvironment>();
+        envMock.SetupGet(e => e.EnvironmentName).Returns("Development");
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Payments:EnableMockConfirm"] = "false"
+            })
+            .Build();
+
+        var controller = new StudentPaymentsController(serviceMock.Object, envMock.Object, config);
+
+        // Act
+        var result = await controller.MockConfirm(1, null);
+
+        // Assert
+        result.Should().BeOfType<NotFoundObjectResult>();
+        serviceMock.Verify(
+            s => s.MockConfirmAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<MockConfirmPaymentDto?>()),
+            Times.Never);
+    }
+
+    private static IConfiguration CreateSePayWebhookConfig(string apiKey = "test-sepay-secret-key")
+    {
+        return new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["SePay:WebhookApiKey"] = apiKey
+            })
+            .Build();
+    }
+
+    [Fact]
+    public async Task ProcessSePayWebhookAsync_WhenTransferAmountLessThanTotalAmount_RejectsAndLeavesInvoiceProcessing()
+    {
+        // Arrange
+        var context = CreateInMemoryContext();
+        context.Terms.Add(CreateTerm());
+        context.Students.Add(new Student { UserId = StudentId });
+        context.Invoices.Add(CreateInvoice(1, StudentId, "INV-001", "RoomFee", 4_000_000m, "Unpaid", DateOnly.FromDateTime(DateTime.Now).AddDays(3)));
+        await context.SaveChangesAsync();
+
+        var sut = CreateSut(context, CreateSePayWebhookConfig());
+        var created = await sut.CreateTransactionAsync(StudentId, new CreatePaymentTransactionDto { InvoiceIds = new List<int> { 1 } });
+
+        var payload = new SePayWebhookPayloadDto
+        {
+            Id = 1001,
+            TransferType = "in",
+            TransferAmount = 3_999_999m,
+            Content = created.GatewayReference
+        };
+
+        // Act
+        var (handled, message, receipt) = await sut.ProcessSePayWebhookAsync(payload, "Apikey test-sepay-secret-key");
+
+        // Assert
+        handled.Should().BeFalse();
+        receipt.Should().BeNull();
+        message.Should().Contain("Số tiền chuyển khoản không khớp");
+
+        var tx = await context.PaymentTransactions.FirstAsync(t => t.Id == created.Id);
+        tx.Status.Should().Be(PaymentTransactionStatuses.Processing);
+
+        var invoice = await context.Invoices.FirstAsync(i => i.Id == 1);
+        invoice.Status.Should().Be(InvoiceStatuses.Processing);
+    }
+
+    [Fact]
+    public async Task ProcessSePayWebhookAsync_WhenTransferAmountGreaterThanTotalAmount_RejectsAndLeavesInvoiceProcessing()
+    {
+        // Arrange
+        var context = CreateInMemoryContext();
+        context.Terms.Add(CreateTerm());
+        context.Students.Add(new Student { UserId = StudentId });
+        context.Invoices.Add(CreateInvoice(1, StudentId, "INV-001", "RoomFee", 4_000_000m, "Unpaid", DateOnly.FromDateTime(DateTime.Now).AddDays(3)));
+        await context.SaveChangesAsync();
+
+        var sut = CreateSut(context, CreateSePayWebhookConfig());
+        var created = await sut.CreateTransactionAsync(StudentId, new CreatePaymentTransactionDto { InvoiceIds = new List<int> { 1 } });
+
+        var payload = new SePayWebhookPayloadDto
+        {
+            Id = 1002,
+            TransferType = "in",
+            TransferAmount = 4_500_000m,
+            Content = created.GatewayReference
+        };
+
+        // Act
+        var (handled, message, receipt) = await sut.ProcessSePayWebhookAsync(payload, "Apikey test-sepay-secret-key");
+
+        // Assert
+        handled.Should().BeFalse();
+        receipt.Should().BeNull();
+        message.Should().Contain("Số tiền chuyển khoản không khớp");
+
+        var tx = await context.PaymentTransactions.FirstAsync(t => t.Id == created.Id);
+        tx.Status.Should().Be(PaymentTransactionStatuses.Processing);
+
+        var invoice = await context.Invoices.FirstAsync(i => i.Id == 1);
+        invoice.Status.Should().Be(InvoiceStatuses.Processing);
+    }
+
+    [Fact]
+    public async Task ProcessSePayWebhookAsync_WhenReferenceMissingButAmountMatches_DoesNotMatchUnrelatedTransaction()
+    {
+        // Arrange
+        var context = CreateInMemoryContext();
+        context.Terms.Add(CreateTerm());
+        context.Students.Add(new Student { UserId = StudentId });
+        context.Invoices.Add(CreateInvoice(1, StudentId, "INV-001", "RoomFee", 4_000_000m, "Unpaid", DateOnly.FromDateTime(DateTime.Now).AddDays(3)));
+        await context.SaveChangesAsync();
+
+        var sut = CreateSut(context, CreateSePayWebhookConfig());
+        var created = await sut.CreateTransactionAsync(StudentId, new CreatePaymentTransactionDto { InvoiceIds = new List<int> { 1 } });
+
+        var payload = new SePayWebhookPayloadDto
+        {
+            Id = 1003,
+            TransferType = "in",
+            TransferAmount = 4_000_000m,
+            Content = "CHUYEN KHOAN TIEN PHONG KHONG CO MA VQR"
+        };
+
+        // Act
+        var (handled, _, receipt) = await sut.ProcessSePayWebhookAsync(payload, "Apikey test-sepay-secret-key");
+
+        // Assert
+        handled.Should().BeFalse();
+        receipt.Should().BeNull();
+
+        var tx = await context.PaymentTransactions.FirstAsync(t => t.Id == created.Id);
+        tx.Status.Should().Be(PaymentTransactionStatuses.Processing);
+    }
+
+    [Fact]
+    public async Task ProcessSePayWebhookAsync_WhenReferenceMissingOnTestAccount_DoesNotSettleArbitraryTransaction()
+    {
+        // Arrange
+        var context = CreateInMemoryContext();
+        context.Terms.Add(CreateTerm());
+        context.Students.Add(new Student { UserId = StudentId });
+        context.Invoices.Add(CreateInvoice(1, StudentId, "INV-001", "RoomFee", 4_000_000m, "Unpaid", DateOnly.FromDateTime(DateTime.Now).AddDays(3)));
+        await context.SaveChangesAsync();
+
+        var sut = CreateSut(context, CreateSePayWebhookConfig());
+        var created = await sut.CreateTransactionAsync(StudentId, new CreatePaymentTransactionDto { InvoiceIds = new List<int> { 1 } });
+
+        var payload = new SePayWebhookPayloadDto
+        {
+            Id = 1004,
+            TransferType = "in",
+            TransferAmount = 1_000m,
+            AccountNumber = "0000000001",
+            SubAccount = "96247FUD26",
+            Content = "NO REF"
+        };
+
+        // Act
+        var (handled, _, receipt) = await sut.ProcessSePayWebhookAsync(payload, "Apikey test-sepay-secret-key");
+
+        // Assert
+        handled.Should().BeFalse();
+        receipt.Should().BeNull();
+
+        var tx = await context.PaymentTransactions.FirstAsync(t => t.Id == created.Id);
+        tx.Status.Should().Be(PaymentTransactionStatuses.Processing);
+    }
+
+    [Fact]
+    public async Task ProcessSePayWebhookAsync_WhenSameSePayIdReplayed_IsIdempotentAndDoesNotRerunSideEffects()
+    {
+        // Arrange
+        var context = CreateInMemoryContext();
+        context.Terms.Add(CreateTerm());
+        context.Students.Add(new Student { UserId = StudentId });
+        context.Invoices.Add(CreateInvoice(1, StudentId, "INV-001", "RoomFee", 4_000_000m, "Unpaid", DateOnly.FromDateTime(DateTime.Now).AddDays(3)));
+        await context.SaveChangesAsync();
+
+        var sut = CreateSut(context, CreateSePayWebhookConfig());
+        var created = await sut.CreateTransactionAsync(StudentId, new CreatePaymentTransactionDto { InvoiceIds = new List<int> { 1 } });
+
+        var payload = new SePayWebhookPayloadDto
+        {
+            Id = 999888,
+            TransferType = "in",
+            TransferAmount = 4_000_000m,
+            Content = created.GatewayReference
+        };
+
+        // Act 1: First processing
+        var first = await sut.ProcessSePayWebhookAsync(payload, "Apikey test-sepay-secret-key");
+        // Act 2: Replayed webhook with same SePay Id
+        var second = await sut.ProcessSePayWebhookAsync(payload, "Apikey test-sepay-secret-key");
+
+        // Assert
+        first.Handled.Should().BeTrue();
+        first.Receipt.Should().NotBeNull();
+
+        second.Handled.Should().BeTrue();
+        second.Receipt.Should().BeNull();
+        second.Message.Should().Contain("idempotent");
+
+        (await context.Notifications.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ProcessSePayWebhookAsync_WhenTransactionExpired_DoesNotConfirm()
+    {
+        // Arrange
+        var context = CreateInMemoryContext();
+        context.Terms.Add(CreateTerm());
+        context.Students.Add(new Student { UserId = StudentId });
+        context.Invoices.Add(CreateInvoice(1, StudentId, "INV-001", "RoomFee", 4_000_000m, "Processing", DateOnly.FromDateTime(DateTime.Now).AddDays(3)));
+
+        var tx = new PaymentTransaction
+        {
+            Id = 55,
+            StudentId = StudentId,
+            Method = "VietQR",
+            GatewayReference = "VQR-20260101000000-0055",
+            TotalAmount = 4_000_000m,
+            Status = PaymentTransactionStatuses.Processing,
+            CreatedTime = DateTime.Now.AddMinutes(-30),
+            ExpiryTime = DateTime.Now.AddMinutes(-1)
+        };
+        context.PaymentTransactions.Add(tx);
+        context.TransactionInvoices.Add(new TransactionInvoice
+        {
+            TransactionId = 55,
+            InvoiceId = 1,
+            AllocatedAmount = 4_000_000m
+        });
+        await context.SaveChangesAsync();
+
+        var sut = CreateSut(context, CreateSePayWebhookConfig());
+        var payload = new SePayWebhookPayloadDto
+        {
+            Id = 1006,
+            TransferType = "in",
+            TransferAmount = 4_000_000m,
+            Content = "VQR-20260101000000-0055"
+        };
+
+        // Act
+        var (handled, message, receipt) = await sut.ProcessSePayWebhookAsync(payload, "Apikey test-sepay-secret-key");
+
+        // Assert
+        handled.Should().BeFalse();
+        receipt.Should().BeNull();
+        message.Should().Contain("hết hạn");
+
+        var reloadedTx = await context.PaymentTransactions.FirstAsync(t => t.Id == 55);
+        reloadedTx.Status.Should().Be(PaymentTransactionStatuses.Processing);
+    }
+
+    [Fact]
+    public async Task MockConfirmAsync_WhenTransactionExpired_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        var context = CreateInMemoryContext();
+        context.Terms.Add(CreateTerm());
+        context.Students.Add(new Student { UserId = StudentId });
+        context.Invoices.Add(CreateInvoice(1, StudentId, "INV-001", "RoomFee", 4_000_000m, "Processing", DateOnly.FromDateTime(DateTime.Now).AddDays(3)));
+
+        var tx = new PaymentTransaction
+        {
+            Id = 56,
+            StudentId = StudentId,
+            Method = "VietQR",
+            GatewayReference = "VQR-20260101000000-0056",
+            TotalAmount = 4_000_000m,
+            Status = PaymentTransactionStatuses.Processing,
+            CreatedTime = DateTime.Now.AddMinutes(-30),
+            ExpiryTime = DateTime.Now.AddMinutes(-1)
+        };
+        context.PaymentTransactions.Add(tx);
+        context.TransactionInvoices.Add(new TransactionInvoice
+        {
+            TransactionId = 56,
+            InvoiceId = 1,
+            AllocatedAmount = 4_000_000m
+        });
+        await context.SaveChangesAsync();
+
+        var sut = CreateSut(context);
+
+        // Act
+        var act = () => sut.MockConfirmAsync(StudentId, 56, null);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*hết hạn*");
+    }
+
+    [Fact]
+    public async Task ProcessSePayWebhookAsync_WhenExactReferenceAndExactAmount_ConfirmsAndPersistsGatewayPayload()
+    {
+        // Arrange
+        var context = CreateInMemoryContext();
+        context.Terms.Add(CreateTerm());
+        context.Students.Add(new Student { UserId = StudentId });
+        context.Invoices.Add(CreateInvoice(1, StudentId, "INV-001", "RoomFee", 4_000_000m, "Unpaid", DateOnly.FromDateTime(DateTime.Now).AddDays(3)));
+        await context.SaveChangesAsync();
+
+        var sut = CreateSut(context, CreateSePayWebhookConfig());
+        var created = await sut.CreateTransactionAsync(StudentId, new CreatePaymentTransactionDto { InvoiceIds = new List<int> { 1 } });
+
+        var payload = new SePayWebhookPayloadDto
+        {
+            Id = 777111,
+            TransferType = "in",
+            TransferAmount = 4_000_000m,
+            Content = $"Thanh toan {created.GatewayReference}"
+        };
+
+        // Act
+        var (handled, _, receipt) = await sut.ProcessSePayWebhookAsync(payload, "Apikey test-sepay-secret-key");
+
+        // Assert
+        handled.Should().BeTrue();
+        receipt.Should().NotBeNull();
+        receipt!.TotalAmount.Should().Be(4_000_000m);
+
+        var tx = await context.PaymentTransactions.FirstAsync(t => t.Id == created.Id);
+        tx.Status.Should().Be(PaymentTransactionStatuses.Success);
+        tx.GatewayPayload.Should().Contain("777111");
+
+        var invoice = await context.Invoices.FirstAsync(i => i.Id == 1);
+        invoice.Status.Should().Be(InvoiceStatuses.Paid);
     }
 
     #endregion

@@ -278,4 +278,79 @@ public class EwGuardDormAuthorizationTests
         await act.Should().ThrowAsync<UnauthorizedAccessException>()
             .WithMessage("*Bạn không có quyền truy cập toà/phòng*");
     }
+
+    [Fact]
+    public async Task GetUsagesAsync_WhenGuardHasNoDorm_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        _ewRepoMock.Setup(r => r.GetGuardDormIdAsync(10)).ReturnsAsync((int?)null);
+
+        // Act
+        Func<Task> act = async () => await _sut.GetUsagesAsync(null, null, null, null, userId: 10, isManager: false);
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        _ewRepoMock.Verify(
+            r => r.GetGroupedUsagesAsync(It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task GetBlockProgressAsync_WhenGuardHasNoDorm_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        _ewRepoMock.Setup(r => r.GetBillingPeriodByIdAsync(1))
+            .ReturnsAsync(new BillingPeriod { Id = 1, TargetMonth = 11, TargetYear = 2026 });
+        _ewRepoMock.Setup(r => r.GetAllActiveRoomsWithBlockAsync()).ReturnsAsync(new List<Room>());
+        _ewRepoMock.Setup(r => r.GetReadingsByPeriodAsync(1)).ReturnsAsync(new List<MeterReading>());
+        _ewRepoMock.Setup(r => r.GetGuardDormIdAsync(10)).ReturnsAsync((int?)null);
+
+        // Act
+        Func<Task> act = async () => await _sut.GetBlockProgressAsync(1, userId: 10, isManager: false);
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+    }
+
+    [Fact]
+    public async Task GetImportBatchesAsync_WhenGuardHasNoDorm_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        _ewRepoMock.Setup(r => r.GetGuardDormIdAsync(10)).ReturnsAsync((int?)null);
+
+        // Act
+        Func<Task> act = async () => await _sut.GetImportBatchesAsync(1, userId: 10, isManager: false);
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        _ewRepoMock.Verify(r => r.GetImportBatchesAsync(It.IsAny<int?>(), It.IsAny<int?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GenerateExcelTemplateAsync_WhenGuardHasNoDorm_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        _ewRepoMock.Setup(r => r.GetGuardByUserIdAsync(10)).ReturnsAsync((Guard?)null);
+
+        // Act
+        Func<Task> act = async () => await _sut.GenerateExcelTemplateAsync(1, "B", "ALL", userId: 10, isManager: false);
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+    }
+
+    [Fact]
+    public async Task GetUsagesAsync_WhenGuardSuppliesDifferentDormId_ForcesGuardAssignedDorm()
+    {
+        // Arrange
+        _ewRepoMock.Setup(r => r.GetGuardDormIdAsync(10)).ReturnsAsync(1);
+        _ewRepoMock.Setup(r => r.GetGroupedUsagesAsync(null, null, null, null, null, null, 1))
+            .ReturnsAsync(Array.Empty<object>());
+
+        // Act
+        await _sut.GetUsagesAsync(null, null, null, null, dormId: 2, userId: 10, isManager: false);
+
+        // Assert
+        _ewRepoMock.Verify(r => r.GetGroupedUsagesAsync(null, null, null, null, null, null, 1), Times.Once);
+    }
 }

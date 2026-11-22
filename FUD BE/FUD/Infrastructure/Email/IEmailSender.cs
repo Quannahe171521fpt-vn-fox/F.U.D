@@ -1,7 +1,8 @@
-using System.Net;
-using System.Net.Mail;
+using MailKit.Net.Smtp;
+using MailKit.Security;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using MimeKit;
 
 namespace FUD.Infrastructure.Email
 {
@@ -25,54 +26,46 @@ namespace FUD.Infrastructure.Email
         {
             if (string.IsNullOrWhiteSpace(toEmail)) return;
 
-            var senderEmail = _config["Email:Sender"]
-                              ?? _config["Email__Sender"]
-                              ?? _config["Email:SenderEmail"]
-                              ?? _config["Email__SenderEmail"]
-                              ?? "katrung182@gmail.com";
-            var senderPassword = _config["Email:Password"]
-                                 ?? _config["Email__Password"]
-                                 ?? _config["Email:SenderPassword"]
-                                 ?? _config["Email__SenderPassword"]
-                                 ?? "sqpdbjbludjrlegl";
-
-            if (senderEmail.Contains("youremail@", StringComparison.OrdinalIgnoreCase))
+            var enabled = !string.Equals(_config["Email:Enabled"], "false", StringComparison.OrdinalIgnoreCase);
+            if (!enabled)
             {
-                senderEmail = "katrung182@gmail.com";
-            }
-            if (senderPassword.Contains("your-gmail", StringComparison.OrdinalIgnoreCase))
-            {
-                senderPassword = "sqpdbjbludjrlegl";
+                _logger.LogWarning("[EMAIL SKIPPED] Gửi email đang tắt theo cấu hình. Bỏ qua email tới {Email}", toEmail);
+                return;
             }
 
-            // Nếu cấu hình mặc định chưa đổi mật khẩu thật, ghi log và giả lập gửi thành công
+            var senderEmail = _config["Email:SenderEmail"]
+                              ?? _config["Email:Sender"]
+                              ?? string.Empty;
+            var senderPassword = _config["Email:SenderPassword"]
+                                 ?? _config["Email:Password"]
+                                 ?? string.Empty;
+            var smtpHost = _config["Email:SmtpHost"] ?? "smtp.gmail.com";
+            var smtpPort = int.TryParse(_config["Email:SmtpPort"], out var p) && p > 0 ? p : 587;
+            var senderName = _config["Email:SenderName"] ?? "Ký túc xá FUD - FPT University";
+
             if (string.IsNullOrWhiteSpace(senderEmail) ||
                 string.IsNullOrWhiteSpace(senderPassword) ||
+                senderEmail.Contains("youremail@", StringComparison.OrdinalIgnoreCase) ||
                 senderPassword.Contains("your-gmail", StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogInformation("[EMAIL MOCK] Gửi tới: {Email} | Chủ đề: {Subject}\nNội dung: {Content}",
-                    toEmail, subject, htmlMessage);
+                _logger.LogWarning("[EMAIL SKIPPED] Cấu hình Email:SenderEmail hoặc Email:SenderPassword chưa hợp lệ. Bỏ qua email tới {Email}", toEmail);
                 return;
             }
 
             try
             {
-                using var client = new SmtpClient("smtp.gmail.com", 587)
-                {
-                    Credentials = new NetworkCredential(senderEmail, senderPassword),
-                    EnableSsl = true
-                };
+                var message = new MimeMessage();
+                message.From.Add(new MailboxAddress(senderName, senderEmail));
+                message.To.Add(MailboxAddress.Parse(toEmail));
+                message.Subject = subject;
+                message.Body = new BodyBuilder { HtmlBody = htmlMessage }.ToMessageBody();
 
-                var mail = new MailMessage
-                {
-                    From = new MailAddress(senderEmail, "Ký túc xá FUD - FPT University"),
-                    Subject = subject,
-                    Body = htmlMessage,
-                    IsBodyHtml = true
-                };
-                mail.To.Add(toEmail);
+                using var client = new SmtpClient();
+                await client.ConnectAsync(smtpHost, smtpPort, SecureSocketOptions.StartTls);
+                await client.AuthenticateAsync(senderEmail, senderPassword);
+                await client.SendAsync(message);
+                await client.DisconnectAsync(true);
 
-                await client.SendMailAsync(mail);
                 _logger.LogInformation("[EMAIL SENT] Đã gửi thư thành công tới {Email}", toEmail);
             }
             catch (Exception ex)
