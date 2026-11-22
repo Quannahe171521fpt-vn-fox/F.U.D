@@ -24,18 +24,15 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.Tokens;
 
 // 0. Load biến môi trường từ file .env trước khi khởi tạo WebApplicationBuilder
+var aspnetEnv = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+                ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+                ?? "Production";
 var currentDirEnv = Path.Combine(Directory.GetCurrentDirectory(), ".env");
-
-var baseDirEnv = Path.Combine(AppContext.BaseDirectory, ".env");
 if (File.Exists(currentDirEnv))
 {
     DotNetEnv.Env.Load(currentDirEnv);
 }
-else if (File.Exists(baseDirEnv))
-{
-    DotNetEnv.Env.Load(baseDirEnv);
-}
-else
+else if (string.Equals(aspnetEnv, "Development", StringComparison.OrdinalIgnoreCase))
 {
     DotNetEnv.Env.TraversePath().Load();
 }
