@@ -248,6 +248,7 @@ public class RoomServiceTests
         var (createdRoom, _, _) = CreateSampleRoomEntity(15, dto.BlockId, dto.RoomTypeId, dto.RoomNumber, dto.FloorLevel.Value, "Active");
 
         _roomRepoMock.Setup(r => r.IsRoomNumberUniqueAsync(dto.BlockId, dto.RoomNumber, null)).ReturnsAsync(true);
+        _roomRepoMock.Setup(r => r.IsRoomNumberUniqueOnFloorAsync(dto.BlockId, dto.FloorLevel!.Value, dto.RoomNumber, null)).ReturnsAsync(true);
         _roomRepoMock.Setup(r => r.CreateAsync(It.IsAny<Room>())).ReturnsAsync(createdRoom);
         _roomRepoMock.Setup(r => r.GetByIdAsync(createdRoom.Id)).ReturnsAsync(createdRoom);
 
@@ -339,6 +340,7 @@ public class RoomServiceTests
 
         _roomRepoMock.Setup(r => r.GetByIdAsync(roomId)).ReturnsAsync(existingRoom);
         _roomRepoMock.Setup(r => r.IsRoomNumberUniqueAsync(existingRoom.BlockId, dto.RoomNumber, roomId)).ReturnsAsync(true);
+        _roomRepoMock.Setup(r => r.IsRoomNumberUniqueOnFloorAsync(existingRoom.BlockId, dto.FloorLevel!.Value, dto.RoomNumber, roomId)).ReturnsAsync(true);
         _roomRepoMock.Setup(r => r.UpdateAsync(existingRoom)).ReturnsAsync(existingRoom);
 
         var sut = CreateSut();
