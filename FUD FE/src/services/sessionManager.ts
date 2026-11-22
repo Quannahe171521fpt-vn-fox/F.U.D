@@ -1,7 +1,4 @@
 export const TOKEN_KEY = 'fud_accessToken';
-export const USER_KEY = 'fud_currentUser';
-export const ROLE_KEY = 'fud_userRole';
-export const VIEW_KEY = 'fud_currentView';
 export const LAST_ACTIVITY_KEY = 'fud_lastActivityAt';
 export const SESSION_META_KEY = 'fud_sessionMeta';
 
@@ -183,12 +180,16 @@ export function isUserIdleForPolling(graceMs: number = POLLING_IDLE_GRACE_MS): b
   return Date.now() - lastActivityMs >= graceMs;
 }
 
+export function clearLegacyAuthKeys(): void {
+  safeRemoveItem('fud_currentUser');
+  safeRemoveItem('fud_userRole');
+  safeRemoveItem('fud_currentView');
+}
+
 export function clearSessionStorage(): void {
   lastRecordedMemoryMs = 0;
   safeRemoveItem(TOKEN_KEY);
-  safeRemoveItem(USER_KEY);
-  safeRemoveItem(ROLE_KEY);
-  safeRemoveItem(VIEW_KEY);
+  clearLegacyAuthKeys();
   safeRemoveItem(LAST_ACTIVITY_KEY);
   safeRemoveItem(SESSION_META_KEY);
 }

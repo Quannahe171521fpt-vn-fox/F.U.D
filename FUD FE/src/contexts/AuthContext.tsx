@@ -9,10 +9,10 @@ import {
 import {
   DEFAULT_IDLE_TIMEOUT_MINUTES,
   LAST_ACTIVITY_KEY,
-  USER_KEY,
   type SessionExpirationReason,
   type SessionMeta,
   broadcastAuthEvent,
+  clearLegacyAuthKeys,
   clearSessionStorage,
   getSessionExpirationReason,
   getSessionMeta,
@@ -69,36 +69,8 @@ function getExpirationMessage(reason: SessionExpirationReason): string {
   return 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
 }
 
-function persistCurrentUser(user: UserInfo | null): void {
-  try {
-    if (typeof localStorage === 'undefined') return;
-    if (user) {
-      localStorage.setItem(USER_KEY, JSON.stringify(user));
-    } else {
-      localStorage.removeItem(USER_KEY);
-    }
-  } catch {
-    // storage unavailable
-  }
-}
-
-function hasStoredUserKey(): boolean {
-  try {
-    return typeof localStorage !== 'undefined' && Boolean(localStorage.getItem(USER_KEY));
-  } catch {
-    return false;
-  }
-}
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<UserInfo | null>(() => {
-    try {
-      const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(USER_KEY) : null;
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [currentUser, setCurrentUser] = useState<UserInfo | null>(null);
   const [accessToken, setAccessTokenState] = useState<string | null>(() => getAccessToken());
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [sessionMessage, setSessionMessage] = useState<string | null>(null);
@@ -168,10 +140,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     async function initAuth() {
       const seq = authSeqRef.current;
-      const hasStoredUser = hasStoredUserKey();
+      clearLegacyAuthKeys();
       let token = getAccessToken();
+      let hasLastActivityHint = false;
+      try {
+        hasLastActivityHint =
+          typeof localStorage !== 'undefined' && Boolean(localStorage.getItem(LAST_ACTIVITY_KEY));
+      } catch {
+        hasLastActivityHint = false;
+      }
+      const hasSessionHint = Boolean(token) || Boolean(getSessionMeta()) || hasLastActivityHint;
 
-      if (!hasStoredUser && !token) {
+      if (!hasSessionHint) {
         if (!cancelled && seq === authSeqRef.current) {
           setCurrentUser(null);
           setAccessTokenState(null);
@@ -190,7 +170,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       try {
-        if (!token && hasStoredUser) {
+        if (!token && hasSessionHint) {
           token = await refreshAccessToken();
           if (cancelled || seq !== authSeqRef.current) return;
 
@@ -209,7 +189,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (user) {
           setCurrentUser(user);
           setAccessTokenState(getAccessToken());
-          persistCurrentUser(user);
           try {
             if (typeof localStorage !== 'undefined' && !localStorage.getItem(LAST_ACTIVITY_KEY)) {
               recordUserActivity(true);
@@ -342,7 +321,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     recordUserActivity(true);
     setAccessTokenState(token);
     setCurrentUser(user);
-    persistCurrentUser(user);
     setSessionMessage(null);
     setIsLoading(false);
   }, []);

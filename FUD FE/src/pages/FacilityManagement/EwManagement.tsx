@@ -169,12 +169,15 @@ const EMPTY_CAPTURE_SLOTS: Record<CaptureSlotKey, CaptureSlotState> = {
 // ── Component ───────────────────────────────────────────
 export const EwManagement: React.FC = () => {
   const { currentUser } = useAuth();
-  const userRole = typeof localStorage !== 'undefined' ? localStorage.getItem('fud_userRole') : null;
-  const isManager = userRole === 'Manager' || userRole === 'Admin';
+  const roles = currentUser?.roles || [];
+  const isManager =
+    currentUser?.primaryRole === 'Manager' ||
+    currentUser?.primaryRole === 'Admin' ||
+    roles.includes('Manager') ||
+    roles.includes('Admin');
   const isGuard =
-    (currentUser?.roles || []).includes('Guard') ||
-    currentUser?.primaryRole === 'Guard' ||
-    (!isManager && userRole === 'Guard');
+    !isManager &&
+    (currentUser?.primaryRole === 'Guard' || roles.includes('Guard'));
 
   const [activeSection, setActiveSection] = useState<'import' | 'capture' | 'usage' | 'anomalies' | 'history'>('usage');
 
