@@ -13,6 +13,7 @@ import {
   type SessionMeta,
   broadcastAuthEvent,
   clearLegacyAuthKeys,
+  clearPaymentClientCaches,
   clearSessionStorage,
   getSessionExpirationReason,
   getSessionMeta,
@@ -78,11 +79,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isImpersonating = impersonation !== null;
 
   const startImpersonation = useCallback((session: ImpersonationSession) => {
+    clearPaymentClientCaches();
     setImpersonation(session);
     setImpersonationToken(session.token);
   }, []);
 
   const stopImpersonation = useCallback(() => {
+    clearPaymentClientCaches();
     setImpersonation(null);
     setImpersonationToken(null);
   }, []);

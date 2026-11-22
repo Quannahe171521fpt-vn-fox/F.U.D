@@ -186,10 +186,31 @@ export function clearLegacyAuthKeys(): void {
   safeRemoveItem('fud_currentView');
 }
 
+export function clearPaymentClientCaches(): void {
+  safeRemoveItem('fud_payment_history_cache');
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        if (key && key.startsWith('fud_active_qr_tx_')) {
+          keysToRemove.push(key);
+        }
+      }
+      for (const key of keysToRemove) {
+        sessionStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // storage unavailable
+  }
+}
+
 export function clearSessionStorage(): void {
   lastRecordedMemoryMs = 0;
   safeRemoveItem(TOKEN_KEY);
   clearLegacyAuthKeys();
+  clearPaymentClientCaches();
   safeRemoveItem(LAST_ACTIVITY_KEY);
   safeRemoveItem(SESSION_META_KEY);
 }

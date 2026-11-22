@@ -2924,23 +2924,7 @@ export const paymentApi = {
       // Fallback nếu server chưa cập nhật endpoint /history
     }
 
-    // 2. Gộp thêm từ bộ nhớ cache biên lai trên trình duyệt
-    try {
-      const rawCache = localStorage.getItem('fud_payment_history_cache');
-      if (rawCache) {
-        const cachedList = JSON.parse(rawCache) as PaymentHistoryItemDto[];
-        for (const item of cachedList || []) {
-          const key = item.receiptNumber || `TX-${item.transactionId}`;
-          if (!mergedMap.has(key)) {
-            mergedMap.set(key, item);
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
-
-    // 3. Gộp thêm các hóa đơn có trạng thái Paid trong Lịch sử lưu trú
+    // 2. Gộp thêm các hóa đơn có trạng thái Paid trong Lịch sử lưu trú
     try {
       const coveredInvIds = new Set<number>();
       for (const h of mergedMap.values()) {
