@@ -293,6 +293,60 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                     }
 
                     var dbRoles = cachedRoles;
+                    var isImpersonation = string.Equals(
+                        context.Principal?.FindFirstValue("imp"),
+                        "true",
+                        StringComparison.OrdinalIgnoreCase);
+
+                    if (isImpersonation)
+                    {
+                        var managerIdStr = context.Principal?.FindFirstValue("impersonated_by");
+                        if (!int.TryParse(managerIdStr, out var managerId) || managerId <= 0)
+                        {
+                            context.Fail("Phiên đăng nhập hộ không hợp lệ.");
+                            return;
+                        }
+
+                        var managerStatusKey = $"user_status_{managerId}";
+                        if (!cache.TryGetValue<string>(managerStatusKey, out var managerStatus))
+                        {
+                            var managerUser = await dbContext.Users.AsNoTracking()
+                                .Where(u => u.Id == managerId && u.DeletedAt == null)
+                                .Select(u => new { u.AccountStatus })
+                                .FirstOrDefaultAsync();
+
+                            managerStatus = managerUser?.AccountStatus ?? "NotFound";
+                            cache.Set(managerStatusKey, managerStatus, TimeSpan.FromSeconds(60));
+                        }
+
+                        var managerRolesKey = $"user_roles_{managerId}";
+                        if (!cache.TryGetValue<string[]>(managerRolesKey, out var managerRoles) || managerRoles == null)
+                        {
+                            managerRoles = (await dbContext.UserRoles.AsNoTracking()
+                                .Where(ur => ur.UserId == managerId)
+                                .Select(ur => ur.Role.RoleName)
+                                .ToListAsync()).ToArray();
+
+                            cache.Set(managerRolesKey, managerRoles, TimeSpan.FromSeconds(60));
+                        }
+
+                        if (!string.Equals(managerStatus, AccountConstants.Statuses.Active, StringComparison.OrdinalIgnoreCase)
+                            || !managerRoles.Contains("Manager"))
+                        {
+                            context.Fail("Tài khoản quản lý tạo phiên đăng nhập hộ không còn hiệu lực.");
+                            return;
+                        }
+
+                        if (!dbRoles.Contains("Student")
+                            || dbRoles.Any(r => r is "Admin" or "Manager" or "Guard"))
+                        {
+                            context.Fail("Tài khoản mục tiêu không hợp lệ cho phiên đăng nhập hộ.");
+                            return;
+                        }
+
+                        dbRoles = new[] { "Student" };
+                    }
+
                     var dbIdentity = context.Principal?.Identity as System.Security.Claims.ClaimsIdentity;
                     if (dbIdentity != null)
                     {

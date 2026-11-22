@@ -96,10 +96,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     const timer = setTimeout(() => {
       stopImpersonation();
-      alert('Phiên đăng nhập hộ sinh viên đã hết hạn (2 giờ). Đã trở lại tài khoản Quản lý.');
+      alert('Phiên đăng nhập hộ sinh viên đã hết hạn (30 phút). Đã trở lại tài khoản Quản lý.');
     }, timeLeft);
     return () => clearTimeout(timer);
   }, [impersonation, stopImpersonation]);
+
+  useEffect(() => {
+    if (!currentUser && impersonation) {
+      stopImpersonation();
+    }
+  }, [currentUser, impersonation, stopImpersonation]);
 
   const authSeqRef = useRef(0);
   const isLoggingOutRef = useRef(false);
@@ -223,6 +229,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const reason =
         (event as CustomEvent<{ reason?: SessionExpirationReason }>).detail?.reason ?? 'server';
       authSeqRef.current += 1;
+      setImpersonationToken(null);
+      setImpersonation(null);
       setCurrentUser(null);
       setAccessTokenState(null);
       setSessionMessage(getExpirationMessage(reason));
@@ -235,6 +243,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (msg.type === 'EXPIRED') {
         authSeqRef.current += 1;
         setApiClientAccessToken(null);
+        setImpersonationToken(null);
+        setImpersonation(null);
         clearSessionStorage();
         setCurrentUser(null);
         setAccessTokenState(null);
@@ -243,6 +253,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else if (msg.type === 'LOGOUT') {
         authSeqRef.current += 1;
         setApiClientAccessToken(null);
+        setImpersonationToken(null);
+        setImpersonation(null);
         clearSessionStorage();
         setCurrentUser(null);
         setAccessTokenState(null);
