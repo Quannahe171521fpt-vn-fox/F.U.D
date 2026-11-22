@@ -40,6 +40,14 @@ namespace FUD.Controllers
             }
         }
 
+        private bool TryGetCurrentUserId(out int userId)
+        {
+            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                ?? User.FindFirstValue("sub")
+                ?? User.FindFirstValue("nameid");
+            return int.TryParse(userIdClaim, out userId) && userId > 0;
+        }
+
         [HttpPost("save")]
         public async Task<IActionResult> SavePricing([FromBody] SavePricingRequestDto request)
         {
@@ -49,11 +57,9 @@ namespace FUD.Controllers
                     ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList()));
             }
 
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (!int.TryParse(userIdClaim, out int managerUserId))
+            if (!TryGetCurrentUserId(out var managerUserId))
             {
-                // Fallback nếu chạy test hoặc dev không có token chuẩn
-                managerUserId = 2; // Default Manager id trong seed data
+                return Unauthorized(ApiResponse.Fail("Không xác định được danh tính cán bộ từ token."));
             }
 
             try
@@ -80,8 +86,10 @@ namespace FUD.Controllers
             if (!ModelState.IsValid)
                 return BadRequest(ApiResponse.Fail("Dữ liệu không hợp lệ"));
 
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (!int.TryParse(userIdClaim, out int managerUserId)) managerUserId = 2;
+            if (!TryGetCurrentUserId(out var managerUserId))
+            {
+                return Unauthorized(ApiResponse.Fail("Không xác định được danh tính cán bộ từ token."));
+            }
 
             try
             {

@@ -131,9 +131,13 @@ namespace FUD.Controllers.Violations
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (InvalidOperationException ex)
             {
-                return StatusCode(500, ApiResponse.Fail($"Lỗi khi ghi nhận vi phạm: {ex.Message}"));
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -237,9 +241,13 @@ namespace FUD.Controllers.Violations
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (KeyNotFoundException ex)
             {
-                return StatusCode(500, ApiResponse.Fail($"Lỗi khi đánh giá vi phạm: {ex.Message}"));
+                return NotFound(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -265,9 +273,9 @@ namespace FUD.Controllers.Violations
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Lỗi hệ thống: " + ex.Message));
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 

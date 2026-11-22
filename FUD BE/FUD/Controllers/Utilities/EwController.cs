@@ -65,9 +65,13 @@ namespace FUD.Controllers.Utilities
             {
                 return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or KeyNotFoundException)
             {
-                return BadRequest(ApiResponse.Fail($"Lỗi khi tải dữ liệu sử dụng: {ex.Message}"));
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -396,9 +400,13 @@ namespace FUD.Controllers.Utilities
             {
                 return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or KeyNotFoundException)
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -467,9 +475,13 @@ namespace FUD.Controllers.Utilities
             {
                 return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or KeyNotFoundException)
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -499,9 +511,13 @@ namespace FUD.Controllers.Utilities
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (ArgumentException ex)
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -563,9 +579,13 @@ namespace FUD.Controllers.Utilities
                 var result = await _ewService.GetAnomaliesAsync(billingPeriodId, status);
                 return Ok(ApiResponse<List<UsageAnomalyItemDto>>.Ok(result));
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or KeyNotFoundException)
             {
-                return BadRequest(ApiResponse.Fail($"Lỗi khi tải danh sách cảnh báo bất thường: {ex.Message}"));
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -592,9 +612,13 @@ namespace FUD.Controllers.Utilities
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (InvalidOperationException ex)
             {
-                return BadRequest(ApiResponse.Fail($"Lỗi khi xử lý cảnh báo bất thường: {ex.Message}"));
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -614,9 +638,13 @@ namespace FUD.Controllers.Utilities
             {
                 return NotFound(ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
             {
-                return BadRequest(ApiResponse.Fail($"Lỗi khi tính phụ trội điện nước: {ex.Message}"));
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -633,9 +661,13 @@ namespace FUD.Controllers.Utilities
                 var terms = await _ewService.GetStudentTermsAsync(studentUserId);
                 return Ok(ApiResponse<List<StudentTermOptionDto>>.Ok(terms));
             }
-            catch (Exception ex)
+            catch (UnauthorizedAccessException ex)
             {
-                return BadRequest(ApiResponse.Fail($"Lỗi khi tải danh sách học kỳ: {ex.Message}"));
+                return Unauthorized(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -653,9 +685,13 @@ namespace FUD.Controllers.Utilities
                 }
                 return Ok(ApiResponse<StudentEwReportDto>.Ok(report));
             }
-            catch (Exception ex)
+            catch (UnauthorizedAccessException ex)
             {
-                return BadRequest(ApiResponse.Fail($"Lỗi khi tải báo cáo điện nước cá nhân: {ex.Message}"));
+                return Unauthorized(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
     }

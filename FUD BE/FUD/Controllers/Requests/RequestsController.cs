@@ -89,9 +89,13 @@ namespace FUD.Controllers.Requests
             {
                 return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or KeyNotFoundException)
             {
                 return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau." });
             }
         }
 
@@ -107,9 +111,13 @@ namespace FUD.Controllers.Requests
                 var result = await _requestService.GetGuardsAsync(dormId);
                 return Ok(result);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or KeyNotFoundException)
             {
                 return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau." });
             }
         }
 
@@ -131,9 +139,13 @@ namespace FUD.Controllers.Requests
                 var result = await _requestService.GetGuardTransferInspectionsAsync(guardUserId);
                 return Ok(result);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or KeyNotFoundException)
             {
                 return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau." });
             }
         }
 
@@ -159,9 +171,13 @@ namespace FUD.Controllers.Requests
             {
                 return NotFound(new { message = ex.Message });
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
             {
                 return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau." });
             }
         }
 
@@ -187,9 +203,13 @@ namespace FUD.Controllers.Requests
             {
                 return NotFound(new { message = ex.Message });
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
             {
                 return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau." });
             }
         }
     }

@@ -51,10 +51,10 @@ namespace FUD.Controllers.Payments
                 var result = await _paymentService.GetPayableInvoicesAsync(studentId);
                 return Ok(ApiResponse<StudentInvoiceListResponseDto>.Ok(result));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse.Fail($"Đã xảy ra lỗi khi tải danh sách hóa đơn: {ex.Message}"));
+                    ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -88,10 +88,10 @@ namespace FUD.Controllers.Payments
 
                 return Ok(ApiResponse<StudentInvoiceDto>.Ok(result));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse.Fail($"Đã xảy ra lỗi khi tra cứu hóa đơn: {ex.Message}"));
+                    ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -137,10 +137,10 @@ namespace FUD.Controllers.Payments
             {
                 return Conflict(ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse.Fail($"Đã xảy ra lỗi khi tạo giao dịch thanh toán: {ex.Message}"));
+                    ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -186,10 +186,10 @@ namespace FUD.Controllers.Payments
             {
                 return Conflict(ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse.Fail($"Đã xảy ra lỗi khi xác nhận thanh toán: {ex.Message}"));
+                    ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -228,10 +228,10 @@ namespace FUD.Controllers.Payments
             {
                 return Conflict(ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse.Fail($"Đã xảy ra lỗi khi hủy giao dịch: {ex.Message}"));
+                    ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -253,10 +253,10 @@ namespace FUD.Controllers.Payments
                 var result = await _paymentService.GetPaymentHistoryAsync(studentId);
                 return Ok(ApiResponse<List<PaymentHistoryItemDto>>.Ok(result));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse.Fail($"Đã xảy ra lỗi khi tải lịch sử thanh toán: {ex.Message}"));
+                    ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -286,10 +286,10 @@ namespace FUD.Controllers.Payments
             {
                 return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError,
-                    ApiResponse.Fail($"Đã xảy ra lỗi khi kiểm tra trạng thái giao dịch: {ex.Message}"));
+                    ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -327,10 +327,10 @@ namespace FUD.Controllers.Payments
             {
                 return Unauthorized(new { success = false, message = ex.Message });
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError,
-                    new { success = false, message = ex.Message });
+                    new { success = false, message = "Đã xảy ra lỗi hệ thống khi xử lý webhook." });
             }
         }
 

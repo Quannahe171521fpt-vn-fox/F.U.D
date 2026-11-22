@@ -183,13 +183,6 @@ builder.Services.AddCors(options =>
               .AllowAnyMethod()
               .AllowCredentials();
     });
-
-    options.AddPolicy("AllowAll", policy =>
-    {
-        policy.AllowAnyOrigin()
-              .AllowAnyHeader()
-              .AllowAnyMethod();
-    });
 });
 
 // Add services to the container.
@@ -455,16 +448,6 @@ builder.Services.AddScoped<FUD.Services.Interfaces.Requests.IRequestService, FUD
 builder.Services.AddScoped<FUD.Services.Interfaces.Checkin.ICheckinService, FUD.Services.Checkin.CheckinService>();
 builder.Services.AddScoped<IResidencyService, ResidencyService>();
 
-builder.Services.AddControllers()
-    .AddJsonOptions(opts =>
-    {
-        opts.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
-        opts.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
-        opts.JsonSerializerOptions.Converters.Add(new FUD.Common.FlexibleStringConverter());
-    });
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-
 var app = builder.Build();
 
 
@@ -495,6 +478,29 @@ foreach (var cidr in knownNetworks)
     }
 }
 app.UseForwardedHeaders(forwardedOptions);
+
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var feature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        if (feature?.Error != null)
+        {
+            logger.LogError(feature.Error, "Unhandled exception (TraceId: {TraceId})", context.TraceIdentifier);
+        }
+
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        context.Response.ContentType = "application/json; charset=utf-8";
+        var msg = app.Environment.IsDevelopment() && feature?.Error != null
+            ? $"Lỗi hệ thống (Dev): {feature.Error.Message}"
+            : $"Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau (Mã tra cứu: {context.TraceIdentifier}).";
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            ApiResponse.Fail(msg),
+            new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+        await context.Response.WriteAsync(json);
+    });
+});
 
 if (app.Environment.IsDevelopment())
 {

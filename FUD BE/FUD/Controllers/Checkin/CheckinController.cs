@@ -114,9 +114,13 @@ namespace FUD.Controllers.Checkin
             {
                 return Conflict(ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (KeyNotFoundException ex)
             {
-                return StatusCode(500, ApiResponse.Fail($"Lỗi khi thực hiện Check-in: {ex.Message}"));
+                return NotFound(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
