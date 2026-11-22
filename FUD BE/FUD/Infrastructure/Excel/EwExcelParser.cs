@@ -6,6 +6,8 @@ namespace FUD.Infrastructure.Excel
 {
     public class EwExcelParser
     {
+        public const int MaxAllowedRows = 2000;
+
         public static List<ExcelPreviewRowDto> ParseExcelFile(Stream fileStream)
         {
             var results = new List<ExcelPreviewRowDto>();
@@ -14,7 +16,12 @@ namespace FUD.Infrastructure.Excel
             var worksheet = workbook.Worksheets.FirstOrDefault() 
                 ?? throw new InvalidOperationException("File Excel không có sheet nào");
 
-            var rows = worksheet.RowsUsed().Skip(1); // Bỏ qua header
+            var rows = worksheet.RowsUsed().Skip(1).ToList(); // Bỏ qua header
+            if (rows.Count > MaxAllowedRows)
+            {
+                throw new ArgumentException($"File Excel vượt quá giới hạn tối đa {MaxAllowedRows} dòng dữ liệu.");
+            }
+
             int index = 2;
 
             foreach (var row in rows)

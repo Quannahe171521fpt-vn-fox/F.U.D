@@ -108,6 +108,8 @@ namespace FUD.Controllers.Violations
         [HttpPost("record")]
         [Authorize(Roles = "Guard")]
         [Consumes("multipart/form-data")]
+        [RequestSizeLimit(30 * 1024 * 1024)]
+        [RequestFormLimits(MultipartBodyLengthLimit = 30 * 1024 * 1024)]
         public async Task<IActionResult> RecordViolation([FromForm] CreateViolationRequestDto request)
         {
             try

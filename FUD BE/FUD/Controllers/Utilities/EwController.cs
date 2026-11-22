@@ -319,11 +319,54 @@ namespace FUD.Controllers.Utilities
             }
         }
 
+        private const long MaxExcelBytes = 5 * 1024 * 1024;
+
+        private static async Task<(MemoryStream? Stream, string? Error)> TryReadAndValidateXlsxStreamAsync(IFormFile file)
+        {
+            if (file.Length > MaxExcelBytes)
+            {
+                return (null, "File Excel không được vượt quá 5MB");
+            }
+
+            using var source = file.OpenReadStream();
+            var ms = new MemoryStream();
+            var buffer = new byte[81920];
+            long totalRead = 0;
+            int read;
+            while ((read = await source.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            {
+                totalRead += read;
+                if (totalRead > MaxExcelBytes)
+                {
+                    ms.Dispose();
+                    return (null, "File Excel không được vượt quá 5MB");
+                }
+                ms.Write(buffer, 0, read);
+            }
+
+            if (totalRead < 4)
+            {
+                ms.Dispose();
+                return (null, "File tải lên không phải định dạng Excel (.xlsx) hợp lệ");
+            }
+
+            var bytes = ms.GetBuffer();
+            if (bytes[0] != 0x50 || bytes[1] != 0x4B || bytes[2] != 0x03 || bytes[3] != 0x04)
+            {
+                ms.Dispose();
+                return (null, "File tải lên không phải định dạng Excel (.xlsx) hợp lệ");
+            }
+
+            ms.Position = 0;
+            return (ms, null);
+        }
+
         // ═════════════════════════════════════════════════════════════
         // I1: Preview Import từ file Excel
         // ═════════════════════════════════════════════════════════════
         [HttpPost("import/preview")]
         [Authorize(Roles = "Guard,Manager")]
+        [RequestSizeLimit(5 * 1024 * 1024)]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> PreviewExcelImport(
             IFormFile file,
@@ -335,13 +378,19 @@ namespace FUD.Controllers.Utilities
             if (!file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
                 return BadRequest(ApiResponse.Fail("Chỉ chấp nhận file định dạng .xlsx"));
 
+            var (validatedStream, validationError) = await TryReadAndValidateXlsxStreamAsync(file);
+            if (validatedStream == null)
+                return BadRequest(ApiResponse.Fail(validationError!));
+
             try
             {
-                var userId = GetCurrentUserId();
-                var isManager = IsManager();
-                using var stream = file.OpenReadStream();
-                var result = await _ewService.PreviewExcelImportAsync(stream, billingPeriodId, userId, isManager);
-                return Ok(ApiResponse<ExcelPreviewResponseDto>.Ok(result));
+                using (validatedStream)
+                {
+                    var userId = GetCurrentUserId();
+                    var isManager = IsManager();
+                    var result = await _ewService.PreviewExcelImportAsync(validatedStream, billingPeriodId, userId, isManager);
+                    return Ok(ApiResponse<ExcelPreviewResponseDto>.Ok(result));
+                }
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -358,6 +407,7 @@ namespace FUD.Controllers.Utilities
         // ═════════════════════════════════════════════════════════════
         [HttpPost("import/upload")]
         [Authorize(Roles = "Guard,Manager")]
+        [RequestSizeLimit(5 * 1024 * 1024)]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> UploadAndSaveExcel(
             IFormFile file,
@@ -368,6 +418,10 @@ namespace FUD.Controllers.Utilities
 
             if (!file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
                 return BadRequest(ApiResponse.Fail("Chỉ chấp nhận file định dạng .xlsx"));
+
+            var (validatedStream, validationError) = await TryReadAndValidateXlsxStreamAsync(file);
+            if (validatedStream == null)
+                return BadRequest(ApiResponse.Fail(validationError!));
 
             try
             {
@@ -384,14 +438,17 @@ namespace FUD.Controllers.Utilities
                     var periods = await _ewService.GetBillingPeriodsAsync();
                     var activePeriod = periods.FirstOrDefault(p => p.Status == "Open") ?? periods.FirstOrDefault();
                     if (activePeriod == null)
+                    {
+                        validatedStream.Dispose();
                         return BadRequest(ApiResponse.Fail("Không tìm thấy kỳ thanh toán nào"));
+                    }
                     targetPeriodId = activePeriod.Id;
                 }
 
                 ExcelPreviewResponseDto preview;
-                using (var stream = file.OpenReadStream())
+                using (validatedStream)
                 {
-                    preview = await _ewService.PreviewExcelImportAsync(stream, targetPeriodId, guardUserId, isManager);
+                    preview = await _ewService.PreviewExcelImportAsync(validatedStream, targetPeriodId, guardUserId, isManager);
                 }
 
                 var confirmReq = new ExcelConfirmImportRequestDto

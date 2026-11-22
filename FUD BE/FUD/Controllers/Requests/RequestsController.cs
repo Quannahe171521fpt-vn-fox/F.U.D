@@ -70,6 +70,8 @@ namespace FUD.Controllers.Requests
         /// </summary>
         [HttpPost]
         [Authorize(Roles = "Student")]
+        [RequestSizeLimit(30 * 1024 * 1024)]
+        [RequestFormLimits(MultipartBodyLengthLimit = 30 * 1024 * 1024)]
         public async Task<IActionResult> Create([FromForm] CreateRequestDto dto)
         {
             var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirst("sub")?.Value;
