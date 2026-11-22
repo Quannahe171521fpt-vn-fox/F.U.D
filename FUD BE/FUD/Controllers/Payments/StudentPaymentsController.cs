@@ -4,6 +4,7 @@ using FUD.DTOs.Payments;
 using FUD.Services.Interfaces.Payments;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace FUD.Controllers.Payments
 {
@@ -18,10 +19,17 @@ namespace FUD.Controllers.Payments
     public class StudentPaymentsController : ControllerBase
     {
         private readonly IStudentPaymentService _paymentService;
+        private readonly IWebHostEnvironment _env;
+        private readonly IConfiguration _configuration;
 
-        public StudentPaymentsController(IStudentPaymentService paymentService)
+        public StudentPaymentsController(
+            IStudentPaymentService paymentService,
+            IWebHostEnvironment env,
+            IConfiguration configuration)
         {
             _paymentService = paymentService;
+            _env = env;
+            _configuration = configuration;
         }
 
         /// <summary>
@@ -143,6 +151,13 @@ namespace FUD.Controllers.Payments
         [HttpPost("{id:int}/mock-confirm")]
         public async Task<IActionResult> MockConfirm(int id, [FromBody] MockConfirmPaymentDto? dto)
         {
+            var allowMock = _env.IsDevelopment()
+                && _configuration.GetValue<bool>("Payments:EnableMockConfirm");
+            if (!allowMock)
+            {
+                return NotFound(ApiResponse.Fail("Endpoint không khả dụng trong môi trường hiện tại."));
+            }
+
             var studentId = GetCurrentStudentId();
             if (studentId == 0)
             {
@@ -285,6 +300,7 @@ namespace FUD.Controllers.Payments
         /// - hoặc http://fudapi.somee.com/api/student/payments/sepay-webhook
         /// </summary>
         [AllowAnonymous]
+        [EnableRateLimiting("SePayWebhookPolicy")]
         [HttpPost("sepay-webhook")]
         [HttpPost("/api/sepay/webhook")]
         public async Task<IActionResult> SePayWebhook([FromBody] SePayWebhookPayloadDto? payload)

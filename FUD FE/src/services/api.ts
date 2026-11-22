@@ -2889,17 +2889,6 @@ export const paymentApi = {
       'Không thể khởi tạo giao dịch VietQR'
     ),
 
-  mockConfirm: (transactionId: number, gatewayReference?: string): Promise<PaymentSuccessDto> =>
-    studentPaymentRequest<PaymentSuccessDto>(
-      `${BASE_URL}/student/payments/${transactionId}/mock-confirm`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(gatewayReference ? { gatewayReference } : {}),
-      },
-      'Không thể xác nhận thanh toán giao dịch'
-    ),
-
   cancelTransaction: (transactionId: number, reason?: string): Promise<PaymentCancelResultDto> =>
     studentPaymentRequest<PaymentCancelResultDto>(
       `${BASE_URL}/student/payments/${transactionId}/cancel`,

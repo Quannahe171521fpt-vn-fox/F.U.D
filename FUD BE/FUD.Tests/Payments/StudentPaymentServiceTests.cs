@@ -3,11 +3,17 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using FluentAssertions;
+using FUD.Controllers.Payments;
 using FUD.DTOs.Payments;
 using FUD.Models;
+using FUD.Services.Interfaces.Payments;
 using FUD.Services.Payments;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using Xunit;
 
 namespace FUD.Tests.Payments;
@@ -31,9 +37,13 @@ public class StudentPaymentServiceTests
         return new FudContext(options);
     }
 
-    private static StudentPaymentService CreateSut(FudContext context)
+    private static StudentPaymentService CreateSut(FudContext context, IConfiguration? config = null)
     {
-        return new StudentPaymentService(context, new PaymentTransactionFactory(context), NullLogger<StudentPaymentService>.Instance);
+        return new StudentPaymentService(
+            context,
+            new PaymentTransactionFactory(context),
+            NullLogger<StudentPaymentService>.Instance,
+            config);
     }
 
     private static Invoice CreateInvoice(
@@ -830,6 +840,139 @@ public class StudentPaymentServiceTests
 
         // Assert
         await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    #endregion
+
+    #region SePayWebhookAndMockConfirmSecurity
+
+    [Fact]
+    public async Task ProcessSePayWebhookAsync_WhenWebhookApiKeyNotConfigured_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        var context = CreateInMemoryContext();
+        var config = new ConfigurationBuilder().Build();
+        var sut = CreateSut(context, config);
+        var payload = new SePayWebhookPayloadDto
+        {
+            TransferType = "in",
+            TransferAmount = 100_000m,
+            Content = "VQR-20260101000000-0001"
+        };
+
+        // Act
+        var act = () => sut.ProcessSePayWebhookAsync(payload, "Apikey any-key");
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>()
+            .WithMessage("*chưa được cấu hình*");
+    }
+
+    [Fact]
+    public async Task ProcessSePayWebhookAsync_WhenApiKeyInvalid_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        var context = CreateInMemoryContext();
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["SePay:WebhookApiKey"] = "test-sepay-secret-key"
+            })
+            .Build();
+        var sut = CreateSut(context, config);
+        var payload = new SePayWebhookPayloadDto
+        {
+            TransferType = "in",
+            TransferAmount = 100_000m,
+            Content = "VQR-20260101000000-0001"
+        };
+
+        // Act
+        var act = () => sut.ProcessSePayWebhookAsync(payload, "Apikey wrong-key");
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>()
+            .WithMessage("*không hợp lệ*");
+    }
+
+    [Fact]
+    public async Task ProcessSePayWebhookAsync_WhenValidApikeyHeader_AcceptsAuth()
+    {
+        // Arrange
+        var context = CreateInMemoryContext();
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["SePay:WebhookApiKey"] = "test-sepay-secret-key"
+            })
+            .Build();
+        var sut = CreateSut(context, config);
+        var payload = new SePayWebhookPayloadDto
+        {
+            TransferType = "in",
+            TransferAmount = 100_000m,
+            Content = "VQR-20260101000000-0001"
+        };
+
+        // Act
+        var (handled, message, receipt) = await sut.ProcessSePayWebhookAsync(payload, "Apikey test-sepay-secret-key");
+
+        // Assert
+        handled.Should().BeFalse();
+        receipt.Should().BeNull();
+        message.Should().Contain("Processing");
+    }
+
+    [Fact]
+    public async Task MockConfirm_WhenProductionEnvironment_ReturnsNotFound()
+    {
+        // Arrange
+        var serviceMock = new Mock<IStudentPaymentService>();
+        var envMock = new Mock<IWebHostEnvironment>();
+        envMock.SetupGet(e => e.EnvironmentName).Returns("Production");
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Payments:EnableMockConfirm"] = "true"
+            })
+            .Build();
+
+        var controller = new StudentPaymentsController(serviceMock.Object, envMock.Object, config);
+
+        // Act
+        var result = await controller.MockConfirm(1, null);
+
+        // Assert
+        result.Should().BeOfType<NotFoundObjectResult>();
+        serviceMock.Verify(
+            s => s.MockConfirmAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<MockConfirmPaymentDto?>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task MockConfirm_WhenDevelopmentAndMockDisabled_ReturnsNotFound()
+    {
+        // Arrange
+        var serviceMock = new Mock<IStudentPaymentService>();
+        var envMock = new Mock<IWebHostEnvironment>();
+        envMock.SetupGet(e => e.EnvironmentName).Returns("Development");
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Payments:EnableMockConfirm"] = "false"
+            })
+            .Build();
+
+        var controller = new StudentPaymentsController(serviceMock.Object, envMock.Object, config);
+
+        // Act
+        var result = await controller.MockConfirm(1, null);
+
+        // Assert
+        result.Should().BeOfType<NotFoundObjectResult>();
+        serviceMock.Verify(
+            s => s.MockConfirmAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<MockConfirmPaymentDto?>()),
+            Times.Never);
     }
 
     #endregion

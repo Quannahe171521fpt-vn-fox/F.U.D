@@ -678,22 +678,27 @@ namespace FUD.Services.Payments
             string? authorizationHeader = null)
         {
             var expectedApiKey = _config?["SePay:WebhookApiKey"];
-            if (!string.IsNullOrWhiteSpace(expectedApiKey))
+            if (string.IsNullOrWhiteSpace(expectedApiKey))
             {
-                var provided = (authorizationHeader ?? string.Empty).Trim();
-                if (provided.StartsWith("Apikey ", StringComparison.OrdinalIgnoreCase))
-                {
-                    provided = provided.Substring("Apikey ".Length).Trim();
-                }
-                else if (provided.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-                {
-                    provided = provided.Substring("Bearer ".Length).Trim();
-                }
+                throw new UnauthorizedAccessException("SePay Webhook API Key chưa được cấu hình trên máy chủ.");
+            }
 
-                if (!string.Equals(provided, expectedApiKey, StringComparison.Ordinal))
-                {
-                    throw new UnauthorizedAccessException("SePay Webhook API Key không hợp lệ.");
-                }
+            var provided = (authorizationHeader ?? string.Empty).Trim();
+            if (provided.StartsWith("Apikey ", StringComparison.OrdinalIgnoreCase))
+            {
+                provided = provided.Substring("Apikey ".Length).Trim();
+            }
+            else if (provided.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                provided = provided.Substring("Bearer ".Length).Trim();
+            }
+
+            var providedBytes = System.Text.Encoding.UTF8.GetBytes(provided);
+            var expectedBytes = System.Text.Encoding.UTF8.GetBytes(expectedApiKey.Trim());
+            if (providedBytes.Length != expectedBytes.Length ||
+                !CryptographicOperations.FixedTimeEquals(providedBytes, expectedBytes))
+            {
+                throw new UnauthorizedAccessException("SePay Webhook API Key không hợp lệ.");
             }
 
             if (!string.IsNullOrWhiteSpace(payload.TransferType) &&
