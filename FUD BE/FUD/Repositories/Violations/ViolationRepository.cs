@@ -123,6 +123,15 @@ namespace FUD.Repositories.Violations
             return guard?.DormId;
         }
 
+        public async Task<int?> GetRoomDormIdAsync(int roomId)
+        {
+            return await _context.Rooms
+                .AsNoTracking()
+                .Where(r => r.Id == roomId)
+                .Select(r => (int?)r.Block.DormId)
+                .FirstOrDefaultAsync();
+        }
+
         public async Task<Violation?> GetViolationByIdAsync(int id)
         {
             return await _context.Violations

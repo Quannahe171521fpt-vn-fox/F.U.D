@@ -321,4 +321,50 @@ public class ViolationManagementServiceTests
         await act.Should().ThrowAsync<ArgumentException>()
             .WithMessage("*Không tìm thấy thông tin sinh viên*");
     }
+
+    [Fact]
+    public async Task GetViolationByIdAsync_WhenStudentRequestsOtherStudentViolation_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        var sut = CreateSut();
+        var violation = new Violation
+        {
+            Id = 50,
+            Code = "VIO-50",
+            StudentId = 100,
+            Status = "Recorded",
+            ViolationEvidences = new List<ViolationEvidence>()
+        };
+        _violationRepoMock.Setup(r => r.GetViolationByIdAsync(50)).ReturnsAsync(violation);
+
+        // Act
+        var act = () => sut.GetViolationByIdAsync(50, callerUserId: 200, isManagerOrAdmin: false, isGuard: false);
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+    }
+
+    [Fact]
+    public async Task GetViolationByIdAsync_WhenGuardRequestsViolationInOtherDorm_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        var sut = CreateSut();
+        var violation = new Violation
+        {
+            Id = 51,
+            Code = "VIO-51",
+            StudentId = 100,
+            Room = new Room { Id = 10, Block = new Block { Id = 2, DormId = 2 } },
+            Status = "Recorded",
+            ViolationEvidences = new List<ViolationEvidence>()
+        };
+        _violationRepoMock.Setup(r => r.GetViolationByIdAsync(51)).ReturnsAsync(violation);
+        _violationRepoMock.Setup(r => r.GetGuardDormIdAsync(77)).ReturnsAsync(1);
+
+        // Act
+        var act = () => sut.GetViolationByIdAsync(51, callerUserId: 77, isManagerOrAdmin: false, isGuard: true);
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+    }
 }

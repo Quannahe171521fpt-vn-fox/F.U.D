@@ -37,8 +37,18 @@ namespace FUD.Services.Violations
             }).ToList();
         }
 
-        public async Task<List<RoomStudentDto>> GetStudentsByRoomAsync(int roomId)
+        public async Task<List<RoomStudentDto>> GetStudentsByRoomAsync(int roomId, int? guardUserId = null)
         {
+            if (guardUserId.HasValue)
+            {
+                var guardDormId = await _violationRepo.GetGuardDormIdAsync(guardUserId.Value);
+                var roomDormId = await _violationRepo.GetRoomDormIdAsync(roomId);
+                if (!guardDormId.HasValue || !roomDormId.HasValue || guardDormId.Value != roomDormId.Value)
+                {
+                    throw new UnauthorizedAccessException("Bạn chỉ được xem danh sách sinh viên của phòng thuộc khu KTX mình phụ trách.");
+                }
+            }
+
             var residencies = await _violationRepo.GetActiveResidenciesByRoomIdAsync(roomId);
             return residencies
                 .Where(r => r.Student != null && r.Student.User != null)
@@ -53,12 +63,40 @@ namespace FUD.Services.Violations
                 }).ToList();
         }
 
-        public async Task<RoomStudentDto?> SearchStudentByCodeAsync(string studentCode, int? currentRoomId = null)
+        public async Task<RoomStudentDto?> SearchStudentByCodeAsync(string studentCode, int? currentRoomId = null, int? guardUserId = null)
         {
+            int? guardDormId = null;
+            if (guardUserId.HasValue)
+            {
+                guardDormId = await _violationRepo.GetGuardDormIdAsync(guardUserId.Value);
+                if (!guardDormId.HasValue)
+                {
+                    throw new UnauthorizedAccessException("Tài khoản bảo vệ chưa được phân công khu KTX.");
+                }
+
+                if (currentRoomId.HasValue)
+                {
+                    var roomDormId = await _violationRepo.GetRoomDormIdAsync(currentRoomId.Value);
+                    if (!roomDormId.HasValue || roomDormId.Value != guardDormId.Value)
+                    {
+                        throw new UnauthorizedAccessException("Bạn chỉ được tra cứu sinh viên trong khu KTX mình phụ trách.");
+                    }
+                }
+            }
+
             var student = await _violationRepo.GetStudentByCodeAsync(studentCode.Trim());
             if (student == null) return null;
 
             var residency = await _violationRepo.GetCurrentResidencyByStudentIdAsync(student.UserId);
+            if (guardDormId.HasValue)
+            {
+                var studentDormId = residency?.Bed?.Room?.Block?.DormId;
+                if (!studentDormId.HasValue || studentDormId.Value != guardDormId.Value)
+                {
+                    throw new UnauthorizedAccessException("Bạn chỉ được tra cứu sinh viên đang lưu trú thuộc khu KTX mình phụ trách.");
+                }
+            }
+
             var bedCode = residency?.Bed?.BedCode ?? "Không có";
             var roomInfo = residency?.Bed?.Room != null ? $"Phòng {residency.Bed.Room.RoomNumber}" : "Chưa xếp phòng";
 
@@ -93,6 +131,13 @@ namespace FUD.Services.Violations
             if (request.Evidences == null || request.Evidences.Count == 0)
             {
                 throw new ArgumentException("Yêu cầu tối thiểu 1 ảnh minh chứng.");
+            }
+
+            var guardDormId = await _violationRepo.GetGuardDormIdAsync(guardUserId);
+            var roomDormId = await _violationRepo.GetRoomDormIdAsync(request.RoomId);
+            if (!guardDormId.HasValue || !roomDormId.HasValue || guardDormId.Value != roomDormId.Value)
+            {
+                throw new UnauthorizedAccessException("Bạn chỉ được ghi nhận vi phạm cho phòng thuộc khu KTX mình phụ trách.");
             }
 
             var occTime = request.OccurrenceTime == default ? DateTime.UtcNow : request.OccurrenceTime.ToUniversalTime();
@@ -213,10 +258,40 @@ namespace FUD.Services.Violations
             return violations.Select(MapToDto).ToList();
         }
 
-        public async Task<ViolationItemDto?> GetViolationByIdAsync(int id)
+        public async Task<ViolationItemDto?> GetViolationByIdAsync(
+            int id,
+            int? callerUserId = null,
+            bool isManagerOrAdmin = true,
+            bool isGuard = false)
         {
             var v = await _violationRepo.GetViolationByIdAsync(id);
             if (v == null) return null;
+
+            if (!isManagerOrAdmin)
+            {
+                if (isGuard)
+                {
+                    if (!callerUserId.HasValue)
+                    {
+                        throw new UnauthorizedAccessException("Không xác định được danh tính bảo vệ.");
+                    }
+
+                    var guardDormId = await _violationRepo.GetGuardDormIdAsync(callerUserId.Value);
+                    var violationDormId = v.Room?.Block?.DormId;
+                    if (!guardDormId.HasValue || !violationDormId.HasValue || guardDormId.Value != violationDormId.Value)
+                    {
+                        throw new UnauthorizedAccessException("Bạn không có quyền xem biên bản vi phạm của khu KTX khác.");
+                    }
+                }
+                else
+                {
+                    if (!callerUserId.HasValue || v.StudentId != callerUserId.Value)
+                    {
+                        throw new UnauthorizedAccessException("Bạn chỉ được xem biên bản vi phạm của chính mình.");
+                    }
+                }
+            }
+
             var dto = MapToDto(v);
             dto.PriorViolationsCount = await _violationRepo.GetStudentPriorViolationsCountAsync(v.StudentId, v.Id);
             return dto;
