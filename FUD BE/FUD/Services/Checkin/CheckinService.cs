@@ -32,19 +32,49 @@ namespace FUD.Services.Checkin
             public string? WaterR { get; set; }
         }
 
-        public async Task<List<PendingCheckinStudentDto>> GetPendingStudentsAsync(int? blockId = null, int? roomId = null, string? search = null)
+        private async Task<int> ResolveGuardDormIdOrThrowAsync(int guardUserId)
         {
+            var guard = await _context.Guards
+                .AsNoTracking()
+                .FirstOrDefaultAsync(g => g.UserId == guardUserId);
+
+            if (guard == null || guard.DormId <= 0)
+            {
+                throw new UnauthorizedAccessException("Tài khoản bảo vệ chưa được phân công khu KTX.");
+            }
+
+            return guard.DormId;
+        }
+
+        public async Task<List<PendingCheckinStudentDto>> GetPendingStudentsAsync(
+            int? blockId = null,
+            int? roomId = null,
+            string? search = null,
+            int? guardUserId = null)
+        {
+            int? guardDormId = null;
+            if (guardUserId.HasValue)
+            {
+                guardDormId = await ResolveGuardDormIdOrThrowAsync(guardUserId.Value);
+            }
+
             var result = new List<PendingCheckinStudentDto>();
 
             // 1. Các Residency đang ở trạng thái Reserved / Active nhưng chưa lập biên bản Checkin (Handover == null)
-            var residencies = await _context.Residencies
+            var residencyQuery = _context.Residencies
                 .AsNoTracking()
                 .Include(r => r.Student).ThenInclude(s => s.User)
                 .Include(r => r.Bed).ThenInclude(b => b.Room).ThenInclude(rm => rm.Block)
                 .Include(r => r.Term)
                 .Include(r => r.Handover)
-                .Where(r => (r.Status == "Reserved" || r.Status == "Active") && r.Handover == null)
-                .ToListAsync();
+                .Where(r => (r.Status == "Reserved" || r.Status == "Active") && r.Handover == null);
+
+            if (guardDormId.HasValue)
+            {
+                residencyQuery = residencyQuery.Where(r => r.Bed.Room.Block.DormId == guardDormId.Value);
+            }
+
+            var residencies = await residencyQuery.ToListAsync();
 
             foreach (var r in residencies)
             {
@@ -80,13 +110,19 @@ namespace FUD.Services.Checkin
                 .Select(x => (x.StudentId, x.TermId))
                 .ToHashSet();
 
-            var approvedBookings = await _context.BookingRequests
+            var approvedBookingQuery = _context.BookingRequests
                 .AsNoTracking()
                 .Include(br => br.Student).ThenInclude(s => s.User)
                 .Include(br => br.Term)
                 .Include(br => br.Bed).ThenInclude(b => b.Room).ThenInclude(rm => rm.Block)
-                .Where(br => br.Status == "Approved" || br.Status == "Completed")
-                .ToListAsync();
+                .Where(br => br.Status == "Approved" || br.Status == "Completed");
+
+            if (guardDormId.HasValue)
+            {
+                approvedBookingQuery = approvedBookingQuery.Where(br => br.Bed.Room.Block.DormId == guardDormId.Value);
+            }
+
+            var approvedBookings = await approvedBookingQuery.ToListAsync();
 
             // Kiểm tra những sinh viên đã có Handover trong kỳ đó để không liệt kê lại
             var checkedInKeys = (await _context.Residencies
@@ -157,8 +193,23 @@ namespace FUD.Services.Checkin
                 .ToList();
         }
 
-        public async Task<List<RoomEquipmentCheckinDto>> GetRoomEquipmentsAsync(int roomId, int? bedId = null)
+        public async Task<List<RoomEquipmentCheckinDto>> GetRoomEquipmentsAsync(int roomId, int? bedId = null, int? guardUserId = null)
         {
+            if (guardUserId.HasValue)
+            {
+                var guardDormId = await ResolveGuardDormIdOrThrowAsync(guardUserId.Value);
+                var roomDormId = await _context.Rooms
+                    .AsNoTracking()
+                    .Where(r => r.Id == roomId)
+                    .Select(r => (int?)r.Block.DormId)
+                    .FirstOrDefaultAsync();
+
+                if (!roomDormId.HasValue || roomDormId.Value != guardDormId)
+                {
+                    throw new UnauthorizedAccessException("Bạn chỉ được xem thiết bị của phòng thuộc khu KTX mình phụ trách.");
+                }
+            }
+
             var query = _context.Equipments
                 .AsNoTracking()
                 .Include(e => e.Catalog)
@@ -205,27 +256,21 @@ namespace FUD.Services.Checkin
                 throw new ArgumentException("Thông tin sinh viên, phòng và giường bàn giao không hợp lệ.");
             }
 
+            var guardDormId = await ResolveGuardDormIdOrThrowAsync(guardUserId);
+
             var now = DateTime.UtcNow.AddHours(7);
             var today = DateOnly.FromDateTime(now);
 
             await using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                // 1. Đảm bảo tài khoản thực hiện có trong bảng Guards để thỏa khóa ngoại FK_Handovers_Guards
-                var guardExists = await _context.Guards.AnyAsync(g => g.UserId == guardUserId);
-                if (!guardExists)
-                {
-                    _context.Guards.Add(new Guard { UserId = guardUserId });
-                    await _context.SaveChangesAsync();
-                }
-
-                // 2. Tìm hoặc khởi tạo Residency từ đơn đặt phòng đã duyệt
+                // 1. Tìm hoặc khởi tạo Residency từ đơn đặt phòng đã duyệt (kiểm tra phạm vi khu KTX trước khi ghi dữ liệu)
                 Residency? residency = null;
 
                 if (dto.ResidencyId.HasValue && dto.ResidencyId.Value > 0)
                 {
                     residency = await _context.Residencies
-                        .Include(r => r.Bed)
+                        .Include(r => r.Bed).ThenInclude(b => b.Room).ThenInclude(rm => rm.Block)
                         .Include(r => r.Handover)
                         .FirstOrDefaultAsync(r => r.Id == dto.ResidencyId.Value);
                 }
@@ -233,6 +278,7 @@ namespace FUD.Services.Checkin
                 if (residency == null && dto.BookingRequestId.HasValue && dto.BookingRequestId.Value > 0)
                 {
                     var booking = await _context.BookingRequests
+                        .Include(br => br.Bed).ThenInclude(b => b.Room).ThenInclude(rm => rm.Block)
                         .FirstOrDefaultAsync(br => br.Id == dto.BookingRequestId.Value);
 
                     if (booking == null || booking.StudentId != dto.StudentId)
@@ -240,8 +286,14 @@ namespace FUD.Services.Checkin
                         throw new ArgumentException("Không tìm thấy đơn đặt phòng hợp lệ của sinh viên này.");
                     }
 
+                    var bookingDormId = booking.Bed?.Room?.Block?.DormId;
+                    if (!bookingDormId.HasValue || bookingDormId.Value != guardDormId)
+                    {
+                        throw new UnauthorizedAccessException("Bạn chỉ được thực hiện Check-in cho phòng thuộc khu KTX mình phụ trách.");
+                    }
+
                     residency = await _context.Residencies
-                        .Include(r => r.Bed)
+                        .Include(r => r.Bed).ThenInclude(b => b.Room).ThenInclude(rm => rm.Block)
                         .Include(r => r.Handover)
                         .FirstOrDefaultAsync(r => r.StudentId == dto.StudentId && r.TermId == booking.TermId && (r.Status == "Reserved" || r.Status == "Active"));
 
@@ -272,15 +324,30 @@ namespace FUD.Services.Checkin
                     throw new InvalidOperationException("Sinh viên này đã được lập biên bản bàn giao Check-in trước đó.");
                 }
 
-                // 3. Cập nhật trạng thái Residency, Bed và Request
-                residency.Status = "Active";
-                residency.CheckInDate ??= today;
-
-                var bed = residency.Bed ?? await _context.Beds.FirstOrDefaultAsync(b => b.Id == residency.BedId);
+                var bed = residency.Bed
+                    ?? await _context.Beds
+                        .Include(b => b.Room).ThenInclude(rm => rm.Block)
+                        .FirstOrDefaultAsync(b => b.Id == residency.BedId);
                 if (bed == null)
                 {
                     throw new ArgumentException("Không tìm thấy thông tin giường bàn giao.");
                 }
+
+                var targetRoomDormId = bed.Room?.Block?.DormId
+                    ?? await _context.Rooms
+                        .AsNoTracking()
+                        .Where(r => r.Id == bed.RoomId)
+                        .Select(r => (int?)r.Block.DormId)
+                        .FirstOrDefaultAsync();
+
+                if (!targetRoomDormId.HasValue || targetRoomDormId.Value != guardDormId)
+                {
+                    throw new UnauthorizedAccessException("Bạn chỉ được thực hiện Check-in cho phòng thuộc khu KTX mình phụ trách.");
+                }
+
+                // 2. Cập nhật trạng thái Residency, Bed và Request
+                residency.Status = "Active";
+                residency.CheckInDate ??= today;
                 bed.Status = "Occupied";
                 var targetRoomId = bed.RoomId;
 
@@ -436,8 +503,18 @@ namespace FUD.Services.Checkin
             }
         }
 
-        public async Task<List<CheckinHandoverResponseDto>> GetCheckinHistoryAsync(int? blockId = null, int? roomId = null, string? search = null)
+        public async Task<List<CheckinHandoverResponseDto>> GetCheckinHistoryAsync(
+            int? blockId = null,
+            int? roomId = null,
+            string? search = null,
+            int? guardUserId = null)
         {
+            int? guardDormId = null;
+            if (guardUserId.HasValue)
+            {
+                guardDormId = await ResolveGuardDormIdOrThrowAsync(guardUserId.Value);
+            }
+
             var query = _context.Handovers
                 .AsNoTracking()
                 .Include(h => h.Guard).ThenInclude(g => g.User)
@@ -449,6 +526,11 @@ namespace FUD.Services.Checkin
                 .Include(h => h.HandoverItems).ThenInclude(hi => hi.Equipment).ThenInclude(e => e.Bed)
                 .Where(h => h.HandoverType == "Checkin")
                 .AsQueryable();
+
+            if (guardDormId.HasValue)
+            {
+                query = query.Where(h => h.Room.Block.DormId == guardDormId.Value);
+            }
 
             if (blockId.HasValue)
             {
@@ -497,7 +579,11 @@ namespace FUD.Services.Checkin
             return list.Select(MapToResponseDto).ToList();
         }
 
-        public async Task<CheckinHandoverResponseDto?> GetCheckinByIdAsync(int id)
+        public async Task<CheckinHandoverResponseDto?> GetCheckinByIdAsync(
+            int id,
+            int? callerUserId = null,
+            bool isManagerOrAdmin = true,
+            bool isGuard = false)
         {
             var handover = await _context.Handovers
                 .AsNoTracking()
@@ -510,7 +596,37 @@ namespace FUD.Services.Checkin
                 .Include(h => h.HandoverItems).ThenInclude(hi => hi.Equipment).ThenInclude(e => e.Bed)
                 .FirstOrDefaultAsync(h => h.Id == id && h.HandoverType == "Checkin");
 
-            return handover == null ? null : MapToResponseDto(handover);
+            if (handover == null)
+            {
+                return null;
+            }
+
+            if (!isManagerOrAdmin)
+            {
+                if (isGuard)
+                {
+                    if (!callerUserId.HasValue)
+                    {
+                        throw new UnauthorizedAccessException("Không xác định được danh tính cán bộ bảo vệ.");
+                    }
+
+                    var guardDormId = await ResolveGuardDormIdOrThrowAsync(callerUserId.Value);
+                    var handoverDormId = handover.Room?.Block?.DormId;
+                    if (!handoverDormId.HasValue || handoverDormId.Value != guardDormId)
+                    {
+                        throw new UnauthorizedAccessException("Bạn không có quyền xem biên bản Check-in của khu KTX khác.");
+                    }
+                }
+                else
+                {
+                    if (!callerUserId.HasValue || handover.Residency == null || handover.Residency.StudentId != callerUserId.Value)
+                    {
+                        throw new UnauthorizedAccessException("Bạn chỉ được xem biên bản Check-in của chính mình.");
+                    }
+                }
+            }
+
+            return MapToResponseDto(handover);
         }
 
         private static CheckinHandoverResponseDto MapToResponseDto(Handover h)

@@ -6,11 +6,11 @@ namespace FUD.Services.Interfaces.Checkin
 {
     public interface ICheckinService
     {
-        Task<List<PendingCheckinStudentDto>> GetPendingStudentsAsync(int? blockId = null, int? roomId = null, string? search = null);
-        Task<List<RoomEquipmentCheckinDto>> GetRoomEquipmentsAsync(int roomId, int? bedId = null);
+        Task<List<PendingCheckinStudentDto>> GetPendingStudentsAsync(int? blockId = null, int? roomId = null, string? search = null, int? guardUserId = null);
+        Task<List<RoomEquipmentCheckinDto>> GetRoomEquipmentsAsync(int roomId, int? bedId = null, int? guardUserId = null);
         Task<CheckinHandoverResponseDto> CompleteCheckinAsync(int guardUserId, CreateCheckinHandoverDto dto);
-        Task<List<CheckinHandoverResponseDto>> GetCheckinHistoryAsync(int? blockId = null, int? roomId = null, string? search = null);
+        Task<List<CheckinHandoverResponseDto>> GetCheckinHistoryAsync(int? blockId = null, int? roomId = null, string? search = null, int? guardUserId = null);
         Task<List<CheckinHandoverResponseDto>> GetStudentCheckinsAsync(int studentUserId);
-        Task<CheckinHandoverResponseDto?> GetCheckinByIdAsync(int id);
+        Task<CheckinHandoverResponseDto?> GetCheckinByIdAsync(int id, int? callerUserId = null, bool isManagerOrAdmin = true, bool isGuard = false);
     }
 }
