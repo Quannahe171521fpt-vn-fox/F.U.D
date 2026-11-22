@@ -549,13 +549,13 @@ public class RoomRepositoryTests
     [Fact]
     public async Task IsRoomNumberUniqueOnFloorAsync_WhenNoDuplicateOnFloor_ReturnsTrue()
     {
-        // Arrange — Block 1 tầng 1 có phòng "101L", kiểm tra "102L" trên tầng 1 → unique
+        // Arrange — Block 1 tầng 1 có phòng "101L" và "102L", kiểm tra "103L" trên tầng 1 → unique
         using var context = CreateInMemoryContext();
         await SeedBasicFacilitiesAsync(context);
         var sut = new RoomRepository(context);
 
         // Act
-        var result = await sut.IsRoomNumberUniqueOnFloorAsync(blockId: 1, floorLevel: 1, roomNumber: "102L");
+        var result = await sut.IsRoomNumberUniqueOnFloorAsync(blockId: 1, floorLevel: 1, roomNumber: "103L");
 
         // Assert
         result.Should().BeTrue();

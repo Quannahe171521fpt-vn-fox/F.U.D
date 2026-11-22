@@ -361,7 +361,7 @@ public class RoomsControllerTests
         var conflictResult = result.Should().BeOfType<ConflictObjectResult>().Subject;
         conflictResult.StatusCode.Should().Be(StatusCodes.Status409Conflict);
 
-        var response = conflictResult.Value.Should().BeOfType<ApiResponse<object>>().Subject;
+        var response = conflictResult.Value.Should().BeOfType<ApiResponse>().Subject;
         response.Success.Should().BeFalse();
         response.Message.Should().Contain("sinh viên cư trú");
     }
@@ -406,7 +406,7 @@ public class RoomsControllerTests
         var conflictResult = result.Should().BeOfType<ConflictObjectResult>().Subject;
         conflictResult.StatusCode.Should().Be(StatusCodes.Status409Conflict);
 
-        var response = conflictResult.Value.Should().BeOfType<ApiResponse<object>>().Subject;
+        var response = conflictResult.Value.Should().BeOfType<ApiResponse>().Subject;
         response.Success.Should().BeFalse();
         response.Message.Should().Contain("tầng 3");
     }
