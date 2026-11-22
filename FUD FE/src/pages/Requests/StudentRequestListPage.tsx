@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { requestApi, type RequestItemDto } from '../../services/api';
+import { requestApi, navigateToStudentPayment, type RequestItemDto } from '../../services/api';
 import { REQUEST_STATUS_LABELS, REQUEST_STATUS_COLORS, REQUEST_TYPE_LABELS, type DBRequestStatus } from './SubmitRequestPage';
 import { Pagination } from '../../components/Pagination';
 import { removeVietnameseTones } from '../../utils/textUtils';
@@ -519,13 +519,37 @@ export const StudentRequestListPage: React.FC<StudentRequestListPageProps> = ({ 
 
                   {bt.invoices && bt.invoices.length > 0 && (
                     <div style={{ backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '10px 12px', fontSize: 12 }}>
-                      <strong style={{ display: 'block', marginBottom: 4, color: '#0F172A' }}>Hóa đơn phát sinh:</strong>
-                      {bt.invoices.map((inv) => (
-                        <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
-                          <span><strong>{inv.invoiceNumber}</strong> ({inv.invoiceType}) — Hạn: {inv.dueDate || '—'}</span>
-                          <span><strong>{inv.totalAmount.toLocaleString('vi-VN')} đ</strong> ({inv.status})</span>
-                        </div>
-                      ))}
+                      <strong style={{ display: 'block', marginBottom: 6, color: '#0F172A' }}>Hóa đơn phát sinh:</strong>
+                      {bt.invoices.map((inv) => {
+                        const canPay = inv.status === 'Unpaid' || inv.status === 'Overdue' || inv.status === 'Processing';
+                        return (
+                          <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: '1px dashed #E2E8F0' }}>
+                            <span><strong>{inv.invoiceNumber}</strong> ({inv.invoiceType}) — Hạn: {inv.dueDate || '—'}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span><strong>{inv.totalAmount.toLocaleString('vi-VN')} đ</strong> ({inv.status})</span>
+                              {canPay && (
+                                <button
+                                  type="button"
+                                  onClick={() => navigateToStudentPayment({ invoiceId: inv.id })}
+                                  style={{
+                                    padding: '4px 10px',
+                                    backgroundColor: '#EA580C',
+                                    color: '#FFFFFF',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    fontSize: '11px',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  Thanh toán ngay
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

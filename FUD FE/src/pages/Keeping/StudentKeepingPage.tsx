@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   keepingApi,
+  navigateToStudentPayment,
   type KeepingEligibility,
   type KeepingRequestResult,
 } from '../../services/api';
 import { formatDate, formatDateTime } from '../../utils/dateUtils';
+import { usePopup } from '../../components/PopupDialog';
 import '../../styles/violation.css';
 
 const REASON_HINTS: Record<string, string> = {
@@ -45,6 +47,7 @@ const infoGrid: React.CSSProperties = {
 };
 
 export const StudentKeepingPage: React.FC = () => {
+  const { showAlert, showConfirm, popup } = usePopup();
   const [eligibility, setEligibility] = useState<KeepingEligibility | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
@@ -70,10 +73,11 @@ export const StudentKeepingPage: React.FC = () => {
 
   const handleSubmit = async () => {
     if (!agreed) {
-      setErrorMsg('Bạn cần đồng ý với nội quy ký túc xá trước khi giữ phòng.');
+      void showAlert('Bạn cần đồng ý với nội quy ký túc xá trước khi giữ phòng.', { title: 'Chưa đồng ý nội quy' });
       return;
     }
-    if (!window.confirm('Xác nhận giữ phòng cho học kỳ kế tiếp?')) return;
+    const ok = await showConfirm('Xác nhận giữ phòng cho học kỳ kế tiếp?', { title: 'Xác nhận giữ phòng', confirmText: 'Giữ phòng' });
+    if (!ok) return;
     setSubmitting(true);
     setErrorMsg('');
     try {
@@ -94,6 +98,7 @@ export const StudentKeepingPage: React.FC = () => {
 
   return (
     <div style={{ padding: '24px 32px' }}>
+      {popup}
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 6px', color: '#0F172A' }}>
           Giữ phòng học kỳ kế tiếp
@@ -107,7 +112,9 @@ export const StudentKeepingPage: React.FC = () => {
 
       {result && (
         <div className="violation-alert violation-alert-success" style={{ maxWidth: 760 }}>
-          <div style={{ fontWeight: 700, marginBottom: 4 }}>Giữ phòng thành công!</div>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>
+            {result.requiresPayment ? 'Đã tạo yêu cầu giữ phòng - Vui lòng thanh toán!' : 'Giữ phòng thành công!'}
+          </div>
           <div>Mã yêu cầu: #{result.requestId} · Trạng thái: {result.status}</div>
           {result.bed && (
             <div>
@@ -117,6 +124,41 @@ export const StudentKeepingPage: React.FC = () => {
           {result.nextTerm && <div>Học kỳ: {result.nextTerm.name} ({result.nextTerm.academicYear})</div>}
           {result.feeAmount != null && <div>Phí giữ phòng: {formatMoney(result.feeAmount, result.currency)}</div>}
           <div>Thời điểm: {formatDateTime(result.createdAt)}</div>
+          {result.requiresPayment && (
+            <div style={{ marginTop: 6, opacity: 0.9 }}>
+              Vui lòng thanh toán phí giữ phòng để yêu cầu được chuyển sang Ban Quản lý xét duyệt.
+            </div>
+          )}
+          {result.awaitingManagerApproval && (
+            <div style={{ marginTop: 6, opacity: 0.9 }}>
+              Yêu cầu đã được thanh toán và đang chờ Ban Quản lý xét duyệt.
+            </div>
+          )}
+          <div style={{ marginTop: 10 }}>
+            <button
+              type="button"
+              onClick={() =>
+                navigateToStudentPayment({
+                  invoiceId: result.invoiceId,
+                  sourceType: 'Keeping',
+                  sourceId: result.requestId,
+                  tabFilter: 'RoomFee',
+                })
+              }
+              style={{
+                padding: '7px 14px',
+                backgroundColor: '#EA580C',
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              💳 Thanh toán ngay
+            </button>
+          </div>
         </div>
       )}
 
@@ -147,6 +189,27 @@ export const StudentKeepingPage: React.FC = () => {
                   eligibility.message !== REASON_HINTS[eligibility.reasonCode] && (
                     <div style={{ marginTop: 4, opacity: 0.85 }}>{eligibility.message}</div>
                   )}
+                {(eligibility.reasonCode === 'HAS_UNPAID_INVOICE' ||
+                  eligibility.reasonCode === 'HAS_OVERDUE_INVOICE') && (
+                  <div style={{ marginTop: 10 }}>
+                    <button
+                      type="button"
+                      onClick={() => navigateToStudentPayment()}
+                      style={{
+                        padding: '7px 14px',
+                        backgroundColor: '#EA580C',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      💳 Thanh toán ngay các hóa đơn còn nợ
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

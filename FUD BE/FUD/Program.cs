@@ -302,7 +302,10 @@ builder.Services.AddScoped<FUD.Services.Interfaces.Utilities.IEwService, FUD.Ser
 
 // ── Account Management DI (UC: Create Account / Assign Roles / Suspend / Restore) ──
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));
+
 builder.Services.AddScoped<INotificationService, GmailNotificationService>();
+builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
+builder.Services.AddScoped<IInAppNotificationService, InAppNotificationService>();
 builder.Services.AddScoped<IAccountRepository, AccountRepository>();
 builder.Services.AddScoped<IAccountHistoryRepository, AccountHistoryRepository>();
 builder.Services.AddScoped<IAccountService, AccountService>();
@@ -334,6 +337,13 @@ builder.Services.AddScoped<FUD.Services.Interfaces.Keeping.IKeepingService, FUD.
 builder.Services.AddScoped<FUD.Services.Keeping.KeepingPeriodCloseJob>();
 // Job đóng kỳ giữ phòng: tự động trả giường về pool booking sau khi kỳ Keeping kết thúc.
 builder.Services.AddHostedService<FUD.Services.Keeping.KeepingPeriodCloseHostedService>();
+
+// UC-Payment: Thanh toán VietQR của sinh viên
+builder.Services.AddScoped<FUD.Services.Interfaces.Payments.IPaymentTransactionFactory, FUD.Services.Payments.PaymentTransactionFactory>();
+builder.Services.AddScoped<FUD.Services.Interfaces.Payments.IRoomFeeInvoiceService, FUD.Services.Payments.RoomFeeInvoiceService>();
+builder.Services.AddScoped<FUD.Services.Interfaces.Payments.IStudentPaymentService, FUD.Services.Payments.StudentPaymentService>();
+// Job quét định kỳ hóa đơn sắp đến hạn (trong vòng 3 ngày) để gửi email + thông báo nhắc nhở sinh viên
+builder.Services.AddHostedService<FUD.Services.Payments.InvoiceDueReminderHostedService>();
 
 // ── Booking Room DI ──
 builder.Services.AddScoped<FUD.Repositories.Interfaces.Booking.IBookingRepository, FUD.Repositories.Booking.BookingRepository>();

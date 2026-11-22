@@ -78,6 +78,18 @@ public class BookingRequestResponseDto
     public DateTime PaymentDeadline { get; set; }
     public bool AgreementToRegulations { get; set; }
     public string? RejectReason { get; set; }
+
+    /// <summary>
+    /// Id hóa đơn phí phòng đã tạo (nếu có). Frontend dùng để redirect
+    /// sang màn hình thanh toán: /student/payment?invoiceId={InvoiceId}
+    /// </summary>
+    public int? InvoiceId { get; set; }
+
+    /// <summary>
+    /// true nếu đơn đang chờ sinh viên thanh toán (Status = 'Pending Payment').
+    /// Frontend dùng để hiển thị nút "Thanh toán ngay".
+    /// </summary>
+    public bool RequiresPayment { get; set; }
 }
 
 public class BookingRequestManagerDto

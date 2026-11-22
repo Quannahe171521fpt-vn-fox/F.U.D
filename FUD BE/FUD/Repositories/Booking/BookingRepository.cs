@@ -74,7 +74,8 @@ public class BookingRepository : IBookingRepository
         var hasBooking = await _context.BookingRequests.AsNoTracking()
             .AnyAsync(b => b.BedId == bedId && b.TermId == termId 
                         && (excludeBookingId == null || b.Id != excludeBookingId) 
-                        && (b.Status == "Pending" || b.Status == "Approved"));
+                        // 'Pending Payment' cũng chiếm chỗ: SV đã tạo đơn và đang chờ thanh toán.
+                        && (b.Status == "Pending Payment" || b.Status == "Pending" || b.Status == "Approved"));
         if (hasBooking) return false;
 
         return true;
@@ -235,6 +236,7 @@ public class BookingRepository : IBookingRepository
             .Include(b => b.Term)
             .Include(b => b.Student).ThenInclude(s => s.User)
             .Include(b => b.ProcessedBy).ThenInclude(p => p.User)
+            .Include(b => b.Invoices)
             .FirstOrDefaultAsync(b => b.Id == id);
     }
 

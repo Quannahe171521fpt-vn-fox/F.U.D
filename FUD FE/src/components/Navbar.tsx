@@ -1,14 +1,21 @@
 import React, { useState } from 'react';
 import { Logo } from './Icons';
+import { NotificationBell } from './NotificationBell';
 import { useAuth } from '../contexts/AuthContext';
+import type { NotificationItem } from '../services/api';
+import type { AppView } from '../utils/notificationRouting';
 
 interface NavbarProps {
   onOpenLogin: () => void;
   onNavigate: (sectionId: string) => void;
   currentRole?: 'guest' | 'student' | 'manager';
-  currentView: 'home' | 'announcements' | 'management' | 'admin' | 'guard' | 'student';
-  onChangeView: (view: 'home' | 'announcements' | 'management' | 'admin' | 'guard' | 'student') => void;
+  currentView: AppView;
+  onChangeView: (view: AppView) => void;
   onLogout: () => void;
+  onNavigateNotification?: (item: NotificationItem) => void;
+  onOpenAllNotifications?: () => void;
+  notificationSyncKey?: number;
+  onNotificationsChanged?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -17,11 +24,18 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentView,
   onChangeView,
   onLogout,
+  onNavigateNotification,
+  onOpenAllNotifications,
+  notificationSyncKey,
+  onNotificationsChanged,
 }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, isImpersonating, impersonation } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const getRoleDisplayName = () => {
+    if (isImpersonating && impersonation) {
+      return `Đang hỗ trợ: ${impersonation.student.fullName} (${impersonation.student.code})`;
+    }
     if (!currentUser) return '';
     const roleMap: Record<string, string> = {
       Admin: 'Quản trị viên',
@@ -45,14 +59,35 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="navbar-right-minimal">
             <div className="user-action-group">
               <span className="user-role-label">{getRoleDisplayName()}</span>
-              <button
-                type="button"
-                onClick={onLogout}
-                className="btn-logout"
-                title="Đăng xuất khỏi hệ thống"
-              >
-                Đăng xuất
-              </button>
+              {currentUser.primaryRole !== 'Admin' && (
+                <NotificationBell
+                  key={currentUser.id}
+                  onNavigateTarget={onNavigateNotification}
+                  onOpenAllNotifications={onOpenAllNotifications}
+                  syncKey={notificationSyncKey}
+                  onNotificationsChanged={onNotificationsChanged}
+                />
+              )}
+              {isImpersonating ? (
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  className="btn-logout"
+                  style={{ backgroundColor: '#EA580C', borderColor: '#EA580C', color: '#FFFFFF', fontWeight: 700 }}
+                  title="Thoát chế độ đăng nhập hộ và trở về trang Quản lý"
+                >
+                  Thoát hỗ trợ
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  className="btn-logout"
+                  title="Đăng xuất khỏi hệ thống"
+                >
+                  Đăng xuất
+                </button>
+              )}
             </div>
           </div>
         </div>

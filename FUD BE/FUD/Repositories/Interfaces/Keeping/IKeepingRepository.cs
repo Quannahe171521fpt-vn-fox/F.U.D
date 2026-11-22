@@ -31,8 +31,29 @@ namespace FUD.Repositories.Interfaces.Keeping
         /// <summary>Kiểm tra sinh viên đã có yêu cầu giữ phòng Completed cho học kỳ kế tiếp hay chưa.</summary>
         Task<bool> HasCompletedKeepingRequestAsync(int studentId, int termId);
 
-        /// <summary>Lấy yêu cầu giữ phòng Completed của sinh viên cho học kỳ kế tiếp (dùng cho idempotent).</summary>
-        Task<Request?> GetCompletedKeepingRequestAsync(int studentId, int termId);
+        /// <summary>
+        /// Lấy yêu cầu giữ phòng Completed của sinh viên cho học kỳ kế tiếp (dùng cho idempotent).
+        /// Theo thiết kế DB, lượt giữ phòng nằm ở Booking_Requests (BookingKind = 'Keeping',
+        /// Status = 'Approved' sau khi Ban Quản lý duyệt).
+        /// </summary>
+        Task<BookingRequest?> GetCompletedKeepingRequestAsync(int studentId, int termId);
+
+        /// <summary>
+        /// Lấy yêu cầu giữ phòng (Booking_Request với BookingKind = 'Keeping') theo Id kèm quan hệ.
+        /// Theo thiết kế DB, lượt giữ phòng được lưu ở Booking_Requests.
+        /// </summary>
+        Task<BookingRequest?> GetKeepingBookingAsync(int bookingRequestId);
+
+        /// <summary>
+        /// Lấy Booking_Request giữ phòng (BookingKind = 'Keeping') của sinh viên cho một học kỳ.
+        /// </summary>
+        Task<BookingRequest?> GetKeepingBookingAsync(int studentId, int termId);
+
+        /// <summary>
+        /// Lấy danh sách Booking_Request giữ phòng đang chờ Ban Quản lý duyệt
+        /// (BookingKind = 'Keeping' và Status = 'Pending' — tức đã thanh toán).
+        /// </summary>
+        Task<List<BookingRequest>> GetKeepingBookingsPendingApprovalAsync();
 
         /// <summary>Lấy một yêu cầu giữ phòng theo Id kèm quan hệ.</summary>
         Task<Request?> GetKeepingRequestByIdAsync(int requestId);

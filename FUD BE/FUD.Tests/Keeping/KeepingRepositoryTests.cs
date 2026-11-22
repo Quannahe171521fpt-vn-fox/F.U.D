@@ -249,13 +249,17 @@ public class KeepingRepositoryTests
         using var context = CreateInMemoryContext();
         var (_, _, _, bed, _, nextTerm, student) = await SeedBasicStructureAsync(context, studentId: 10);
 
-        var request = new Request
+        // Theo thiết kế DB, lượt giữ phòng nằm ở Booking_Requests (BookingKind = 'Keeping').
+        var booking = new BookingRequest
         {
             Id = 500,
             StudentId = student.UserId,
             TermId = nextTerm.Id,
-            RequestType = "Keeping",
-            Status = "Completed",
+            BedId = bed.Id,
+            BookingKind = "Keeping",
+            AgreementToRegulations = true,
+            PaymentDeadline = DateTime.UtcNow.AddDays(2),
+            Status = "Approved",
             CreatedTime = DateTime.UtcNow
         };
         var residency = new Residency
@@ -266,7 +270,7 @@ public class KeepingRepositoryTests
             TermId = nextTerm.Id,
             Status = "Upcoming"
         };
-        await context.Requests.AddAsync(request);
+        await context.BookingRequests.AddAsync(booking);
         await context.Residencies.AddAsync(residency);
         await context.SaveChangesAsync();
 
@@ -276,7 +280,7 @@ public class KeepingRepositoryTests
         var hasCompleted = await sut.HasCompletedKeepingRequestAsync(student.UserId, nextTerm.Id);
         var notCompleted = await sut.HasCompletedKeepingRequestAsync(student.UserId, 999);
         var completedReq = await sut.GetCompletedKeepingRequestAsync(student.UserId, nextTerm.Id);
-        var reqById = await sut.GetKeepingRequestByIdAsync(500);
+        var keepingBookingById = await sut.GetKeepingBookingAsync(500);
         var foundResidency = await sut.GetResidencyByStudentAndTermAsync(student.UserId, nextTerm.Id);
 
         // Assert
@@ -284,8 +288,8 @@ public class KeepingRepositoryTests
         notCompleted.Should().BeFalse();
         completedReq.Should().NotBeNull();
         completedReq!.Id.Should().Be(500);
-        reqById.Should().NotBeNull();
-        reqById!.Student.UserId.Should().Be(student.UserId);
+        keepingBookingById.Should().NotBeNull();
+        keepingBookingById!.Student.UserId.Should().Be(student.UserId);
         foundResidency.Should().NotBeNull();
         foundResidency!.Id.Should().Be(600);
         foundResidency.Bed.BedCode.Should().Be("A1-101-1");
@@ -336,12 +340,12 @@ public class KeepingRepositoryTests
     }
 
     [Fact]
-    public async Task IsBedOccupiedForTermAsync_And_HasResidencyForTermAsync_CheckActiveReservedUpcoming()
+    public async Task IsBedOccupiedForTermAsync_And_HasResidencyForTermAsync_CheckActiveReserved()
     {
         // Arrange
         using var context = CreateInMemoryContext();
         await context.Residencies.AddRangeAsync(
-            new Residency { Id = 1, StudentId = 10, BedId = 100, TermId = 2, Status = "Upcoming" },
+            new Residency { Id = 1, StudentId = 10, BedId = 100, TermId = 2, Status = "Reserved" },
             new Residency { Id = 2, StudentId = 20, BedId = 200, TermId = 2, Status = "Cancelled" }
         );
         await context.SaveChangesAsync();
@@ -366,10 +370,11 @@ public class KeepingRepositoryTests
     {
         // Arrange
         using var context = CreateInMemoryContext();
-        await context.Requests.AddRangeAsync(
-            new Request { Id = 1, StudentId = 10, TermId = 2, RequestType = "Keeping", Status = "Completed", CreatedTime = DateTime.UtcNow },
-            new Request { Id = 2, StudentId = 11, TermId = 2, RequestType = "Keeping", Status = "Pending", CreatedTime = DateTime.UtcNow },
-            new Request { Id = 3, StudentId = 12, TermId = 2, RequestType = "Booking", Status = "Completed", CreatedTime = DateTime.UtcNow }
+        // Theo thiết kế DB, lượt giữ phòng nằm ở Booking_Requests (BookingKind = 'Keeping').
+        await context.BookingRequests.AddRangeAsync(
+            new BookingRequest { Id = 1, StudentId = 10, TermId = 2, BedId = 100, BookingKind = "Keeping", AgreementToRegulations = true, PaymentDeadline = DateTime.UtcNow.AddDays(2), Status = "Approved", CreatedTime = DateTime.UtcNow },
+            new BookingRequest { Id = 2, StudentId = 11, TermId = 2, BedId = 200, BookingKind = "Keeping", AgreementToRegulations = true, PaymentDeadline = DateTime.UtcNow.AddDays(2), Status = "Pending Payment", CreatedTime = DateTime.UtcNow },
+            new BookingRequest { Id = 3, StudentId = 12, TermId = 2, BedId = 300, BookingKind = "Booking", AgreementToRegulations = true, PaymentDeadline = DateTime.UtcNow.AddDays(2), Status = "Approved", CreatedTime = DateTime.UtcNow }
         );
         await context.SaveChangesAsync();
 
