@@ -180,6 +180,20 @@ namespace FUD.Services.Requests
                 return await CreateBedTransferInternalAsync(studentId, studentUser, dto);
             }
 
+            if (dto.RequestType == "Complaint" && dto.TargetViolationId.HasValue)
+            {
+                var targetViolation = await _violationRepo.GetViolationByIdAsync(dto.TargetViolationId.Value);
+                if (targetViolation == null)
+                {
+                    throw new ArgumentException("Biên bản vi phạm không tồn tại.");
+                }
+
+                if (targetViolation.StudentId != studentId)
+                {
+                    throw new UnauthorizedAccessException("Bạn chỉ được khiếu nại biên bản vi phạm của chính mình.");
+                }
+            }
+
             int termId = dto.TermId ?? 0;
             if (termId == 0)
             {

@@ -24,6 +24,7 @@ namespace FUD.Controllers.Requests
         /// Lấy tất cả danh sách đơn yêu cầu (Manager/Admin)
         /// </summary>
         [HttpGet]
+        [Authorize(Roles = "Manager,Admin")]
         public async Task<IActionResult> GetAll([FromQuery] string? requestType, [FromQuery] string? status)
         {
             var result = await _requestService.GetAllRequestsAsync(requestType, status);
@@ -34,6 +35,7 @@ namespace FUD.Controllers.Requests
         /// Sinh viên xem danh sách các đơn yêu cầu của chính mình
         /// </summary>
         [HttpGet("my-requests")]
+        [Authorize(Roles = "Student")]
         public async Task<IActionResult> GetMyRequests()
         {
             var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirst("sub")?.Value;
@@ -50,6 +52,7 @@ namespace FUD.Controllers.Requests
         /// Lấy ngữ cảnh chuyển giường (chỗ ở hiện tại, điều kiện gửi đơn và danh sách giường trống phù hợp giới tính)
         /// </summary>
         [HttpGet("bed-transfer/context")]
+        [Authorize(Roles = "Student")]
         public async Task<IActionResult> GetBedTransferContext()
         {
             var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirst("sub")?.Value;
@@ -66,6 +69,7 @@ namespace FUD.Controllers.Requests
         /// Sinh viên gửi đơn yêu cầu (Booking, BedTransfer, Checkout, Complaint, Others)
         /// </summary>
         [HttpPost]
+        [Authorize(Roles = "Student")]
         public async Task<IActionResult> Create([FromForm] CreateRequestDto dto)
         {
             var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirst("sub")?.Value;
@@ -79,6 +83,10 @@ namespace FUD.Controllers.Requests
                 var result = await _requestService.CreateRequestAsync(studentId, dto);
                 return Ok(result);
             }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+            }
             catch (Exception ex)
             {
                 return BadRequest(new { message = ex.Message });
@@ -89,6 +97,7 @@ namespace FUD.Controllers.Requests
         /// Danh sách Bảo vệ để Quản lý phân công kiểm tra phòng khi duyệt chuyển giường (Bước 1)
         /// </summary>
         [HttpGet("guards")]
+        [Authorize(Roles = "Manager,Admin")]
         public async Task<IActionResult> GetGuards([FromQuery] int? dormId)
         {
             try
@@ -106,6 +115,7 @@ namespace FUD.Controllers.Requests
         /// Danh sách nhiệm vụ kiểm tra phòng cũ & chốt điện nước cho Bảo vệ được phân công
         /// </summary>
         [HttpGet("bed-transfer/guard-tasks")]
+        [Authorize(Roles = "Guard")]
         public async Task<IActionResult> GetGuardTransferTasks()
         {
             var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirst("sub")?.Value;
@@ -129,6 +139,7 @@ namespace FUD.Controllers.Requests
         /// Bảo vệ gửi biên bản kiểm tra thiết bị phòng cũ & chỉ số điện nước cuối cho đơn chuyển giường
         /// </summary>
         [HttpPost("{id}/transfer-inspection")]
+        [Authorize(Roles = "Guard")]
         public async Task<IActionResult> SubmitTransferInspection(int id, [FromBody] SubmitTransferInspectionDto dto)
         {
             var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirst("sub")?.Value;
@@ -156,6 +167,7 @@ namespace FUD.Controllers.Requests
         /// Quản lý (Manager) xử lý phê duyệt hoặc từ chối đơn yêu cầu
         /// </summary>
         [HttpPost("{id}/process")]
+        [Authorize(Roles = "Manager,Admin")]
         public async Task<IActionResult> Process(int id, [FromBody] ProcessRequestDto dto)
         {
             var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirst("sub")?.Value;

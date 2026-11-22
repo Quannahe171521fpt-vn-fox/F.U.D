@@ -82,6 +82,8 @@ public class SubmitRequestServiceTests
 
         _requestRepoMock.Setup(r => r.GetUserByIdAsync(studentId)).ReturnsAsync(activeUser);
         _requestRepoMock.Setup(r => r.GetCurrentActiveTermAsync()).ReturnsAsync(activeTerm);
+        _violationRepoMock.Setup(r => r.GetViolationByIdAsync(100))
+            .ReturnsAsync(new Violation { Id = 100, StudentId = studentId });
 
         var file = CreateMockFormFile("complaint.jpg");
         var dto = new CreateRequestDto
@@ -271,5 +273,70 @@ public class SubmitRequestServiceTests
         // Assert
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*hóa đơn quá hạn*");
+    }
+
+    [Fact]
+    public async Task CreateRequestAsync_ComplaintForAnotherStudentViolation_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        var sut = CreateSut();
+        var studentId = 16;
+        var otherStudentId = 99;
+        var activeUser = new User { Id = studentId, AccountStatus = "Active" };
+        _requestRepoMock.Setup(r => r.GetUserByIdAsync(studentId)).ReturnsAsync(activeUser);
+        _violationRepoMock.Setup(r => r.GetViolationByIdAsync(500))
+            .ReturnsAsync(new Violation { Id = 500, StudentId = otherStudentId });
+
+        var dto = new CreateRequestDto
+        {
+            RequestType = "Complaint",
+            TargetType = "Violation",
+            TargetViolationId = 500,
+            Content = "Khiếu nại biên bản của sinh viên khác",
+            Evidences = new List<IFormFile> { CreateMockFormFile("idor.jpg") }
+        };
+
+        // Act
+        var act = async () => await sut.CreateRequestAsync(studentId, dto);
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>()
+            .WithMessage("Bạn chỉ được khiếu nại biên bản vi phạm của chính mình.");
+        _requestRepoMock.Verify(r => r.CreateRequestAsync(It.IsAny<Request>()), Times.Never);
+        _fileStorageMock.Verify(
+            f => f.UploadImagesAsync(It.IsAny<IEnumerable<IFormFile>>(), It.IsAny<string>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateRequestAsync_ComplaintForMissingViolation_ThrowsArgumentException()
+    {
+        // Arrange
+        var sut = CreateSut();
+        var studentId = 17;
+        var activeUser = new User { Id = studentId, AccountStatus = "Active" };
+        _requestRepoMock.Setup(r => r.GetUserByIdAsync(studentId)).ReturnsAsync(activeUser);
+        _violationRepoMock.Setup(r => r.GetViolationByIdAsync(999))
+            .ReturnsAsync((Violation?)null);
+
+        var dto = new CreateRequestDto
+        {
+            RequestType = "Complaint",
+            TargetType = "Violation",
+            TargetViolationId = 999,
+            Content = "Khiếu nại biên bản không tồn tại",
+            Evidences = new List<IFormFile> { CreateMockFormFile("missing.jpg") }
+        };
+
+        // Act
+        var act = async () => await sut.CreateRequestAsync(studentId, dto);
+
+        // Assert
+        await act.Should().ThrowAsync<ArgumentException>()
+            .WithMessage("Biên bản vi phạm không tồn tại.");
+        _requestRepoMock.Verify(r => r.CreateRequestAsync(It.IsAny<Request>()), Times.Never);
+        _fileStorageMock.Verify(
+            f => f.UploadImagesAsync(It.IsAny<IEnumerable<IFormFile>>(), It.IsAny<string>()),
+            Times.Never);
     }
 }
