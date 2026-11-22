@@ -92,21 +92,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     if (!impersonation) return;
-    const timeLeft = impersonation.expiresAt - Date.now();
-    if (timeLeft <= 0) {
-      stopImpersonation();
-      return;
-    }
+    const timeLeft = Math.max(0, impersonation.expiresAt - Date.now());
     const timer = setTimeout(() => {
       stopImpersonation();
-      alert('Phiên đăng nhập hộ sinh viên đã hết hạn (30 phút). Đã trở lại tài khoản Quản lý.');
+      if (timeLeft > 0) {
+        alert('Phiên đăng nhập hộ sinh viên đã hết hạn (30 phút). Đã trở lại tài khoản Quản lý.');
+      }
     }, timeLeft);
     return () => clearTimeout(timer);
   }, [impersonation, stopImpersonation]);
 
   useEffect(() => {
     if (!currentUser && impersonation) {
-      stopImpersonation();
+      const timer = setTimeout(() => {
+        stopImpersonation();
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [currentUser, impersonation, stopImpersonation]);
 
@@ -153,10 +154,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let token = getAccessToken();
       let hasLastActivityHint = false;
       try {
-        hasLastActivityHint =
-          typeof localStorage !== 'undefined' && Boolean(localStorage.getItem(LAST_ACTIVITY_KEY));
+        if (typeof localStorage !== 'undefined' && localStorage.getItem(LAST_ACTIVITY_KEY)) {
+          hasLastActivityHint = true;
+        }
       } catch {
-        hasLastActivityHint = false;
+        // storage unavailable
       }
       const hasSessionHint = Boolean(token) || Boolean(getSessionMeta()) || hasLastActivityHint;
 
@@ -264,6 +266,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setSessionMessage(null);
         setIsLoading(false);
       } else if (msg.type === 'TOKEN_UPDATED') {
+        recordUserActivity(true);
         setAccessTokenState(getAccessToken());
       }
     });

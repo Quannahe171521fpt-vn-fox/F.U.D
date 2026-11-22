@@ -19,7 +19,6 @@ export interface SessionMeta {
 export type CrossTabAuthMessage = {
   type: 'LOGOUT' | 'EXPIRED' | 'TOKEN_UPDATED';
   reason?: SessionExpirationReason;
-  token?: string | null;
   at: number;
 };
 
@@ -181,6 +180,7 @@ export function isUserIdleForPolling(graceMs: number = POLLING_IDLE_GRACE_MS): b
 }
 
 export function clearLegacyAuthKeys(): void {
+  safeRemoveItem(TOKEN_KEY);
   safeRemoveItem('fud_currentUser');
   safeRemoveItem('fud_userRole');
   safeRemoveItem('fud_currentView');
@@ -266,7 +266,6 @@ export function subscribeCrossTabAuth(handler: (msg: CrossTabAuthMessage) => voi
     handler({
       type: candidate.type,
       reason: candidate.reason,
-      token: candidate.token,
       at: candidate.at,
     });
   };
@@ -295,10 +294,7 @@ export function subscribeCrossTabAuth(handler: (msg: CrossTabAuthMessage) => voi
       return;
     }
 
-    if (
-      (event.key === TOKEN_KEY && event.newValue === null) ||
-      event.key === null
-    ) {
+    if (event.key === null) {
       if (Date.now() < suppressTokenNullFallbackUntil) return;
       deliver({ type: 'LOGOUT', at: Date.now() });
     }
