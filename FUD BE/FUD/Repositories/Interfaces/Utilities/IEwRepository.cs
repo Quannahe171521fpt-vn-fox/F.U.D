@@ -6,7 +6,12 @@ namespace FUD.Repositories.Interfaces.Utilities
     public interface IEwRepository
     {
         // ── UC13 Usages view sẵn có ─────────────────────────────
-        Task<IEnumerable<object>> GetGroupedUsagesAsync(string? blockCode, string? meterType, int? month, int? year, int? termId = null, int? billingPeriodId = null);
+        Task<IEnumerable<object>> GetGroupedUsagesAsync(string? blockCode, string? meterType, int? month, int? year, int? termId = null, int? billingPeriodId = null, int? dormId = null);
+
+        // ── Guards & Dorm Isolation ─────────────────────────────
+        Task<Guard?> GetGuardByUserIdAsync(int userId);
+        Task<int?> GetGuardDormIdAsync(int userId);
+        Task<int?> GetValidManagerIdAsync(int userId);
 
         // ── Billing Periods ─────────────────────────────────────
         Task<List<BillingPeriod>> GetAllBillingPeriodsAsync();
@@ -33,21 +38,19 @@ namespace FUD.Repositories.Interfaces.Utilities
 
         // ── Import Batches ──────────────────────────────────────
         Task AddImportBatchAsync(ImportBatch batch);
-        Task<List<ImportBatch>> GetImportBatchesAsync(int? billingPeriodId);
+        Task<List<ImportBatch>> GetImportBatchesAsync(int? billingPeriodId, int? dormId = null);
         Task<ImportBatch?> GetImportBatchByIdAsync(int id);
 
-        // ── Anomalies & Recheck ─────────────────────────────────
+        // ── Anomalies & Manager Adjust/Confirm ──────────────────
         Task AddUsageAnomalyAsync(UsageAnomaly anomaly);
         Task AddAnomalyAsync(UsageAnomaly anomaly);
         Task<List<UsageAnomaly>> GetAnomaliesAsync(int? billingPeriodId, string? status);
         Task<UsageAnomaly?> GetAnomalyByIdAsync(int id);
+        Task<List<UsageAnomaly>> GetActiveAnomaliesByReadingIdAsync(int readingId);
+        Task<decimal> GetRoomTermConsumptionBeforePeriodAsync(int roomId, string meterType, int termId, int currentBillingPeriodId);
 
-        Task AddInspectionRequestAsync(InspectionRequest request);
-        Task<List<InspectionRequest>> GetRecheckRequestsAsync(int? guardId, string? status);
-        Task<List<InspectionRequest>> GetInspectionRequestsByGuardAsync(int guardId, string? status);
-        Task<InspectionRequest?> GetRecheckRequestByIdAsync(int id);
-        Task<InspectionRequest?> GetInspectionRequestByIdAsync(int id);
-        Task UpdateInspectionRequestAsync(InspectionRequest request);
+        // ── Surcharge Calculation & Equal Cost Splitting ────────
+        Task<RoomSurchargeCalculationResult> CalculateAndPublishRoomSurchargeAsync(int billingPeriodId, int roomId);
 
         // ── Student EW Usage ────────────────────────────────────
         Task<List<StudentTermOptionDto>> GetStudentTermsAsync(int studentUserId);

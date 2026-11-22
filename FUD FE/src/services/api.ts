@@ -891,6 +891,8 @@ export interface RoomDto {
   status: string;
   totalBeds: number;
   freeBeds: number;
+  occupiedBeds: number;      // số giường có sinh viên ở thực tế
+  isEditable: boolean;       // = occupiedBeds === 0 (do backend tính)
 }
 
 export interface RoomTypeLookup {
@@ -1737,6 +1739,55 @@ export interface ImportBatchItemDto {
   importTime: string;
 }
 
+export interface UsageAnomalyItemDto {
+  anomalyId: number;
+  readingId: number;
+  billingPeriodId?: number;
+  billingPeriodDisplay: string;
+  roomId: number;
+  roomNumber: string;
+  blockCode: string;
+  blockName: string;
+  dormName: string;
+  meterType: string;
+  previousValue: number;
+  currentValue: number;
+  consumption: number;
+  quota: number;
+  overUsage: number;
+  flagReason: string;
+  status: string; // 'Flagged' | 'Resolved'
+  resolution?: string; // 'Accepted' | 'Corrected'
+  managerNote?: string;
+  guardName: string;
+  guardPhone?: string;
+  createdTime: string;
+  resolvedTime?: string;
+  resolvedByName?: string;
+}
+
+export interface ResolveAnomalyResponseDto {
+  anomalyId: number;
+  readingId: number;
+  status: string;
+  resolution: string;
+  finalReadingValue: number;
+  finalConsumption: number;
+  surchargeCalculated: boolean;
+  debtNotificationsSent: number;
+  sharePerStudent?: number;
+  message: string;
+}
+
+export interface BillingCalculationResultDto {
+  billingPeriodId: number;
+  roomsCalculated: number;
+  roomsSkippedFlagged: number;
+  invoicesCreated: number;
+  notificationsSent: number;
+  message: string;
+}
+
 export interface StudentTermOptionDto {
   termId: number;
   termName: string;
@@ -1857,9 +1908,21 @@ export const ewApi = {
     return json.data || [];
   },
 
-  downloadTemplate: (billingPeriodId?: number): void => {
+  downloadTemplate: async (billingPeriodId?: number): Promise<void> => {
     const qs = billingPeriodId ? `?billingPeriodId=${billingPeriodId}` : '';
-    window.open(`${BASE_URL}/ew/import/template${qs}`, '_blank');
+    const res = await authFetch(`${BASE_URL}/ew/import/template${qs}`);
+    if (!res.ok) {
+      throw new Error('Không thể tải file mẫu Excel');
+    }
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'Ew_Template.xlsx');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
   },
 
   updateReading: async (id: number, currentValue: number, note?: string): Promise<{ success: boolean; message: string }> => {
@@ -1886,6 +1949,40 @@ export const ewApi = {
     const json = await safeParseResponse<StudentEwReportDto | null>(res);
     if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải thông tin điện nước');
     return json.data || null;
+  },
+
+  getAnomalies: async (params?: { billingPeriodId?: number; status?: string }): Promise<UsageAnomalyItemDto[]> => {
+    const query = new URLSearchParams();
+    if (params?.billingPeriodId) query.append('billingPeriodId', params.billingPeriodId.toString());
+    if (params?.status) query.append('status', params.status);
+    const qs = query.toString();
+    const res = await authFetch(`${BASE_URL}/ew/anomalies${qs ? `?${qs}` : ''}`);
+    const json = await safeParseResponse<UsageAnomalyItemDto[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải danh sách cảnh báo bất thường');
+    return json.data || [];
+  },
+
+  resolveAnomaly: async (
+    id: number,
+    payload: { action: 'Confirm' | 'Adjust'; adjustedValue?: number; managerNote?: string }
+  ): Promise<ResolveAnomalyResponseDto> => {
+    const res = await authFetch(`${BASE_URL}/ew/anomalies/${id}/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<ResolveAnomalyResponseDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Lỗi khi xử lý cảnh báo bất thường');
+    return json.data || ({ message: json.message } as ResolveAnomalyResponseDto);
+  },
+
+  calculatePeriodSurcharges: async (billingPeriodId: number): Promise<BillingCalculationResultDto> => {
+    const res = await authFetch(`${BASE_URL}/ew/billing-periods/${billingPeriodId}/calculate`, {
+      method: 'POST',
+    });
+    const json = await safeParseResponse<BillingCalculationResultDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Lỗi khi tính phụ trội điện nước');
+    return json.data || ({ message: json.message } as BillingCalculationResultDto);
   },
 };
 

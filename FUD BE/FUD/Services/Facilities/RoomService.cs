@@ -38,6 +38,17 @@ namespace FUD.Services.Facilities
             if (!await _roomRepo.IsRoomNumberUniqueAsync(dto.BlockId, dto.RoomNumber))
                 throw new InvalidOperationException($"Phòng '{dto.RoomNumber}' đã tồn tại trong block này");
 
+            if (dto.FloorLevel.HasValue)
+            {
+                var blockFloors = await _roomRepo.GetBlockNumberOfFloorsAsync(dto.BlockId);
+                if (blockFloors.HasValue && (dto.FloorLevel.Value < 1 || dto.FloorLevel.Value > blockFloors.Value))
+                    throw new InvalidOperationException($"Số tầng ({dto.FloorLevel}) không hợp lệ. Block chỉ có {blockFloors.Value} tầng");
+
+                // Kiểm tra trùng tên phòng trong cùng tầng của block
+                if (!await _roomRepo.IsRoomNumberUniqueOnFloorAsync(dto.BlockId, dto.FloorLevel.Value, dto.RoomNumber))
+                    throw new InvalidOperationException($"Phòng '{dto.RoomNumber}' đã tồn tại ở tầng {dto.FloorLevel} trong block này");
+            }
+
             var room = new Room
             {
                 BlockId = dto.BlockId,
@@ -57,8 +68,23 @@ namespace FUD.Services.Facilities
             var room = await _roomRepo.GetByIdAsync(id)
                 ?? throw new KeyNotFoundException($"Phòng {id} không tồn tại");
 
+            // Không cho sửa khi phòng đang có sinh viên ở (Occupied / Holding / Pending Transfer)
+            if (await _roomRepo.HasActiveBedsAsync(id))
+                throw new InvalidOperationException("Không thể chỉnh sửa phòng khi đang có sinh viên cư trú. Vui lòng chuyển sinh viên trước.");
+
             if (!await _roomRepo.IsRoomNumberUniqueAsync(room.BlockId, dto.RoomNumber, id))
                 throw new InvalidOperationException($"Phòng '{dto.RoomNumber}' đã tồn tại trong block này");
+
+            if (dto.FloorLevel.HasValue)
+            {
+                var blockFloors = room.Block?.NumberOfFloors ?? await _roomRepo.GetBlockNumberOfFloorsAsync(room.BlockId);
+                if (blockFloors.HasValue && (dto.FloorLevel.Value < 1 || dto.FloorLevel.Value > blockFloors.Value))
+                    throw new InvalidOperationException($"Số tầng ({dto.FloorLevel}) không hợp lệ. Block chỉ có {blockFloors.Value} tầng");
+
+                // Kiểm tra trùng tên phòng trong cùng tầng của block
+                if (!await _roomRepo.IsRoomNumberUniqueOnFloorAsync(room.BlockId, dto.FloorLevel.Value, dto.RoomNumber, id))
+                    throw new InvalidOperationException($"Phòng '{dto.RoomNumber}' đã tồn tại ở tầng {dto.FloorLevel} trong block này");
+            }
 
             room.RoomTypeId = dto.RoomTypeId;
             room.RoomNumber = dto.RoomNumber;
@@ -112,7 +138,8 @@ namespace FUD.Services.Facilities
             FloorLevel = r.FloorLevel,
             Status = r.Status,
             TotalBeds = r.Beds?.Count ?? 0,
-            FreeBeds = r.Beds?.Count(b => b.Status == "Free") ?? 0
+            FreeBeds = r.Beds?.Count(b => b.Status == "Free") ?? 0,
+            OccupiedBeds = r.Beds?.Count(b => b.Status == "Occupied" || b.Status == "Holding" || b.Status == "Pending Transfer") ?? 0
         };
     }
 }
