@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Threading.Tasks;
 using FluentAssertions;
 using FUD.DTOs.Auth;
@@ -332,5 +333,70 @@ public class AuthServiceLoginTests
         result.Response.User.PrimaryRole.Should().Be("Admin");
         result.Response.User.Roles.Should().BeEquivalentTo(new[] { "Student", "Admin" });
         _jwtGenMock.Verify(j => j.GenerateAccessToken(user, It.Is<IEnumerable<string>>(roles => roles.Contains("Admin") && roles.Contains("Student"))), Times.Once);
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_WhenUnsignedOrForgedJwtProvided_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        const string clientId = "test-google-client-id.apps.googleusercontent.com";
+        _configMock.Setup(c => c["Google:ClientId"]).Returns(clientId);
+
+        static string Base64UrlEncode(string input) =>
+            Convert.ToBase64String(Encoding.UTF8.GetBytes(input))
+                .TrimEnd('=')
+                .Replace('+', '-')
+                .Replace('/', '_');
+
+        var header = Base64UrlEncode("{\"alg\":\"RS256\",\"typ\":\"JWT\",\"kid\":\"forged\"}");
+        var payload = Base64UrlEncode(
+            $"{{\"iss\":\"https://accounts.google.com\",\"aud\":\"{clientId}\",\"sub\":\"forged-sub-123\",\"email\":\"admin@fpt.edu.vn\",\"email_verified\":true,\"exp\":4102444800}}");
+        var fakeSignature = Base64UrlEncode("forged-invalid-signature");
+        var forgedJwt = $"{header}.{payload}.{fakeSignature}";
+
+        var dto = new GoogleLoginRequestDto { IdToken = forgedJwt };
+
+        // Act
+        var act = () => _authService.LoginWithGoogleAsync(dto, "192.168.1.10");
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>()
+                 .WithMessage("Xác thực Google không hợp lệ hoặc đã hết hạn.");
+        _userRepoMock.Verify(r => r.GetByEmailAsync(It.IsAny<string>()), Times.Never);
+        _userRepoMock.Verify(r => r.GetByGoogleIdAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_WhenGoogleClientIdMissing_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        _configMock.Setup(c => c["Google:ClientId"]).Returns(string.Empty);
+        var dto = new GoogleLoginRequestDto { IdToken = "header.payload.signature" };
+
+        // Act
+        var act = () => _authService.LoginWithGoogleAsync(dto, "192.168.1.10");
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>()
+                 .WithMessage("Xác thực Google chưa được cấu hình hợp lệ.");
+        _userRepoMock.Verify(r => r.GetByEmailAsync(It.IsAny<string>()), Times.Never);
+        _userRepoMock.Verify(r => r.GetByGoogleIdAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_WhenTokenEmpty_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        _configMock.Setup(c => c["Google:ClientId"]).Returns("test-google-client-id.apps.googleusercontent.com");
+        var dto = new GoogleLoginRequestDto { IdToken = string.Empty };
+
+        // Act
+        var act = () => _authService.LoginWithGoogleAsync(dto, "192.168.1.10");
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>()
+                 .WithMessage("Xác thực Google không hợp lệ hoặc đã hết hạn.");
+        _userRepoMock.Verify(r => r.GetByEmailAsync(It.IsAny<string>()), Times.Never);
+        _userRepoMock.Verify(r => r.GetByGoogleIdAsync(It.IsAny<string>()), Times.Never);
     }
 }

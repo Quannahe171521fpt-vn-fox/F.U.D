@@ -87,10 +87,21 @@ public class AuthService : IAuthService
 
     public async Task<(AuthResponseDto Response, string RawRefreshToken, DateTime CookieExpiresAt)> LoginWithGoogleAsync(GoogleLoginRequestDto dto, string clientIp)
     {
+        var expectedClientId = _config["Google:ClientId"];
+        if (string.IsNullOrWhiteSpace(expectedClientId))
+        {
+            _logger.LogError("Google:ClientId is not configured.");
+            throw new UnauthorizedAccessException("Xác thực Google chưa được cấu hình hợp lệ.");
+        }
+
+        if (string.IsNullOrWhiteSpace(dto?.IdToken))
+        {
+            throw new UnauthorizedAccessException("Xác thực Google không hợp lệ hoặc đã hết hạn.");
+        }
+
         string email;
         string subject;
         bool emailVerified;
-        var expectedClientId = _config["Google:ClientId"];
 
         try
         {
@@ -105,31 +116,8 @@ public class AuthService : IAuthService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "GoogleJsonWebSignature.ValidateAsync failed, attempting local JWT claim validation fallback");
-            try
-            {
-                var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
-                var jwt = handler.ReadJwtToken(dto.IdToken);
-                var iss = jwt.Issuer;
-                var audMatch = string.IsNullOrWhiteSpace(expectedClientId) ||
-                               jwt.Audiences.Any(a => string.Equals(a, expectedClientId, StringComparison.OrdinalIgnoreCase));
-                var issMatch = iss == "accounts.google.com" || iss == "https://accounts.google.com";
-
-                email = jwt.Claims.FirstOrDefault(c => c.Type == "email")?.Value ?? string.Empty;
-                subject = jwt.Claims.FirstOrDefault(c => c.Type == "sub")?.Value ?? string.Empty;
-                var verifiedClaim = jwt.Claims.FirstOrDefault(c => c.Type == "email_verified")?.Value;
-                emailVerified = string.Equals(verifiedClaim, "true", StringComparison.OrdinalIgnoreCase) || verifiedClaim == "1";
-
-                if (!audMatch || !issMatch || string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(subject))
-                {
-                    throw new UnauthorizedAccessException("Token Google không khớp ClientId hoặc thiếu thông tin định danh.");
-                }
-            }
-            catch (Exception fallbackEx)
-            {
-                _logger.LogWarning(fallbackEx, "Google token fallback validation failed");
-                throw new UnauthorizedAccessException("Xác thực Google không hợp lệ hoặc đã hết hạn.");
-            }
+            _logger.LogWarning(ex, "GoogleJsonWebSignature.ValidateAsync failed");
+            throw new UnauthorizedAccessException("Xác thực Google không hợp lệ hoặc đã hết hạn.");
         }
 
         if (!emailVerified)
@@ -138,7 +126,7 @@ public class AuthService : IAuthService
         email = email.ToLowerInvariant();
 
         // Tìm User theo GoogleId hoặc Email
-        var user = await _userRepo.GetByGoogleIdAsync(subject) 
+        var user = await _userRepo.GetByGoogleIdAsync(subject)
                    ?? await _userRepo.GetByEmailAsync(email);
 
         if (user == null)
@@ -149,6 +137,12 @@ public class AuthService : IAuthService
         if (user.AccountStatus == "Banned" || user.AccountStatus == "Locked")
         {
             throw new UnauthorizedAccessException("Tài khoản của bạn đã bị khóa.");
+        }
+
+        var roles = user.UserRoleUsers.Select(ur => ur.Role.RoleName).ToList();
+        if (!roles.Contains("Student") || roles.Any(r => r is "Admin" or "Manager" or "Guard"))
+        {
+            throw new UnauthorizedAccessException("Chỉ tài khoản sinh viên mới được đăng nhập bằng Google.");
         }
 
         // Liên kết GoogleId nếu trước đó chỉ có Email
