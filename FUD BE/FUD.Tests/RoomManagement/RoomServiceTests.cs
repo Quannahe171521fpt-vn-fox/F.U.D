@@ -502,7 +502,7 @@ public class RoomServiceTests
 
     #endregion
 
-    #region GetRoomTypesAsync Tests
+    #region UpdateAsync Tests
 
     [Fact]
     public async Task UpdateAsync_WhenRoomIsActive_ThrowsInvalidOperationException()
@@ -540,7 +540,7 @@ public class RoomServiceTests
         _roomRepoMock.Setup(r => r.HasActiveBedsAsync(roomId)).ReturnsAsync(false);
         _roomRepoMock.Setup(r => r.IsRoomNumberUniqueAsync(maintenanceRoom.BlockId, dto.RoomNumber, roomId)).ReturnsAsync(true);
         _roomRepoMock.Setup(r => r.IsRoomNumberUniqueOnFloorAsync(maintenanceRoom.BlockId, dto.FloorLevel!.Value, dto.RoomNumber, roomId)).ReturnsAsync(true);
-        _roomRepoMock.Setup(r => r.UpdateAsync(maintenanceRoom)).Returns(Task.CompletedTask);
+        _roomRepoMock.Setup(r => r.UpdateAsync(maintenanceRoom)).ReturnsAsync(maintenanceRoom);
         _roomRepoMock.Setup(r => r.GetByIdAsync(roomId)).ReturnsAsync(maintenanceRoom);
 
         var sut = CreateSut();
@@ -565,7 +565,7 @@ public class RoomServiceTests
         _roomRepoMock.Setup(r => r.HasActiveBedsAsync(roomId)).ReturnsAsync(false); // Không có ai ở
         _roomRepoMock.Setup(r => r.IsRoomNumberUniqueAsync(activeEmptyRoom.BlockId, dto.RoomNumber, roomId)).ReturnsAsync(true);
         _roomRepoMock.Setup(r => r.IsRoomNumberUniqueOnFloorAsync(activeEmptyRoom.BlockId, dto.FloorLevel!.Value, dto.RoomNumber, roomId)).ReturnsAsync(true);
-        _roomRepoMock.Setup(r => r.UpdateAsync(activeEmptyRoom)).Returns(Task.CompletedTask);
+        _roomRepoMock.Setup(r => r.UpdateAsync(activeEmptyRoom)).ReturnsAsync(activeEmptyRoom);
         _roomRepoMock.Setup(r => r.GetByIdAsync(roomId)).ReturnsAsync(activeEmptyRoom);
 
         var sut = CreateSut();
@@ -602,6 +602,8 @@ public class RoomServiceTests
             .WithMessage("*đã tồn tại ở tầng*");
         _roomRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Room>()), Times.Never);
     }
+
+    #endregion
 
     #region GetRoomTypesAsync Tests
 
