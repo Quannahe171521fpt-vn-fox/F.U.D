@@ -1,12 +1,14 @@
 using FUD.Common;
 using FUD.DTOs.Facilities.Equipment;
 using FUD.Services.Interfaces.Facilities;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FUD.Controllers.Facilities
 {
     [Route("api/facilities/equipment")]
     [ApiController]
+    [Authorize(Roles = "Manager,Admin")]
     public class EquipmentController : ControllerBase
     {
         private readonly IEquipmentService _service;

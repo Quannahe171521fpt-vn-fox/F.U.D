@@ -1,12 +1,14 @@
 using FUD.Common;
 using FUD.DTOs.Facilities.News;
 using FUD.Services.Interfaces.Facilities;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FUD.Controllers.Facilities
 {
     [Route("api/facilities/news")]
     [ApiController]
+    [Authorize(Roles = "Manager,Admin")]
     public class NewsController : ControllerBase
     {
         private readonly INewsService _service;
