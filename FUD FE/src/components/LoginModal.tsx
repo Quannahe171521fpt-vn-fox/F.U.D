@@ -245,10 +245,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
               </a>
             </div>
 
-            <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '12px', lineHeight: 1.5 }}>
-              Phiên đăng nhập tự động kết thúc sau 30 phút không thao tác hoặc tối đa 24 giờ.
-            </div>
-
             <button type="submit" className="login-submit-btn" disabled={isSubmitting}>
               {isSubmitting ? 'Đang xác thực...' : 'Đăng nhập hệ thống'}
             </button>
