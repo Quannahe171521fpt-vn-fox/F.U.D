@@ -205,7 +205,7 @@ public class SubmitRequestServiceTests
             RequestType = "BedTransfer",
             ToBedId = 20,
             Reason = "Chuyển gần cửa sổ",
-            TransferDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2))
+            TransferDate = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7)).AddDays(7)
         };
 
         // Act
