@@ -206,6 +206,11 @@ export const EwManagement: React.FC = () => {
   const [anomalies, setAnomalies] = useState<UsageAnomalyItemDto[]>([]);
   const [anomaliesLoading, setAnomaliesLoading] = useState(false);
   const [anomalyStatusFilter, setAnomalyStatusFilter] = useState<string>('Flagged');
+  const [anomalyDormFilter, setAnomalyDormFilter] = useState<string>('');
+  const [anomalyRoomSearch, setAnomalyRoomSearch] = useState<string>('');
+  const [anomalyMeterFilter, setAnomalyMeterFilter] = useState<string>('');
+  const [anomalyPage, setAnomalyPage] = useState<number>(1);
+  const [anomalyPageSize] = useState<number>(6);
   const [resolvingAnomaly, setResolvingAnomaly] = useState<UsageAnomalyItemDto | null>(null);
   const [resolveAction, setResolveAction] = useState<'Confirm' | 'Adjust'>('Confirm');
   const [resolveValue, setResolveValue] = useState<string>('');
@@ -858,6 +863,96 @@ export const EwManagement: React.FC = () => {
   };
 
   const flaggedAnomaliesCount = anomalies.filter((a) => a.status === 'Flagged').length;
+
+  const availableAnomalyDorms = React.useMemo(() => {
+    const set = new Set<string>(dormOptions);
+    for (const a of anomalies) {
+      if (a.dormName) set.add(a.dormName);
+    }
+    return Array.from(set).sort();
+  }, [dormOptions, anomalies]);
+
+  const groupedAnomalies = React.useMemo(() => {
+    const isElecItem = (item: UsageAnomalyItemDto) =>
+      (item.meterType || '').toLowerCase().includes('elec') ||
+      (item.meterType || '').toLowerCase().includes('điện');
+
+    const map = new Map<
+      string,
+      {
+        key: string;
+        roomId: number;
+        roomNumber: string;
+        blockCode: string;
+        dormName: string;
+        billingPeriodId?: number;
+        billingPeriodDisplay: string;
+        guardName: string;
+        guardPhone?: string;
+        items: UsageAnomalyItemDto[];
+        hasElec: boolean;
+        hasWater: boolean;
+      }
+    >();
+
+    for (const item of anomalies) {
+      const key = `${item.roomId}-${item.billingPeriodId ?? item.billingPeriodDisplay}`;
+      let group = map.get(key);
+      if (!group) {
+        group = {
+          key,
+          roomId: item.roomId,
+          roomNumber: item.roomNumber,
+          blockCode: item.blockCode,
+          dormName: item.dormName || 'Dom A',
+          billingPeriodId: item.billingPeriodId,
+          billingPeriodDisplay: item.billingPeriodDisplay || '—',
+          guardName: item.guardName || 'Bảo vệ',
+          guardPhone: item.guardPhone,
+          items: [],
+          hasElec: false,
+          hasWater: false,
+        };
+        map.set(key, group);
+      }
+      group.items.push(item);
+      if (isElecItem(item)) group.hasElec = true;
+      else group.hasWater = true;
+    }
+
+    const q = anomalyRoomSearch.trim().toLowerCase();
+    const dormTarget = anomalyDormFilter.trim().toLowerCase();
+
+    return Array.from(map.values())
+      .map((g) => ({
+        ...g,
+        // Sắp xếp Điện lên trước, Nước sau cho đồng nhất
+        items: [...g.items].sort((a, b) => (isElecItem(a) ? 0 : 1) - (isElecItem(b) ? 0 : 1)),
+      }))
+      .filter((g) => {
+        if (dormTarget && g.dormName.trim().toLowerCase() !== dormTarget) return false;
+        if (q) {
+          const matchRoom =
+            g.roomNumber.toLowerCase().includes(q) ||
+            g.blockCode.toLowerCase().includes(q) ||
+            g.dormName.toLowerCase().includes(q);
+          if (!matchRoom) return false;
+        }
+        if (anomalyMeterFilter === 'Electricity' && !g.hasElec) return false;
+        if (anomalyMeterFilter === 'Water' && !g.hasWater) return false;
+        if (anomalyMeterFilter === 'Both' && !(g.hasElec && g.hasWater)) return false;
+        return true;
+      });
+  }, [anomalies, anomalyDormFilter, anomalyRoomSearch, anomalyMeterFilter]);
+
+  useEffect(() => {
+    setAnomalyPage(1);
+  }, [selectedPeriodId, anomalyStatusFilter, anomalyDormFilter, anomalyRoomSearch, anomalyMeterFilter]);
+
+  const paginatedAnomalyGroups = React.useMemo(() => {
+    const start = (anomalyPage - 1) * anomalyPageSize;
+    return groupedAnomalies.slice(start, start + anomalyPageSize);
+  }, [groupedAnomalies, anomalyPage, anomalyPageSize]);
 
   return (
     <div className="facilities-container" style={{ padding: '24px 32px' }}>
@@ -2145,28 +2240,65 @@ export const EwManagement: React.FC = () => {
               gap: 12,
             }}
           >
-            <div>
+            <div style={{ flex: 1, minWidth: 280 }}>
               <div style={{ fontWeight: 700, fontSize: 14, color: '#9A3412', marginBottom: 4 }}>
                 Quy trình xử lý cảnh báo bất thường (Điện vượt &gt; 1,000 kWh / Nước vượt &gt; 50 m³ sau định mức)
               </div>
-              <div style={{ fontSize: 13, color: '#C2410C', lineHeight: 1.5 }}>
-                1. Quản lý liên hệ trực tiếp Bảo vệ tòa nhà để lên kiểm tra phòng (kiểm tra rò rỉ nước / thiết bị cấm như bếp từ).
+              <div style={{ fontSize: 12.5, color: '#C2410C', lineHeight: 1.55 }}>
+                1. Liên hệ Bảo vệ tòa nhà để kiểm tra phòng (rò rỉ nước / thiết bị cấm như bếp từ).
                 <br />
-                2. Sau khi Bảo vệ báo kết quả: bấm <strong>Xác nhận (Confirm)</strong> nếu sinh viên dùng thật, hoặc <strong>Điều chỉnh (Adjust)</strong> nếu do rò rỉ/nhập sai. Hệ thống sẽ tự động tính phụ trội, chia đều chi phí và gửi thông báo công nợ cho sinh viên.
+                2. Bấm <strong>Xác nhận (Confirm)</strong> nếu sinh viên dùng thật, hoặc <strong>Điều chỉnh (Adjust)</strong> nếu do rò rỉ/nhập sai. Hệ thống sẽ tự động tính phụ trội, tạo hóa đơn và gửi thông báo công nợ ngay khi xử lý xong.
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            {selectedPeriodId && (
+              <button
+                onClick={handleCalculateSurcharges}
+                disabled={calcLoading}
+                title="Chạy đồng bộ / tính lại phụ trội và tạo hóa đơn còn thiếu cho toàn bộ phòng hợp lệ (không bị Flagged) trong kỳ này"
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: '#D97026',
+                  color: '#fff',
+                  fontWeight: 700,
+                  fontSize: 12.5,
+                  cursor: calcLoading ? 'not-allowed' : 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {calcLoading ? 'Đang đồng bộ...' : 'Đồng bộ / Tính lại phụ trội kỳ này'}
+              </button>
+            )}
+          </div>
+
+          {/* Filter Bar */}
+          <div
+            style={{
+              background: '#fff',
+              border: '1px solid #E2E8F0',
+              borderRadius: 12,
+              padding: '14px 16px',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 10,
+              alignItems: 'flex-end',
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 11.5, fontWeight: 600, color: '#475569' }}>Kỳ thanh toán</label>
               <select
                 value={selectedPeriodId}
                 onChange={(e) => setSelectedPeriodId(e.target.value ? Number(e.target.value) : '')}
                 style={{
-                  padding: '8px 12px',
+                  padding: '7px 10px',
                   borderRadius: 8,
                   border: '1px solid #CBD5E1',
                   background: '#fff',
                   fontSize: 13,
                   fontWeight: 600,
+                  minWidth: 190,
                 }}
               >
                 <option value="">Tất cả kỳ thanh toán</option>
@@ -2176,59 +2308,140 @@ export const EwManagement: React.FC = () => {
                   </option>
                 ))}
               </select>
+            </div>
 
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 11.5, fontWeight: 600, color: '#475569' }}>Khu KTX (Dorm)</label>
+              <select
+                value={anomalyDormFilter}
+                onChange={(e) => setAnomalyDormFilter(e.target.value)}
+                style={{
+                  padding: '7px 10px',
+                  borderRadius: 8,
+                  border: '1px solid #CBD5E1',
+                  background: '#fff',
+                  fontSize: 13,
+                  minWidth: 145,
+                }}
+              >
+                <option value="">Tất cả Dorm</option>
+                {availableAnomalyDorms.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 11.5, fontWeight: 600, color: '#475569' }}>Phòng / Block</label>
+              <input
+                type="text"
+                value={anomalyRoomSearch}
+                onChange={(e) => setAnomalyRoomSearch(e.target.value)}
+                placeholder="VD: 202R, 101..."
+                style={{
+                  padding: '7px 10px',
+                  borderRadius: 8,
+                  border: '1px solid #CBD5E1',
+                  background: '#fff',
+                  fontSize: 13,
+                  width: 140,
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 11.5, fontWeight: 600, color: '#475569' }}>Loại bất thường</label>
+              <select
+                value={anomalyMeterFilter}
+                onChange={(e) => setAnomalyMeterFilter(e.target.value)}
+                style={{
+                  padding: '7px 10px',
+                  borderRadius: 8,
+                  border: '1px solid #CBD5E1',
+                  background: '#fff',
+                  fontSize: 13,
+                  minWidth: 145,
+                }}
+              >
+                <option value="">Tất cả (Điện & Nước)</option>
+                <option value="Electricity">Có Điện bất thường</option>
+                <option value="Water">Có Nước bất thường</option>
+                <option value="Both">Cả Điện & Nước</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 11.5, fontWeight: 600, color: '#475569' }}>Trạng thái</label>
               <select
                 value={anomalyStatusFilter}
                 onChange={(e) => setAnomalyStatusFilter(e.target.value)}
                 style={{
-                  padding: '8px 12px',
+                  padding: '7px 10px',
                   borderRadius: 8,
                   border: '1px solid #CBD5E1',
                   background: '#fff',
                   fontSize: 13,
                   fontWeight: 600,
+                  minWidth: 165,
                 }}
               >
                 <option value="">Tất cả trạng thái</option>
                 <option value="Flagged">Đang chờ xử lý (Flagged)</option>
                 <option value="Resolved">Đã xử lý (Resolved)</option>
               </select>
+            </div>
 
-              {selectedPeriodId && (
+            <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+              {(anomalyDormFilter || anomalyRoomSearch || anomalyMeterFilter || anomalyStatusFilter !== 'Flagged') && (
                 <button
-                  onClick={handleCalculateSurcharges}
-                  disabled={calcLoading}
+                  onClick={() => {
+                    setAnomalyDormFilter('');
+                    setAnomalyRoomSearch('');
+                    setAnomalyMeterFilter('');
+                    setAnomalyStatusFilter('Flagged');
+                  }}
                   style={{
-                    padding: '8px 16px',
+                    padding: '7px 12px',
                     borderRadius: 8,
-                    border: 'none',
-                    background: '#D97026',
-                    color: '#fff',
-                    fontWeight: 700,
-                    fontSize: 13,
-                    cursor: calcLoading ? 'not-allowed' : 'pointer',
+                    border: '1px solid #CBD5E1',
+                    background: '#F8FAFC',
+                    color: '#64748B',
+                    fontWeight: 600,
+                    fontSize: 12.5,
+                    cursor: 'pointer',
                   }}
                 >
-                  {calcLoading ? 'Đang tính phí...' : 'Tính phụ trội & Gửi công nợ kỳ này'}
+                  Xóa lọc
                 </button>
               )}
-
               <button
                 onClick={loadAnomalies}
                 style={{
-                  padding: '8px 14px',
+                  padding: '7px 14px',
                   borderRadius: 8,
                   border: '1px solid #CBD5E1',
                   background: '#fff',
                   color: '#374151',
                   fontWeight: 600,
-                  fontSize: 13,
+                  fontSize: 12.5,
                   cursor: 'pointer',
                 }}
               >
                 Làm mới
               </button>
             </div>
+          </div>
+
+          {/* Summary count */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, color: '#475569', padding: '0 2px' }}>
+            <span>
+              Hiển thị <strong style={{ color: '#0F172A' }}>{groupedAnomalies.length}</strong> phòng có cảnh báo
+              {anomalies.length > 0 && (
+                <span> ({anomalies.length} chỉ số bất thường)</span>
+              )}
+            </span>
           </div>
 
           {anomalyMsg && (
@@ -2247,182 +2460,218 @@ export const EwManagement: React.FC = () => {
             </div>
           )}
 
-          {/* Anomalies Table */}
+          {/* Anomalies Table (Grouped by Room, 100% width fit) */}
           <div
             style={{
               background: '#fff',
               border: '1px solid #E2E8F0',
               borderRadius: 12,
               overflow: 'hidden',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
             }}
           >
             {anomaliesLoading ? (
               <div style={{ padding: 28, textAlign: 'center', color: '#64748B' }}>
                 Đang tải danh sách cảnh báo bất thường...
               </div>
-            ) : anomalies.length === 0 ? (
+            ) : groupedAnomalies.length === 0 ? (
               <div style={{ padding: 36, textAlign: 'center', color: '#64748B' }}>
-                Không có cảnh báo bất thường nào theo bộ lọc hiện tại.
+                Không có phòng nào có cảnh báo bất thường theo bộ lọc hiện tại.
               </div>
             ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: '#F8FAFC', borderBottom: '2px solid #E2E8F0' }}>
-                      {[
-                        'KTX / Phòng',
-                        'Kỳ',
-                        'Loại',
-                        'Chỉ số cũ → mới',
-                        'Tiêu thụ (Vượt mức)',
-                        'Lý do cảnh báo',
-                        'Bảo vệ tòa (Liên hệ)',
-                        'Trạng thái',
-                        'Thao tác (Manager)',
-                      ].map((h) => (
-                        <th
-                          key={h}
-                          style={{
-                            padding: '10px 14px',
-                            textAlign: 'left',
-                            fontWeight: 700,
-                            color: '#374151',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {anomalies.map((item, idx) => {
+              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', fontSize: 12.5 }}>
+                <thead>
+                  <tr style={{ background: '#F8FAFC', borderBottom: '2px solid #E2E8F0' }}>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#374151', width: '19%' }}>
+                      Phòng / KTX &amp; Bảo vệ
+                    </th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#374151', width: '24%' }}>
+                      Loại &amp; Chỉ số tiêu thụ
+                    </th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#374151', width: '33%' }}>
+                      Lý do cảnh báo
+                    </th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#374151', width: '24%' }}>
+                      Trạng thái &amp; Thao tác
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedAnomalyGroups.map((group, gIdx) => {
+                    const rowBg = gIdx % 2 === 0 ? '#FFFFFF' : '#F8FAFC';
+                    return group.items.map((item, itemIdx) => {
                       const isElec =
                         (item.meterType || '').toLowerCase().includes('elec') ||
                         (item.meterType || '').toLowerCase().includes('điện');
                       const unit = isElec ? 'kWh' : 'm³';
                       const isFlagged = item.status === 'Flagged';
+                      const isLastInGroup = itemIdx === group.items.length - 1;
+
                       return (
                         <tr
                           key={item.anomalyId}
                           style={{
-                            background: idx % 2 === 0 ? '#fff' : '#F8FAFC',
-                            borderBottom: '1px solid #F1F5F9',
+                            background: rowBg,
+                            borderBottom: isLastInGroup ? '2px solid #E2E8F0' : '1px dashed #CBD5E1',
                           }}
                         >
-                          <td style={{ padding: '12px 14px', fontWeight: 700, color: '#0F172A' }}>
-                            {item.dormName} — {item.roomNumber}
-                          </td>
-                          <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
-                            {item.billingPeriodDisplay || '—'}
-                          </td>
-                          <td style={{ padding: '12px 14px' }}>
-                            <span
+                          {itemIdx === 0 && (
+                            <td
+                              rowSpan={group.items.length}
                               style={{
-                                padding: '3px 10px',
-                                borderRadius: 12,
-                                fontSize: 12,
-                                fontWeight: 700,
-                                background: isElec ? '#FEF3C7' : '#DBEAFE',
-                                color: isElec ? '#B45309' : '#1D4ED8',
+                                padding: '12px',
+                                verticalAlign: 'top',
+                                borderRight: '1px solid #F1F5F9',
+                                wordBreak: 'break-word',
                               }}
                             >
-                              {isElec ? 'Điện' : 'Nước'}
-                            </span>
-                          </td>
-                          <td style={{ padding: '12px 14px', whiteSpace: 'nowrap', fontWeight: 600 }}>
-                            {item.previousValue} → <span style={{ color: '#DC2626' }}>{item.currentValue}</span>
-                          </td>
-                          <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
-                            <strong>{item.consumption} {unit}</strong>
-                            <div style={{ fontSize: 11, color: item.overUsage > 0 ? '#DC2626' : '#64748B' }}>
-                              Định mức: {item.quota} {unit} | Vượt: {item.overUsage > 0 ? `+${item.overUsage}` : 0} {unit}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                <span style={{ fontWeight: 800, fontSize: 14, color: '#0F172A' }}>
+                                  Phòng {group.roomNumber}
+                                </span>
+                                {group.hasElec && group.hasWater && (
+                                  <span
+                                    style={{
+                                      padding: '1px 6px',
+                                      borderRadius: 6,
+                                      fontSize: 10,
+                                      fontWeight: 700,
+                                      background: '#FEF2F2',
+                                      color: '#B91C1C',
+                                      border: '1px solid #FECACA',
+                                    }}
+                                  >
+                                    Điện + Nước
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: 12, color: '#475569', marginTop: 2 }}>
+                                {group.dormName} • {group.billingPeriodDisplay}
+                              </div>
+                              <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid #F1F5F9', fontSize: 11.5 }}>
+                                <div style={{ fontWeight: 600, color: '#334155' }}>BV: {group.guardName}</div>
+                                {group.guardPhone && (
+                                  <div style={{ color: '#0284C7', fontWeight: 600 }}>SĐT: {group.guardPhone}</div>
+                                )}
+                              </div>
+                            </td>
+                          )}
+
+                          <td style={{ padding: '10px 12px', verticalAlign: 'top', wordBreak: 'break-word' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+                              <span
+                                style={{
+                                  padding: '2px 8px',
+                                  borderRadius: 10,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  background: isElec ? '#FEF3C7' : '#DBEAFE',
+                                  color: isElec ? '#B45309' : '#1D4ED8',
+                                }}
+                              >
+                                {isElec ? 'Điện' : 'Nước'}
+                              </span>
+                              <span style={{ fontWeight: 600, color: '#334155' }}>
+                                {item.previousValue} → <span style={{ color: '#DC2626' }}>{item.currentValue}</span>
+                              </span>
+                            </div>
+                            <div style={{ fontWeight: 700, color: '#0F172A' }}>
+                              Tiêu thụ: {item.consumption.toLocaleString('vi-VN')} {unit}
+                            </div>
+                            <div style={{ fontSize: 11, color: item.overUsage > 0 ? '#DC2626' : '#64748B', marginTop: 2 }}>
+                              Định mức: {item.quota} {unit} | Vượt: {item.overUsage > 0 ? `+${item.overUsage.toLocaleString('vi-VN')}` : 0} {unit}
                             </div>
                           </td>
-                          <td style={{ padding: '12px 14px', maxWidth: 280, color: '#991B1B', fontWeight: 500 }}>
-                            {item.flagReason}
+
+                          <td style={{ padding: '10px 12px', verticalAlign: 'top', color: '#991B1B', lineHeight: 1.45, wordBreak: 'break-word' }}>
+                            <div style={{ fontWeight: 500 }}>{item.flagReason}</div>
                             {item.managerNote && (
-                              <div style={{ fontSize: 11, color: '#475569', marginTop: 4 }}>
+                              <div style={{ fontSize: 11, color: '#475569', marginTop: 4, fontStyle: 'italic' }}>
                                 Ghi chú QL: {item.managerNote}
                               </div>
                             )}
                           </td>
-                          <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
-                            <div style={{ fontWeight: 600, color: '#1E293B' }}>{item.guardName}</div>
-                            {item.guardPhone && (
-                              <div style={{ fontSize: 12, color: '#0284C7', fontWeight: 600 }}>
-                                SĐT: {item.guardPhone}
-                              </div>
-                            )}
-                          </td>
-                          <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
-                            <span
-                              style={{
-                                padding: '4px 10px',
-                                borderRadius: 12,
-                                fontSize: 11,
-                                fontWeight: 700,
-                                background: isFlagged ? '#FEE2E2' : '#DCFCE7',
-                                color: isFlagged ? '#991B1B' : '#166534',
-                              }}
-                            >
-                              {isFlagged
-                                ? 'Chờ kiểm tra (Flagged)'
-                                : item.resolution === 'Corrected'
-                                ? 'Đã điều chỉnh (Adjusted)'
-                                : 'Đã xác nhận (Confirmed)'}
-                            </span>
-                          </td>
-                          <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
+
+                          <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
+                            <div style={{ marginBottom: 8 }}>
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  padding: '3px 8px',
+                                  borderRadius: 10,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  background: isFlagged ? '#FEE2E2' : '#DCFCE7',
+                                  color: isFlagged ? '#991B1B' : '#166534',
+                                }}
+                              >
+                                {isFlagged
+                                  ? 'Chờ kiểm tra (Flagged)'
+                                  : item.resolution === 'Corrected'
+                                  ? 'Đã điều chỉnh'
+                                  : 'Đã xác nhận'}
+                              </span>
+                            </div>
                             {isFlagged ? (
-                              <div style={{ display: 'flex', gap: 8 }}>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                                 <button
                                   onClick={() => handleOpenResolveModal(item, 'Confirm')}
                                   style={{
-                                    padding: '6px 12px',
+                                    padding: '5px 10px',
                                     borderRadius: 6,
                                     border: '1px solid #16A34A',
                                     background: '#F0FDF4',
                                     color: '#15803D',
                                     fontWeight: 700,
-                                    fontSize: 12,
+                                    fontSize: 11.5,
                                     cursor: 'pointer',
                                   }}
                                   title="Xác nhận chỉ số đúng (sinh viên dùng bếp từ / dùng nhiều thật) và tính phụ trội"
                                 >
-                                  Xác nhận (Confirm)
+                                  Xác nhận
                                 </button>
                                 <button
                                   onClick={() => handleOpenResolveModal(item, 'Adjust')}
                                   style={{
-                                    padding: '6px 12px',
+                                    padding: '5px 10px',
                                     borderRadius: 6,
                                     border: '1px solid #D97026',
                                     background: '#FFF7ED',
                                     color: '#C2410C',
                                     fontWeight: 700,
-                                    fontSize: 12,
+                                    fontSize: 11.5,
                                     cursor: 'pointer',
                                   }}
                                   title="Điều chỉnh lại chỉ số (do rò rỉ nước hoặc bảo vệ ghi nhầm) rồi tính phụ trội"
                                 >
-                                  Điều chỉnh (Adjust)
+                                  Điều chỉnh
                                 </button>
                               </div>
                             ) : (
-                              <span style={{ fontSize: 12, color: '#64748B' }}>
+                              <div style={{ fontSize: 11.5, color: '#64748B' }}>
                                 Đã chốt {item.resolvedByName ? `bởi ${item.resolvedByName}` : ''}
-                              </span>
+                              </div>
                             )}
                           </td>
                         </tr>
                       );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                    });
+                  })}
+                </tbody>
+              </table>
             )}
           </div>
+
+          {/* Pagination */}
+          {groupedAnomalies.length > 0 && (
+            <Pagination
+              currentPage={anomalyPage}
+              totalItems={groupedAnomalies.length}
+              pageSize={anomalyPageSize}
+              onPageChange={setAnomalyPage}
+              itemName="phòng"
+            />
+          )}
 
           {/* Modal Adjust or Confirm Utility Data */}
           {resolvingAnomaly && (
