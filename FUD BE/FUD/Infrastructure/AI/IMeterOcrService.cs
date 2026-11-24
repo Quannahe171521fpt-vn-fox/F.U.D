@@ -4,6 +4,8 @@ namespace FUD.Infrastructure.AI
     {
         public bool IsMeterImage { get; set; }
         public string DetectedMeterType { get; set; } = "Unknown"; // Electricity | Water | Unknown
+        public string? IntegerDigits { get; set; }
+        public string? DecimalDigits { get; set; }
         public decimal? ReadingValue { get; set; }
         public string? RawDigits { get; set; }
         public double Confidence { get; set; } // 0.0 -> 1.0
