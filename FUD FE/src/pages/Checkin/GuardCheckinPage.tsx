@@ -163,6 +163,14 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
   }, [isCreateModalOpen, isHistoryModalOpen, submitting]);
 
   const handleSelectStudent = async (student: PendingCheckinStudent) => {
+    if (student.canCheckin === false) {
+      setErrorMsg(
+        student.checkinBlockedReason ||
+          'Bảo vệ cần hoàn tất Check-out phòng cũ cho sinh viên trước khi lập đơn Check-in.'
+      );
+      return;
+    }
+
     setSelectedStudent(student);
     setCompletedHandover(null);
     setEquipItems([]);
@@ -494,14 +502,22 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
                     </tr>
                   ) : (
                     pendingStudents.map(st => {
+                      const isBlocked = st.canCheckin === false;
                       const isSelected =
                         selectedStudent?.studentId === st.studentId && selectedStudent?.bedId === st.bedId;
                       return (
                         <tr
                           key={`${st.studentId}-${st.bedId}`}
                           className={isSelected ? 'selected-row' : ''}
-                          onClick={() => handleSelectStudent(st)}
-                          style={{ cursor: 'pointer' }}
+                          onClick={() => {
+                            if (!isBlocked) {
+                              void handleSelectStudent(st);
+                            }
+                          }}
+                          style={{
+                            cursor: isBlocked ? 'not-allowed' : 'pointer',
+                            backgroundColor: isBlocked ? '#FFF5F5' : undefined,
+                          }}
                         >
                           <td style={{ fontWeight: 700 }}>{st.studentCode}</td>
                           <td>{st.studentName}</td>
@@ -511,19 +527,52 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
                           </td>
                           <td>{st.termName}</td>
                           <td>
-                            <span className="checkin-status-badge">{st.bookingStatus}</span>
+                            {isBlocked ? (
+                              <div>
+                                <span
+                                  style={{
+                                    display: 'inline-block',
+                                    padding: '3px 9px',
+                                    borderRadius: '9999px',
+                                    fontSize: '11.5px',
+                                    fontWeight: 700,
+                                    backgroundColor: '#FEE2E2',
+                                    color: '#B91C1C',
+                                    border: '1px solid #FCA5A5',
+                                  }}
+                                >
+                                  Chờ Check-out phòng cũ
+                                </span>
+                                {st.checkinBlockedReason && (
+                                  <div style={{ fontSize: '11.5px', color: '#991B1B', marginTop: 4, lineHeight: 1.4 }}>
+                                    {st.checkinBlockedReason}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="checkin-status-badge">{st.bookingStatus}</span>
+                            )}
                           </td>
                           <td style={{ textAlign: 'right' }}>
                             <button
                               type="button"
+                              disabled={isBlocked}
+                              title={isBlocked ? (st.checkinBlockedReason || 'Cần Check-out phòng cũ trước khi Check-in') : undefined}
                               className={isSelected ? 'btn-submit' : 'btn-secondary'}
-                              style={{ padding: '5px 12px', fontSize: 12 }}
+                              style={{
+                                padding: '5px 12px',
+                                fontSize: 12,
+                                opacity: isBlocked ? 0.55 : 1,
+                                cursor: isBlocked ? 'not-allowed' : 'pointer',
+                              }}
                               onClick={e => {
                                 e.stopPropagation();
-                                handleSelectStudent(st);
+                                if (!isBlocked) {
+                                  void handleSelectStudent(st);
+                                }
                               }}
                             >
-                              {isSelected ? 'Đang chọn' : 'Chọn Check-in'}
+                              {isBlocked ? 'Chờ Check-out' : isSelected ? 'Đang chọn' : 'Chọn Check-in'}
                             </button>
                           </td>
                         </tr>

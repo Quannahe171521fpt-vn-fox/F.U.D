@@ -1412,6 +1412,8 @@ export interface PendingCheckinStudent {
   termId: number;
   termName: string;
   bookingStatus: string;
+  canCheckin?: boolean;
+  checkinBlockedReason?: string | null;
 }
 
 export interface RoomEquipmentCheckin {
@@ -1611,6 +1613,7 @@ export interface ResidencyTransferRecord {
   transferDate?: string;
   priceDifference?: number;
   createdTime: string;
+  hasUnpaidInvoice?: boolean;
 }
 
 export interface ResidencyCheckoutRecord {

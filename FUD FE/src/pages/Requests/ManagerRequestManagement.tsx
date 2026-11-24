@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { requestApi, violationApi, type GuardLookupDto, type RequestItemDto } from '../../services/api';
 import { Pagination } from '../../components/Pagination';
+import { TransferDatePicker } from '../../components/TransferDatePicker';
 import { ImageLightboxModal } from '../../components/ImageLightboxModal';
 import { formatDateTime } from '../../utils/dateUtils';
 import { removeVietnameseTones } from '../../utils/textUtils';
@@ -95,13 +96,15 @@ export const ManagerRequestManagement: React.FC = () => {
       setLoadingGuards(true);
       try {
         const list = await requestApi.getGuards(req.bedTransfer?.fromDormId);
-        setGuards(list);
-        if (list.length > 0) {
-          const sameDorm = list.find(g => g.assignedDormId === req.bedTransfer?.fromDormId);
-          setAssignedGuardId(String((sameDorm || list[0]).userId));
-        }
+        const sameDormGuards = req.bedTransfer?.fromDormId
+          ? list.filter(g => g.assignedDormId === req.bedTransfer?.fromDormId)
+          : list;
+        setGuards(sameDormGuards);
+        setAssignedGuardId(sameDormGuards.length > 0 ? String(sameDormGuards[0].userId) : '');
       } catch (err: any) {
-        setErrorMsg(err.message || 'Không thể tải danh sách Bảo vệ.');
+        setGuards([]);
+        setAssignedGuardId('');
+        setErrorMsg(err.message || 'Không thể tải thông tin Bảo vệ tòa KTX phòng cũ.');
       } finally {
         setLoadingGuards(false);
       }
@@ -175,12 +178,17 @@ export const ManagerRequestManagement: React.FC = () => {
     setSuccessMsg('');
 
     try {
-      await requestApi.process(selectedRequest.id, {
+      const updated = await requestApi.process(selectedRequest.id, {
         decision: 'Completed',
         note: resolutionNote.trim() || undefined,
       });
 
-      setSuccessMsg(`Đã phát hành hóa đơn và hoàn tất chuyển giường cho đơn ${selectedRequest.requestCode}.`);
+      const issuedCount = updated.bedTransfer?.invoices?.length ?? 0;
+      setSuccessMsg(
+        issuedCount > 0
+          ? `Đã phát hành ${issuedCount} hóa đơn và đẩy sang mục Thanh toán hóa đơn của sinh viên; hoàn tất chuyển giường cho đơn ${selectedRequest.requestCode}.`
+          : `Đã hoàn tất chuyển giường cho đơn ${selectedRequest.requestCode} (không phát sinh hóa đơn công nợ).`
+      );
       handleCloseModal();
       await loadRequests();
     } catch (err: any) {
@@ -940,25 +948,44 @@ export const ManagerRequestManagement: React.FC = () => {
                   <div style={{ backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: 8, padding: 12, marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
                     <div>
                       <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>
-                        Phân công Bảo vệ kiểm tra phòng cũ <span style={{ color: '#DC2626' }}>*</span>
+                        Bảo vệ kiểm tra phòng cũ (Cố định theo tòa KTX cũ)
                       </label>
                       {loadingGuards ? (
-                        <div style={{ fontSize: 12, color: '#64748B' }}>Đang tải danh sách Bảo vệ...</div>
-                      ) : (
-                        <select
-                          value={assignedGuardId}
-                          onChange={(e) => setAssignedGuardId(e.target.value)}
-                          required
-                          style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#FFF' }}
+                        <div style={{ fontSize: 12, color: '#64748B' }}>Đang tải thông tin Bảo vệ phụ trách tòa KTX phòng cũ...</div>
+                      ) : guards.length > 0 ? (
+                        <div
+                          style={{
+                            width: '100%',
+                            padding: '9px 12px',
+                            borderRadius: '6px',
+                            border: '1px solid #CBD5E1',
+                            fontSize: '13px',
+                            backgroundColor: '#F1F5F9',
+                            color: '#0F172A',
+                            boxSizing: 'border-box',
+                          }}
                         >
-                          <option value="">-- Chọn Bảo vệ phụ trách --</option>
-                          {guards.map((g) => (
-                            <option key={g.userId} value={String(g.userId)}>
-                              {g.fullName} ({g.guardCode}) — {g.assignedDormName}
-                              {g.assignedDormId === selectedRequest.bedTransfer?.fromDormId ? ' [Cùng tòa KTX]' : ''}
-                            </option>
-                          ))}
-                        </select>
+                          <div style={{ fontWeight: 700 }}>
+                            {guards[0].fullName} ({guards[0].guardCode}) — {guards[0].assignedDormName}
+                          </div>
+                          <div style={{ fontSize: 11.5, color: '#475569', marginTop: 2 }}>
+                            Tự động phân công Bảo vệ phụ trách tòa KTX phòng cũ của sinh viên (không thay đổi sang tòa khác).
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          style={{
+                            padding: '9px 12px',
+                            borderRadius: '6px',
+                            border: '1px solid #FCA5A5',
+                            backgroundColor: '#FEF2F2',
+                            color: '#B91C1C',
+                            fontSize: 12.5,
+                            fontWeight: 600,
+                          }}
+                        >
+                          Tòa KTX phòng cũ ({selectedRequest.bedTransfer?.fromDormName || 'chưa rõ'}) hiện chưa có Bảo vệ đang hoạt động để phân công.
+                        </div>
                       )}
                     </div>
 
@@ -966,11 +993,11 @@ export const ManagerRequestManagement: React.FC = () => {
                       <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>
                         Ngày chuyển giường dự kiến (Chốt để tính Prorate)
                       </label>
-                      <input
-                        type="date"
+                      <TransferDatePicker
                         value={transferDateInput}
-                        onChange={(e) => setTransferDateInput(e.target.value)}
-                        style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#FFF', boxSizing: 'border-box' }}
+                        fullWidth
+                        openDirection="up"
+                        onChange={setTransferDateInput}
                       />
                     </div>
                   </div>
@@ -1052,7 +1079,12 @@ export const ManagerRequestManagement: React.FC = () => {
                   </button>
                   <button
                     type="submit"
-                    disabled={submitting}
+                    disabled={
+                      submitting ||
+                      (selectedRequest.requestType === 'BedTransfer' &&
+                        decision === 'Approved' &&
+                        (loadingGuards || !assignedGuardId))
+                    }
                     style={{
                       padding: '8px 18px',
                       background: decision === 'Approved' ? '#047857' : '#DC2626',
@@ -1061,7 +1093,20 @@ export const ManagerRequestManagement: React.FC = () => {
                       borderRadius: '6px',
                       fontSize: '13px',
                       fontWeight: 600,
-                      cursor: 'pointer',
+                      cursor:
+                        submitting ||
+                        (selectedRequest.requestType === 'BedTransfer' &&
+                          decision === 'Approved' &&
+                          (loadingGuards || !assignedGuardId))
+                          ? 'not-allowed'
+                          : 'pointer',
+                      opacity:
+                        submitting ||
+                        (selectedRequest.requestType === 'BedTransfer' &&
+                          decision === 'Approved' &&
+                          (loadingGuards || !assignedGuardId))
+                          ? 0.6
+                          : 1,
                     }}
                   >
                     {submitting

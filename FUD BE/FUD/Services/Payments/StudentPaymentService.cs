@@ -59,6 +59,7 @@ namespace FUD.Services.Payments
                                 || i.Status == InvoiceStatuses.Overdue
                                 || i.Status == InvoiceStatuses.Processing))
                 .Include(i => i.InvoiceItems)
+                .Include(i => i.Handover)
                 .OrderByDescending(i => i.Status == InvoiceStatuses.Overdue)
                 .ThenBy(i => i.DueDate)
                 .ThenByDescending(i => i.IssuedTime)
@@ -176,16 +177,24 @@ namespace FUD.Services.Payments
             var invoice = await _context.Invoices
                 .AsNoTracking()
                 .Include(i => i.InvoiceItems)
+                .Include(i => i.Handover)
+                .Include(i => i.BookingRequest)
                 .Where(i => i.StudentId == studentId
                             && i.DeletedAt == null
                             && (i.Status == InvoiceStatuses.Unpaid
                                 || i.Status == InvoiceStatuses.Overdue
                                 || i.Status == InvoiceStatuses.Processing))
+                .OrderByDescending(i => i.InvoiceType == InvoiceTypes.BedTransfer)
+                .ThenBy(i => i.Id)
                 .FirstOrDefaultAsync(i =>
                     (normalized == "booking" && i.InvoiceType == InvoiceTypes.RoomFee && i.BookingRequestId == sourceId)
                     || (normalized == "keeping" && i.InvoiceType == InvoiceTypes.RoomFee && i.BookingRequestId == sourceId)
                     || (normalized == "utility" && i.InvoiceType == InvoiceTypes.Utility && i.UtilityBillId == sourceId)
-                    || (normalized == "bedtransfer" && i.InvoiceType == InvoiceTypes.BedTransfer && i.TransferRequestId == sourceId)
+                    || (normalized == "bedtransfer" && (
+                        i.TransferRequestId == sourceId
+                        || (i.HandoverId != null && i.Handover != null
+                            && i.Handover.HandoverType == "BedTransfer"
+                            && i.Handover.RequestId == sourceId)))
                     || (normalized == "checkout" && i.HandoverId == sourceId));
 
             if (invoice == null)
@@ -207,6 +216,7 @@ namespace FUD.Services.Payments
                 DueDate = invoice.DueDate,
                 PaidTime = invoice.PaidTime,
                 Status = invoice.Status,
+                SourceType = ResolveSourceType(invoice, invoice.BookingRequest?.BookingKind),
                 SourceId = ResolveSourceId(invoice),
                 Items = invoice.InvoiceItems
                     .OrderBy(it => it.Id)
@@ -1232,6 +1242,11 @@ namespace FUD.Services.Payments
         /// </summary>
         private static string? ResolveSourceType(Invoice invoice, string? bookingKind)
         {
+            var isBedTransferHandover = string.Equals(
+                invoice.Handover?.HandoverType,
+                "BedTransfer",
+                StringComparison.OrdinalIgnoreCase);
+
             // Ưu tiên nguồn theo loại hóa đơn để tương thích với query param sourceType của Frontend.
             return invoice.InvoiceType switch
             {
@@ -1239,21 +1254,36 @@ namespace FUD.Services.Payments
                     ? "Keeping"
                     : "Booking",
                 InvoiceTypes.BedTransfer => "BedTransfer",
-                InvoiceTypes.Utility => invoice.HandoverId.HasValue ? "Checkout" : "Utility",
-                InvoiceTypes.Compensation => "Checkout",
+                InvoiceTypes.Utility => invoice.TransferRequestId.HasValue
+                    ? "BedTransfer"
+                    : invoice.HandoverId.HasValue
+                        ? (isBedTransferHandover ? "BedTransfer" : "Checkout")
+                        : "Utility",
+                InvoiceTypes.Compensation => isBedTransferHandover ? "BedTransfer" : "Checkout",
                 _ => null
             };
         }
 
         private static int? ResolveSourceId(Invoice invoice)
         {
+            var isBedTransferHandover = string.Equals(
+                invoice.Handover?.HandoverType,
+                "BedTransfer",
+                StringComparison.OrdinalIgnoreCase);
+
             return invoice.InvoiceType switch
             {
                 InvoiceTypes.RoomFee => invoice.BookingRequestId,
                 InvoiceTypes.BedTransfer => invoice.TransferRequestId,
-                InvoiceTypes.Compensation => invoice.HandoverId,
-                // Utility gắn với Utility_Bills (chung cả phòng) hoặc hóa đơn cuối lúc Checkout.
-                InvoiceTypes.Utility => invoice.HandoverId ?? invoice.UtilityBillId,
+                InvoiceTypes.Compensation => isBedTransferHandover
+                    ? (invoice.Handover?.RequestId ?? invoice.HandoverId)
+                    : invoice.HandoverId,
+                // Utility gắn với đơn chuyển giường (TransferRequestId), bàn giao (HandoverId) hoặc Utility_Bills.
+                InvoiceTypes.Utility => invoice.TransferRequestId
+                    ?? (isBedTransferHandover
+                        ? (invoice.Handover?.RequestId ?? invoice.HandoverId)
+                        : invoice.HandoverId)
+                    ?? invoice.UtilityBillId,
                 _ => null
             };
         }
@@ -1322,7 +1352,7 @@ namespace FUD.Services.Payments
                 }
             }
 
-            // ── 3. Handover / Checkout ────────────────────────────────────────
+            // ── 3. Handover / Checkout / BedTransfer Compensation ────────────
             if (invoice.HandoverId.HasValue)
             {
                 var handover = await _context.Handovers
@@ -1330,38 +1360,62 @@ namespace FUD.Services.Payments
 
                 if (handover?.RequestId != null)
                 {
-                    // Kiểm tra tất cả hóa đơn gắn với Handover này đã Paid hay chưa.
-                    // Lưu ý: các hóa đơn vừa được đánh dấu Paid trong phiên làm việc này
-                    // chưa có trong DB, nên phải loại trừ chúng khỏi điều kiện "chưa thanh toán".
-                    var hasUnpaid = await _context.Invoices
-                        .Where(i => i.HandoverId == handover.Id
-                                    && i.DeletedAt == null
-                                    && !newlyPaidInvoiceIds.Contains(i.Id))
-                        .AnyAsync(i => i.Status != InvoiceStatuses.Paid);
-
-                    if (!hasUnpaid)
+                    if (string.Equals(handover.HandoverType, "BedTransfer", StringComparison.OrdinalIgnoreCase))
                     {
-                        var checkoutRequest = await _context.Requests
+                        var transferRequest = await _context.Requests
                             .FirstOrDefaultAsync(r => r.Id == handover.RequestId.Value);
 
-                        if (checkoutRequest != null && checkoutRequest.Status == "Approved")
+                        if (transferRequest != null)
                         {
-                            var previousStatus = checkoutRequest.Status;
-                            checkoutRequest.Status = "Completed";
-                            checkoutRequest.ProcessedTime = now;
-
                             _context.RequestLogs.Add(new RequestLog
                             {
-                                RequestId = checkoutRequest.Id,
-                                FromStatus = previousStatus,
-                                ToStatus = "Completed",
-                                Note = "Sinh viên đã hoàn tất thanh toán phí bàn giao/trả phòng.",
+                                RequestId = transferRequest.Id,
+                                FromStatus = transferRequest.Status,
+                                ToStatus = transferRequest.Status,
+                                Note = "Sinh viên đã thanh toán hóa đơn bồi thường thiết bị chuyển giường.",
                                 ChangeTime = now,
                                 ChangedById = studentId
                             });
 
                             sideEffectNotes.Add(
-                                $"Yêu cầu trả phòng #{checkoutRequest.Id} đã hoàn tất (Completed) sau khi trả đủ công nợ.");
+                                $"Yêu cầu chuyển giường #{transferRequest.Id} đã ghi nhận thanh toán bồi thường thiết bị.");
+                        }
+                    }
+                    else
+                    {
+                        // Kiểm tra tất cả hóa đơn gắn với Handover này đã Paid hay chưa.
+                        // Lưu ý: các hóa đơn vừa được đánh dấu Paid trong phiên làm việc này
+                        // chưa có trong DB, nên phải loại trừ chúng khỏi điều kiện "chưa thanh toán".
+                        var hasUnpaid = await _context.Invoices
+                            .Where(i => i.HandoverId == handover.Id
+                                        && i.DeletedAt == null
+                                        && !newlyPaidInvoiceIds.Contains(i.Id))
+                            .AnyAsync(i => i.Status != InvoiceStatuses.Paid);
+
+                        if (!hasUnpaid)
+                        {
+                            var checkoutRequest = await _context.Requests
+                                .FirstOrDefaultAsync(r => r.Id == handover.RequestId.Value);
+
+                            if (checkoutRequest != null && checkoutRequest.Status == "Approved")
+                            {
+                                var previousStatus = checkoutRequest.Status;
+                                checkoutRequest.Status = "Completed";
+                                checkoutRequest.ProcessedTime = now;
+
+                                _context.RequestLogs.Add(new RequestLog
+                                {
+                                    RequestId = checkoutRequest.Id,
+                                    FromStatus = previousStatus,
+                                    ToStatus = "Completed",
+                                    Note = "Sinh viên đã hoàn tất thanh toán phí bàn giao/trả phòng.",
+                                    ChangeTime = now,
+                                    ChangedById = studentId
+                                });
+
+                                sideEffectNotes.Add(
+                                    $"Yêu cầu trả phòng #{checkoutRequest.Id} đã hoàn tất (Completed) sau khi trả đủ công nợ.");
+                            }
                         }
                     }
                 }

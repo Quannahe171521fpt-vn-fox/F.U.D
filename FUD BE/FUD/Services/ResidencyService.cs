@@ -118,6 +118,7 @@ namespace FUD.Services
                         .ThenInclude(req => req.Handover)
                 .Include(r => r.BedTransferRequestFromResidencies)
                     .ThenInclude(bt => bt.Request)
+                        .ThenInclude(req => req.Handover)
                 .Include(r => r.BedTransferRequestFromResidencies)
                     .ThenInclude(bt => bt.FromBed)
                         .ThenInclude(fb => fb.Room)
@@ -128,6 +129,7 @@ namespace FUD.Services
                             .ThenInclude(rm => rm.Block)
                 .Include(r => r.BedTransferRequestNewResidencies)
                     .ThenInclude(bt => bt.Request)
+                        .ThenInclude(req => req.Handover)
                 .Include(r => r.BedTransferRequestNewResidencies)
                     .ThenInclude(bt => bt.FromBed)
                         .ThenInclude(fb => fb.Room)
@@ -189,9 +191,14 @@ namespace FUD.Services
 
             // 1. Lịch sử chuyển giường liên quan (cả chiều chuyển đi từ đợt lưu trú này hoặc chuyển đến đợt lưu trú này)
             var transfers = new List<ResidencyTransferRecordDto>();
+            var transferHandoverByRequestId = new Dictionary<int, int>();
 
             foreach (var bt in residency.BedTransferRequestFromResidencies)
             {
+                if (bt.Request?.Handover != null)
+                {
+                    transferHandoverByRequestId[bt.RequestId] = bt.Request.Handover.Id;
+                }
                 transfers.Add(new ResidencyTransferRecordDto
                 {
                     RequestId = bt.RequestId,
@@ -212,6 +219,10 @@ namespace FUD.Services
 
             foreach (var bt in residency.BedTransferRequestNewResidencies)
             {
+                if (bt.Request?.Handover != null)
+                {
+                    transferHandoverByRequestId[bt.RequestId] = bt.Request.Handover.Id;
+                }
                 if (transfers.Any(t => t.RequestId == bt.RequestId)) continue;
                 transfers.Add(new ResidencyTransferRecordDto
                 {
@@ -261,33 +272,59 @@ namespace FUD.Services
 
             // 3. Tóm tắt các hóa đơn liên quan tới đợt lưu trú (RoomFee từ SourceRequestId, BedTransfer, hoặc Compensation từ Handover)
             var transferRequestIds = detail.Transfers.Select(t => t.RequestId).ToList();
-            var handoverIds = new List<int>(checkoutHandoverIds);
+            var handoverIds = new HashSet<int>(checkoutHandoverIds);
+            foreach (var thId in transferHandoverByRequestId.Values)
+            {
+                handoverIds.Add(thId);
+            }
             if (residency.Handover != null)
             {
                 handoverIds.Add(residency.Handover.Id);
             }
 
-            var invoices = await _context.Invoices
+            var rawInvoices = await _context.Invoices
                 .AsNoTracking()
                 .Where(i => i.StudentId == studentUserId &&
+                    i.DeletedAt == null &&
                     ((residency.SourceBookingId.HasValue && i.BookingRequestId == residency.SourceBookingId.Value) ||
                      (i.TransferRequestId.HasValue && transferRequestIds.Contains(i.TransferRequestId.Value)) ||
                      (i.HandoverId.HasValue && handoverIds.Contains(i.HandoverId.Value))))
                 .OrderByDescending(i => i.IssuedTime)
-                .Select(i => new ResidencyInvoiceSummaryDto
+                .Select(i => new
                 {
-                    Id = i.Id,
-                    InvoiceNumber = i.InvoiceNumber,
-                    InvoiceType = i.InvoiceType,
-                    Amount = i.Amount,
-                    Status = i.Status,
-                    IssuedTime = i.IssuedTime,
-                    DueDate = i.DueDate,
-                    PaidTime = i.PaidTime
+                    i.Id,
+                    i.InvoiceNumber,
+                    i.InvoiceType,
+                    i.Amount,
+                    i.Status,
+                    i.IssuedTime,
+                    i.DueDate,
+                    i.PaidTime,
+                    i.TransferRequestId,
+                    i.HandoverId
                 })
                 .ToListAsync();
 
-            detail.Invoices = invoices;
+            foreach (var tr in detail.Transfers)
+            {
+                transferHandoverByRequestId.TryGetValue(tr.RequestId, out var transferHandoverId);
+                tr.HasUnpaidInvoice = rawInvoices.Any(i =>
+                    (i.Status == "Unpaid" || i.Status == "Overdue" || i.Status == "Processing") &&
+                    (i.TransferRequestId == tr.RequestId ||
+                     (transferHandoverId > 0 && i.HandoverId == transferHandoverId)));
+            }
+
+            detail.Invoices = rawInvoices.Select(i => new ResidencyInvoiceSummaryDto
+            {
+                Id = i.Id,
+                InvoiceNumber = i.InvoiceNumber,
+                InvoiceType = i.InvoiceType,
+                Amount = i.Amount,
+                Status = i.Status,
+                IssuedTime = i.IssuedTime,
+                DueDate = i.DueDate,
+                PaidTime = i.PaidTime
+            }).ToList();
 
             return detail;
         }

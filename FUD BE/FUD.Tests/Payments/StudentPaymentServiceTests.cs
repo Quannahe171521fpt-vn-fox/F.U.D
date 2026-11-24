@@ -1287,4 +1287,139 @@ public class StudentPaymentServiceTests
     }
 
     #endregion
+
+    #region BedTransfer Invoice Source & SideEffects
+
+    [Fact]
+    public async Task GetPayableInvoicesAsync_MapsBedTransferUtilityAndCompensationSourceCorrectly()
+    {
+        // Arrange
+        var context = CreateInMemoryContext();
+        context.Terms.Add(CreateTerm());
+        context.Students.Add(new Student { UserId = StudentId });
+
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        context.Handovers.Add(new Handover
+        {
+            Id = 300,
+            HandoverType = "BedTransfer",
+            RequestId = 77,
+            RoomId = 1,
+            GuardId = 5,
+            Status = "Completed",
+            TotalCompensation = 120_000m
+        });
+
+        context.Invoices.AddRange(
+            CreateInvoice(1, StudentId, "INV-TRF-77-A", InvoiceTypes.BedTransfer, 500_000m, InvoiceStatuses.Unpaid, today.AddDays(7), transferRequestId: 77),
+            CreateInvoice(2, StudentId, "INV-TRF-78-U", InvoiceTypes.Utility, 60_000m, InvoiceStatuses.Unpaid, today.AddDays(7), transferRequestId: 78),
+            CreateInvoice(3, StudentId, "INV-CMP-77-C", InvoiceTypes.Compensation, 120_000m, InvoiceStatuses.Unpaid, today.AddDays(7), handoverId: 300));
+        await context.SaveChangesAsync();
+
+        var sut = CreateSut(context);
+
+        // Act
+        var result = await sut.GetPayableInvoicesAsync(StudentId);
+
+        // Assert
+        result.Items.Should().HaveCount(3);
+        result.Items.Single(i => i.Id == 1).Should().Match<StudentInvoiceDto>(d => d.SourceType == "BedTransfer" && d.SourceId == 77);
+        result.Items.Single(i => i.Id == 2).Should().Match<StudentInvoiceDto>(d => d.SourceType == "BedTransfer" && d.SourceId == 78);
+        result.Items.Single(i => i.Id == 3).Should().Match<StudentInvoiceDto>(d => d.SourceType == "BedTransfer" && d.SourceId == 77);
+    }
+
+    [Fact]
+    public async Task FindInvoiceBySourceAsync_BedTransfer_MatchesUtilityOnlyAndCompensationInvoices()
+    {
+        // Arrange
+        var context = CreateInMemoryContext();
+        context.Terms.Add(CreateTerm());
+        context.Students.Add(new Student { UserId = StudentId });
+
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        context.Handovers.Add(new Handover
+        {
+            Id = 310,
+            HandoverType = "BedTransfer",
+            RequestId = 88,
+            RoomId = 1,
+            GuardId = 5,
+            Status = "Completed",
+            TotalCompensation = 150_000m
+        });
+
+        context.Invoices.AddRange(
+            CreateInvoice(10, StudentId, "INV-TRF-87-U", InvoiceTypes.Utility, 45_000m, InvoiceStatuses.Unpaid, today.AddDays(7), transferRequestId: 87),
+            CreateInvoice(11, StudentId, "INV-CMP-88-C", InvoiceTypes.Compensation, 150_000m, InvoiceStatuses.Unpaid, today.AddDays(7), handoverId: 310));
+        await context.SaveChangesAsync();
+
+        var sut = CreateSut(context);
+
+        // Act
+        var utilMatch = await sut.FindInvoiceBySourceAsync(StudentId, "BedTransfer", 87);
+        var compMatch = await sut.FindInvoiceBySourceAsync(StudentId, "BedTransfer", 88);
+
+        // Assert
+        utilMatch.Should().NotBeNull();
+        utilMatch!.Id.Should().Be(10);
+        utilMatch.SourceType.Should().Be("BedTransfer");
+        utilMatch.SourceId.Should().Be(87);
+
+        compMatch.Should().NotBeNull();
+        compMatch!.Id.Should().Be(11);
+        compMatch.SourceType.Should().Be("BedTransfer");
+        compMatch.SourceId.Should().Be(88);
+    }
+
+    [Fact]
+    public async Task MockConfirmAsync_BedTransferCompensationInvoice_LogsRequestLogAndSideEffect()
+    {
+        // Arrange
+        var context = CreateInMemoryContext();
+        context.Terms.Add(CreateTerm());
+        context.Students.Add(new Student { UserId = StudentId });
+        context.Requests.Add(new Request
+        {
+            Id = 77,
+            StudentId = StudentId,
+            TermId = 1,
+            RequestType = "BedTransfer",
+            Status = "Completed",
+            CreatedTime = DateTime.Now.AddDays(-2)
+        });
+        context.Handovers.Add(new Handover
+        {
+            Id = 300,
+            HandoverType = "BedTransfer",
+            RequestId = 77,
+            RoomId = 1,
+            GuardId = 5,
+            Status = "Completed",
+            TotalCompensation = 120_000m
+        });
+        context.Invoices.Add(CreateInvoice(
+            1,
+            StudentId,
+            "INV-CMP-77",
+            InvoiceTypes.Compensation,
+            120_000m,
+            InvoiceStatuses.Unpaid,
+            DateOnly.FromDateTime(DateTime.Now).AddDays(7),
+            handoverId: 300));
+        await context.SaveChangesAsync();
+
+        var sut = CreateSut(context);
+        var created = await sut.CreateTransactionAsync(StudentId, new CreatePaymentTransactionDto { InvoiceIds = new List<int> { 1 } });
+
+        // Act
+        var receipt = await sut.MockConfirmAsync(StudentId, created.Id, null);
+
+        // Assert
+        receipt.SideEffectNotes.Should().Contain(n => n.Contains("#77") && n.Contains("bồi thường"));
+        var log = await context.RequestLogs.FirstOrDefaultAsync(l => l.RequestId == 77);
+        log.Should().NotBeNull();
+        log!.Note.Should().Contain("bồi thường thiết bị chuyển giường");
+    }
+
+    #endregion
 }

@@ -15,7 +15,7 @@ import { AnnouncementsPage } from './pages/Announcements/AnnouncementsPage';
 import { NotificationsPage } from './pages/Notifications/NotificationsPage';
 import { ImpersonationBanner } from './components/ImpersonationBanner';
 
-import { newsApi, type NotificationItem } from './services/api';
+import { newsApi, navigateToStudentPayment, type NotificationItem } from './services/api';
 import type { NewsItem } from './types/management';
 import {
   isManagerTab,
@@ -199,6 +199,12 @@ export function App() {
       setCurrentView('management');
       setPortalTabs((prev) => ({ ...prev, management: target.tabId }));
     } else {
+      if (target.tabId === 'payment') {
+        const refInvoiceId = Number(item.referenceId || 0);
+        if (refInvoiceId > 0) {
+          navigateToStudentPayment({ invoiceId: refInvoiceId });
+        }
+      }
       setCurrentView('student');
       setPortalTabs((prev) => ({ ...prev, student: target.tabId }));
     }

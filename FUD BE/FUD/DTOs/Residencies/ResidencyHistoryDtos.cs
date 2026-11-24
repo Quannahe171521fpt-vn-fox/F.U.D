@@ -65,6 +65,7 @@ namespace FUD.DTOs.Residencies
         public DateOnly? TransferDate { get; set; }
         public decimal? PriceDifference { get; set; }
         public DateTime CreatedTime { get; set; }
+        public bool HasUnpaidInvoice { get; set; }
     }
 
     public class ResidencyCheckoutRecordDto
