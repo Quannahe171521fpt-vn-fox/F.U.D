@@ -48,6 +48,50 @@ public class BedServiceTests
         return (bed, room, block, dorm);
     }
 
+    private static Room CreateSampleRoomWithBeds(
+        int roomId = 10,
+        string roomNumber = "101L",
+        int bedCapacity = 4,
+        string? roomTypeName = null,
+        params string[] bedStatuses)
+    {
+        var dorm = new Dorm { Id = 1, Name = "Dorm A", Code = "DA", Status = "Active" };
+        var block = new Block { Id = 1, DormId = 1, Name = "Block 101", Code = "B101", GenderType = "Male", Status = "Active", Dorm = dorm };
+        var roomType = new RoomType
+        {
+            Id = bedCapacity,
+            Name = roomTypeName ?? $"Phòng tiêu chuẩn {bedCapacity} giường",
+            BedCapacity = bedCapacity
+        };
+
+        var room = new Room
+        {
+            Id = roomId,
+            BlockId = 1,
+            RoomTypeId = roomType.Id,
+            RoomNumber = roomNumber,
+            FloorLevel = 1,
+            Status = "Active",
+            Block = block,
+            RoomType = roomType,
+            Beds = new List<Bed>()
+        };
+
+        for (int i = 0; i < bedStatuses.Length; i++)
+        {
+            room.Beds.Add(new Bed
+            {
+                Id = i + 1,
+                RoomId = roomId,
+                BedCode = $"{roomNumber}-B{i + 1}",
+                Status = bedStatuses[i],
+                Room = room
+            });
+        }
+
+        return room;
+    }
+
     #endregion
 
     #region GetAllAsync Tests
@@ -178,9 +222,10 @@ public class BedServiceTests
             BedCode = "101L-B3",
             PositionInRoom = "Tầng 2 bên phải"
         };
+        var room = CreateSampleRoomWithBeds(10, "101L", 4, null, "Free", "Occupied");
         var (createdBed, _, _, _) = CreateSampleBedEntity(3, 10, dto.BedCode, dto.PositionInRoom!, "Free");
 
-        _bedRepoMock.Setup(r => r.RoomExistsAsync(dto.RoomId)).ReturnsAsync(true);
+        _bedRepoMock.Setup(r => r.GetRoomWithTypeAndBedsAsync(dto.RoomId)).ReturnsAsync(room);
         _bedRepoMock.Setup(r => r.IsBedCodeUniqueAsync(dto.RoomId, dto.BedCode, null)).ReturnsAsync(true);
         _bedRepoMock.Setup(r => r.CreateAsync(It.IsAny<Bed>())).ReturnsAsync(createdBed);
         _bedRepoMock.Setup(r => r.GetByIdAsync(createdBed.Id)).ReturnsAsync(createdBed);
@@ -191,7 +236,7 @@ public class BedServiceTests
         var result = await sut.CreateAsync(dto);
 
         // Assert
-        _bedRepoMock.Verify(r => r.RoomExistsAsync(dto.RoomId), Times.Once);
+        _bedRepoMock.Verify(r => r.GetRoomWithTypeAndBedsAsync(dto.RoomId), Times.Once);
         _bedRepoMock.Verify(r => r.IsBedCodeUniqueAsync(dto.RoomId, dto.BedCode, null), Times.Once);
         _bedRepoMock.Verify(r => r.CreateAsync(It.Is<Bed>(b =>
             b.RoomId == dto.RoomId &&
@@ -213,7 +258,7 @@ public class BedServiceTests
     {
         // Arrange
         var dto = new CreateBedDto { RoomId = 999, BedCode = "999-B1" };
-        _bedRepoMock.Setup(r => r.RoomExistsAsync(dto.RoomId)).ReturnsAsync(false);
+        _bedRepoMock.Setup(r => r.GetRoomWithTypeAndBedsAsync(dto.RoomId)).ReturnsAsync((Room?)null);
 
         var sut = CreateSut();
 
@@ -234,7 +279,8 @@ public class BedServiceTests
     {
         // Arrange
         var dto = new CreateBedDto { RoomId = 10, BedCode = "101L-B1" };
-        _bedRepoMock.Setup(r => r.RoomExistsAsync(dto.RoomId)).ReturnsAsync(true);
+        var room = CreateSampleRoomWithBeds(10, "101L", 4, null, "Free");
+        _bedRepoMock.Setup(r => r.GetRoomWithTypeAndBedsAsync(dto.RoomId)).ReturnsAsync(room);
         _bedRepoMock.Setup(r => r.IsBedCodeUniqueAsync(dto.RoomId, dto.BedCode, null)).ReturnsAsync(false);
 
         var sut = CreateSut();
@@ -246,6 +292,117 @@ public class BedServiceTests
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage($"Mã giường '{dto.BedCode}' đã tồn tại trong phòng này.");
         _bedRepoMock.Verify(r => r.CreateAsync(It.IsAny<Bed>()), Times.Never);
+    }
+
+    /// <summary>
+    /// UTC015 - Abnormal: Phòng loại 4 giường đã đủ 4 giường -> Không cho thêm và ném InvalidOperationException.
+    /// </summary>
+    [Fact]
+    public async Task UTC015_CreateAsync_WhenRoomType4IsFull_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        var dto = new CreateBedDto { RoomId = 10, BedCode = "101L-B5" };
+        var fullRoom = CreateSampleRoomWithBeds(
+            10,
+            "101L",
+            4,
+            "Phòng tiêu chuẩn 4 giường",
+            "Free", "Occupied", "Holding", "Maintenance");
+
+        _bedRepoMock.Setup(r => r.GetRoomWithTypeAndBedsAsync(dto.RoomId)).ReturnsAsync(fullRoom);
+
+        var sut = CreateSut();
+
+        // Act
+        Func<Task> act = async () => await sut.CreateAsync(dto);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("Phòng 101L (Phòng tiêu chuẩn 4 giường) đã đủ 4/4 giường, không thể thêm giường mới.");
+        _bedRepoMock.Verify(r => r.IsBedCodeUniqueAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>()), Times.Never);
+        _bedRepoMock.Verify(r => r.CreateAsync(It.IsAny<Bed>()), Times.Never);
+    }
+
+    /// <summary>
+    /// UTC016 - Abnormal: Phòng loại 6 giường đã đủ 6 giường -> Không cho thêm và ném InvalidOperationException.
+    /// </summary>
+    [Fact]
+    public async Task UTC016_CreateAsync_WhenRoomType6IsFull_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        var dto = new CreateBedDto { RoomId = 20, BedCode = "202L-B7" };
+        var fullRoom = CreateSampleRoomWithBeds(
+            20,
+            "202L",
+            6,
+            "Phòng tiêu chuẩn 6 giường",
+            "Free", "Free", "Occupied", "Holding", "Pending Transfer", "Maintenance");
+
+        _bedRepoMock.Setup(r => r.GetRoomWithTypeAndBedsAsync(dto.RoomId)).ReturnsAsync(fullRoom);
+
+        var sut = CreateSut();
+
+        // Act
+        Func<Task> act = async () => await sut.CreateAsync(dto);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("Phòng 202L (Phòng tiêu chuẩn 6 giường) đã đủ 6/6 giường, không thể thêm giường mới.");
+        _bedRepoMock.Verify(r => r.CreateAsync(It.IsAny<Bed>()), Times.Never);
+    }
+
+    /// <summary>
+    /// UTC017 - Boundary: Phòng loại 4 giường mới có 3 giường -> Cho phép thêm giường thứ 4.
+    /// </summary>
+    [Fact]
+    public async Task UTC017_CreateAsync_WhenRoomType4Has3Beds_AllowsAdding4thBed()
+    {
+        // Arrange
+        var dto = new CreateBedDto { RoomId = 10, BedCode = "101L-B4", PositionInRoom = "Trên phải" };
+        var roomWith3Beds = CreateSampleRoomWithBeds(10, "101L", 4, null, "Free", "Occupied", "Free");
+        var (createdBed, _, _, _) = CreateSampleBedEntity(4, 10, dto.BedCode, dto.PositionInRoom!, "Free");
+
+        _bedRepoMock.Setup(r => r.GetRoomWithTypeAndBedsAsync(dto.RoomId)).ReturnsAsync(roomWith3Beds);
+        _bedRepoMock.Setup(r => r.IsBedCodeUniqueAsync(dto.RoomId, dto.BedCode, null)).ReturnsAsync(true);
+        _bedRepoMock.Setup(r => r.CreateAsync(It.IsAny<Bed>())).ReturnsAsync(createdBed);
+        _bedRepoMock.Setup(r => r.GetByIdAsync(createdBed.Id)).ReturnsAsync(createdBed);
+
+        var sut = CreateSut();
+
+        // Act
+        var result = await sut.CreateAsync(dto);
+
+        // Assert
+        result.Should().NotBeNull();
+        result.BedCode.Should().Be("101L-B4");
+        _bedRepoMock.Verify(r => r.CreateAsync(It.IsAny<Bed>()), Times.Once);
+    }
+
+    /// <summary>
+    /// UTC018 - Boundary: Phòng loại 6 giường mới có 5 giường -> Cho phép thêm giường thứ 6.
+    /// </summary>
+    [Fact]
+    public async Task UTC018_CreateAsync_WhenRoomType6Has5Beds_AllowsAdding6thBed()
+    {
+        // Arrange
+        var dto = new CreateBedDto { RoomId = 20, BedCode = "202L-B6", PositionInRoom = "Trên giữa" };
+        var roomWith5Beds = CreateSampleRoomWithBeds(20, "202L", 6, null, "Free", "Free", "Occupied", "Free", "Maintenance");
+        var (createdBed, _, _, _) = CreateSampleBedEntity(6, 20, dto.BedCode, dto.PositionInRoom!, "Free");
+
+        _bedRepoMock.Setup(r => r.GetRoomWithTypeAndBedsAsync(dto.RoomId)).ReturnsAsync(roomWith5Beds);
+        _bedRepoMock.Setup(r => r.IsBedCodeUniqueAsync(dto.RoomId, dto.BedCode, null)).ReturnsAsync(true);
+        _bedRepoMock.Setup(r => r.CreateAsync(It.IsAny<Bed>())).ReturnsAsync(createdBed);
+        _bedRepoMock.Setup(r => r.GetByIdAsync(createdBed.Id)).ReturnsAsync(createdBed);
+
+        var sut = CreateSut();
+
+        // Act
+        var result = await sut.CreateAsync(dto);
+
+        // Assert
+        result.Should().NotBeNull();
+        result.BedCode.Should().Be("202L-B6");
+        _bedRepoMock.Verify(r => r.CreateAsync(It.IsAny<Bed>()), Times.Once);
     }
 
     #endregion

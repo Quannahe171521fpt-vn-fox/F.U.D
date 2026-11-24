@@ -48,12 +48,28 @@ export const BedManagement: React.FC = () => {
   const [statusError, setStatusError] = useState<string | null>(null);
 
   // Load rooms lookup for dropdown
-  const loadRoomsLookup = useCallback(async () => {
+  const loadRoomsLookup = useCallback(async (): Promise<RoomDto[]> => {
     try {
-      const res = await roomApi.getAll({ pageSize: 500 });
-      setRooms(res.items || []);
+      const pageSizeLookup = 1000;
+      const firstPage = await roomApi.getAll({ page: 1, pageSize: pageSizeLookup });
+      let allRooms = firstPage.items || [];
+      const total = firstPage.totalCount || allRooms.length;
+
+      if (allRooms.length < total) {
+        const totalPages = Math.ceil(total / pageSizeLookup);
+        const restPages = await Promise.all(
+          Array.from({ length: totalPages - 1 }, (_, idx) =>
+            roomApi.getAll({ page: idx + 2, pageSize: pageSizeLookup })
+          )
+        );
+        allRooms = allRooms.concat(...restPages.map((p) => p.items || []));
+      }
+
+      setRooms(allRooms);
+      return allRooms;
     } catch (err: any) {
       console.error('Không thể tải danh sách phòng:', err);
+      return [];
     }
   }, []);
 
@@ -91,19 +107,42 @@ export const BedManagement: React.FC = () => {
     setTimeout(() => setSuccessMsg(null), 3500);
   };
 
+  const selectedRoom = !editingBed
+    ? rooms.find((r) => r.id === formData.roomId)
+    : undefined;
+  const isSelectedRoomFull = Boolean(
+    selectedRoom &&
+      selectedRoom.bedCapacity > 0 &&
+      selectedRoom.totalBeds >= selectedRoom.bedCapacity
+  );
+  const roomFullMessage =
+    isSelectedRoomFull && selectedRoom
+      ? `Phòng ${selectedRoom.roomNumber} (${
+          selectedRoom.roomTypeName || `loại ${selectedRoom.bedCapacity} giường`
+        }) đã đủ ${selectedRoom.totalBeds}/${selectedRoom.bedCapacity} giường, không thể thêm giường mới.`
+      : null;
+  const modalError = (!editingBed ? roomFullMessage : null) || formError;
+
   // Open Create
   const openCreate = () => {
-    if (rooms.length === 0) {
-      loadRoomsLookup();
-    }
     setEditingBed(null);
+    const initialRoomId =
+      filterRoomId !== 'All' ? filterRoomId : rooms[0]?.id || 0;
     setFormData({
-      roomId: rooms[0]?.id || 0,
+      roomId: initialRoomId,
       bedCode: '',
       positionInRoom: '',
     });
     setFormError(null);
     setShowModal(true);
+
+    void loadRoomsLookup().then((loadedRooms) => {
+      if (initialRoomId === 0 && loadedRooms.length > 0) {
+        setFormData((prev) =>
+          prev.roomId === 0 ? { ...prev, roomId: loadedRooms[0].id } : prev
+        );
+      }
+    });
   };
 
   // Open Edit
@@ -120,6 +159,10 @@ export const BedManagement: React.FC = () => {
 
   // Save handler (Create or Update)
   const handleSave = async () => {
+    if (!editingBed && isSelectedRoomFull && roomFullMessage) {
+      setFormError(roomFullMessage);
+      return;
+    }
     if (!formData.bedCode.trim()) {
       setFormError('Mã giường là bắt buộc');
       return;
@@ -147,9 +190,12 @@ export const BedManagement: React.FC = () => {
         showNotification(`Thêm mới giường ${formData.bedCode} thành công`);
       }
       setShowModal(false);
-      await loadBeds();
+      await Promise.all([loadBeds(), loadRoomsLookup()]);
     } catch (err: any) {
       setFormError(err.message || 'Lỗi khi lưu thông tin giường');
+      if (!editingBed) {
+        void loadRoomsLookup();
+      }
     } finally {
       setIsSaving(false);
     }
@@ -429,37 +475,55 @@ export const BedManagement: React.FC = () => {
             </div>
 
             <div className="facilities-modal-body">
-              {formError && (
-                <div className="facilities-modal-error" style={{ marginBottom: '14px' }}>
-                  {formError}
+              {modalError && (
+                <div className="facilities-form-error">
+                  {modalError}
                 </div>
               )}
 
               {/* Chỉ cho chọn phòng khi thêm mới */}
               {!editingBed && (
                 <div className="facilities-form-group">
-                  <label className="facilities-label">
-                    Chọn Phòng <span style={{ color: '#ef4444' }}>*</span>
+                  <label className="facilities-form-label">
+                    Chọn Phòng <span className="required">*</span>
                   </label>
                   <select
-                    className="facilities-select"
-                    style={{ width: '100%' }}
+                    className="facilities-form-input"
                     value={formData.roomId}
-                    onChange={(e) =>
-                      setFormData({ ...formData, roomId: Number(e.target.value) })
-                    }
+                    onChange={(e) => {
+                      setFormData({ ...formData, roomId: Number(e.target.value) });
+                      setFormError(null);
+                    }}
                   >
                     <option value={0} disabled>
                       -- Chọn phòng --
                     </option>
-                    {rooms.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        Phòng {r.roomNumber} ({r.blockName}) - Loại {r.roomTypeName || `${r.bedCapacity} chỗ`}
-                      </option>
-                    ))}
+                    {rooms.map((r) => {
+                      const isFull = r.bedCapacity > 0 && r.totalBeds >= r.bedCapacity;
+                      return (
+                        <option key={r.id} value={r.id}>
+                          Phòng {r.roomNumber} ({r.blockName}) -{' '}
+                          {r.roomTypeName || `Loại ${r.bedCapacity} chỗ`} ({r.totalBeds}/
+                          {r.bedCapacity} giường{isFull ? ' - Đã đủ' : ''})
+                        </option>
+                      );
+                    })}
                   </select>
+                  {selectedRoom && selectedRoom.bedCapacity > 0 && (
+                    <span
+                      className="facilities-form-hint"
+                      style={{
+                        color: isSelectedRoomFull ? '#dc2626' : '#059669',
+                        fontWeight: isSelectedRoomFull ? 600 : 500,
+                      }}
+                    >
+                      {isSelectedRoomFull
+                        ? `Phòng này đã đủ ${selectedRoom.totalBeds}/${selectedRoom.bedCapacity} giường — vui lòng chọn phòng khác còn chỗ.`
+                        : `Phòng hiện có ${selectedRoom.totalBeds}/${selectedRoom.bedCapacity} giường (còn thêm được ${selectedRoom.bedCapacity - selectedRoom.totalBeds} giường).`}
+                    </span>
+                  )}
                   {rooms.length === 0 && (
-                    <span className="facilities-help-text" style={{ color: '#ef4444', marginTop: '6px', display: 'block' }}>
+                    <span className="facilities-form-hint" style={{ color: '#ef4444' }}>
                       ⚠️ Chưa có dữ liệu phòng hoặc không tải được danh sách phòng. Vui lòng kiểm tra lại kết nối hoặc thêm phòng tại trang Quản lý phòng.
                     </span>
                   )}
@@ -468,40 +532,39 @@ export const BedManagement: React.FC = () => {
 
               {editingBed && (
                 <div className="facilities-form-group">
-                  <label className="facilities-label">Phòng hiện tại</label>
+                  <label className="facilities-form-label">Phòng hiện tại</label>
                   <input
                     type="text"
-                    className="facilities-input"
+                    className="facilities-form-input"
                     value={`${editingBed.roomNumber} (${editingBed.blockName})`}
                     disabled
-                    style={{ backgroundColor: '#f8fafc', color: '#64748b' }}
                   />
                 </div>
               )}
 
               <div className="facilities-form-group">
-                <label className="facilities-label">
-                  Mã giường <span style={{ color: '#ef4444' }}>*</span>
+                <label className="facilities-form-label">
+                  Mã giường <span className="required">*</span>
                 </label>
                 <input
                   type="text"
-                  className="facilities-input"
+                  className="facilities-form-input"
                   placeholder="Ví dụ: 101L-B1, 202R-B2..."
                   value={formData.bedCode}
                   onChange={(e) =>
                     setFormData({ ...formData, bedCode: e.target.value })
                   }
                 />
-                <span className="facilities-help-text">
+                <span className="facilities-form-hint">
                   Mã giường là duy nhất trong từng phòng và sẽ hiển thị cho sinh viên khi đăng ký.
                 </span>
               </div>
 
               <div className="facilities-form-group">
-                <label className="facilities-label">Vị trí trong phòng (tùy chọn)</label>
+                <label className="facilities-form-label">Vị trí trong phòng (tùy chọn)</label>
                 <input
                   type="text"
-                  className="facilities-input"
+                  className="facilities-form-input"
                   placeholder="Ví dụ: Tầng trên gần cửa sổ, Tầng dưới cửa ra vào..."
                   value={formData.positionInRoom}
                   onChange={(e) =>
@@ -539,7 +602,8 @@ export const BedManagement: React.FC = () => {
                 type="button"
                 className="btn-fud-primary"
                 onClick={handleSave}
-                disabled={isSaving}
+                disabled={isSaving || (!editingBed && isSelectedRoomFull)}
+                title={!editingBed && isSelectedRoomFull ? roomFullMessage || undefined : undefined}
               >
                 {isSaving ? 'Đang lưu...' : editingBed ? 'Lưu thay đổi' : 'Tạo giường'}
               </button>
@@ -573,7 +637,7 @@ export const BedManagement: React.FC = () => {
 
             <div className="facilities-modal-body">
               {statusError && (
-                <div className="facilities-modal-error" style={{ marginBottom: '12px' }}>
+                <div className="facilities-form-error">
                   {statusError}
                 </div>
               )}
