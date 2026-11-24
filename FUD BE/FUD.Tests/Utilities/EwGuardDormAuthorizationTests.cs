@@ -353,4 +353,81 @@ public class EwGuardDormAuthorizationTests
         // Assert
         _ewRepoMock.Verify(r => r.GetGroupedUsagesAsync(null, null, null, null, null, null, 1), Times.Once);
     }
+
+    [Fact]
+    public async Task GetBlockFormData_WhenBlockCodeExistsInMultipleDorms_ShouldReturnRoomsOfGuardDorm()
+    {
+        // Arrange
+        int guardUserId = 20;
+        int dormAId = 1;
+        int dormBId = 2;
+
+        _ewRepoMock.Setup(r => r.GetBillingPeriodByIdAsync(3))
+            .ReturnsAsync(new BillingPeriod { Id = 3, TargetMonth = 11, TargetYear = 2026 });
+
+        var dormA = new Dorm { Id = dormAId, Name = "Ký túc xá Dom A", Code = "A" };
+        var dormB = new Dorm { Id = dormBId, Name = "Ký túc xá Dom B", Code = "B" };
+
+        var guardB = new Guard { UserId = guardUserId, DormId = dormBId, Dorm = dormB };
+        _ewRepoMock.Setup(r => r.GetGuardByUserIdAsync(guardUserId)).ReturnsAsync(guardB);
+
+        var roomsWithSameBlockCode = new List<Room>
+        {
+            new() { Id = 1, RoomNumber = "101L", Block = new Block { Id = 1, Code = "101", DormId = dormAId, Dorm = dormA } },
+            new() { Id = 2, RoomNumber = "101R", Block = new Block { Id = 1, Code = "101", DormId = dormAId, Dorm = dormA } },
+            new() { Id = 11, RoomNumber = "101L", Block = new Block { Id = 5, Code = "101", DormId = dormBId, Dorm = dormB } },
+            new() { Id = 12, RoomNumber = "101R", Block = new Block { Id = 5, Code = "101", DormId = dormBId, Dorm = dormB } }
+        };
+        _ewRepoMock.Setup(r => r.GetRoomsByBlockCodeAsync("101")).ReturnsAsync(roomsWithSameBlockCode);
+
+        // Act
+        var result = await _sut.GetBlockFormDataAsync("101", 3, guardUserId, isManager: false);
+
+        // Assert
+        result.Should().NotBeNull();
+        result.ElectricityLeft.Should().NotBeNull();
+        result.ElectricityLeft!.RoomId.Should().Be(11);
+        result.ElectricityRight.Should().NotBeNull();
+        result.ElectricityRight!.RoomId.Should().Be(12);
+    }
+
+    [Fact]
+    public async Task ConfirmManualReading_WhenBlockCodeExistsInMultipleDorms_ShouldSaveToGuardDormRoomsOnly()
+    {
+        // Arrange
+        int guardUserId = 20;
+        int dormAId = 1;
+        int dormBId = 2;
+
+        var period = new BillingPeriod { Id = 3, Status = "Open", TargetMonth = 11, TargetYear = 2026 };
+        _ewRepoMock.Setup(r => r.GetBillingPeriodByIdAsync(3)).ReturnsAsync(period);
+
+        var dormA = new Dorm { Id = dormAId, Name = "Ký túc xá Dom A", Code = "A" };
+        var dormB = new Dorm { Id = dormBId, Name = "Ký túc xá Dom B", Code = "B" };
+
+        var guardB = new Guard { UserId = guardUserId, DormId = dormBId, Dorm = dormB };
+        _ewRepoMock.Setup(r => r.GetGuardByUserIdAsync(guardUserId)).ReturnsAsync(guardB);
+
+        var roomsWithSameBlockCode = new List<Room>
+        {
+            new() { Id = 1, RoomNumber = "101L", Block = new Block { Id = 1, Code = "101", DormId = dormAId, Dorm = dormA } },
+            new() { Id = 11, RoomNumber = "101L", Block = new Block { Id = 5, Code = "101", DormId = dormBId, Dorm = dormB } }
+        };
+        _ewRepoMock.Setup(r => r.GetRoomsByBlockCodeAsync("101")).ReturnsAsync(roomsWithSameBlockCode);
+
+        var request = new ManualConfirmRequestDto
+        {
+            BillingPeriodId = 3,
+            BlockCode = "101",
+            ElectricityLeftNewValue = 200
+        };
+
+        // Act
+        var result = await _sut.ConfirmManualReadingAsync(guardUserId, request, isManager: false);
+
+        // Assert
+        result.Saved.Should().Be(1);
+        _ewRepoMock.Verify(r => r.AddMeterReadingAsync(It.Is<MeterReading>(m => m.RoomId == 11 && m.RecordedById == guardUserId)), Times.Once);
+        _ewRepoMock.Verify(r => r.AddMeterReadingAsync(It.Is<MeterReading>(m => m.RoomId == 1)), Times.Never);
+    }
 }

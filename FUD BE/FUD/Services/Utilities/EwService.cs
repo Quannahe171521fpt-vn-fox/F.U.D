@@ -226,9 +226,14 @@ namespace FUD.Services.Utilities
                 if (guard == null)
                     throw new UnauthorizedAccessException("Không tìm thấy thông tin phân công bảo vệ.");
 
-                var roomDifferentDorm = rooms.FirstOrDefault(r => r.Block.DormId != guard.DormId);
-                if (roomDifferentDorm != null)
+                var guardDormRooms = rooms.Where(r => r.Block.DormId == guard.DormId).ToList();
+                if (guardDormRooms.Any())
                 {
+                    rooms = guardDormRooms;
+                }
+                else
+                {
+                    var roomDifferentDorm = rooms.First();
                     var blockDormName = roomDifferentDorm.Block.Dorm?.Name ?? roomDifferentDorm.Block.DormId.ToString();
                     var guardDormName = guard.Dorm?.Name ?? guard.DormId.ToString();
                     throw new UnauthorizedAccessException($"Bạn không có quyền truy cập toà/phòng '{blockCode}' thuộc KTX {blockDormName}. Bạn chỉ được quản lý KTX {guardDormName}.");
@@ -322,9 +327,14 @@ namespace FUD.Services.Utilities
                 if (guard == null)
                     throw new UnauthorizedAccessException("Không tìm thấy thông tin phân công bảo vệ.");
 
-                var roomDifferentDorm = rooms.FirstOrDefault(r => r.Block.DormId != guard.DormId);
-                if (roomDifferentDorm != null)
+                var guardDormRooms = rooms.Where(r => r.Block.DormId == guard.DormId).ToList();
+                if (guardDormRooms.Any())
                 {
+                    rooms = guardDormRooms;
+                }
+                else
+                {
+                    var roomDifferentDorm = rooms.First();
                     var blockDormName = roomDifferentDorm.Block.Dorm?.Name ?? roomDifferentDorm.Block.DormId.ToString();
                     var guardDormName = guard.Dorm?.Name ?? guard.DormId.ToString();
                     throw new UnauthorizedAccessException($"Bạn không có quyền xem trước chỉ số cho toà/phòng '{request.BlockCode}' thuộc KTX {blockDormName}. Bạn chỉ được quản lý KTX {guardDormName}.");
@@ -390,9 +400,14 @@ namespace FUD.Services.Utilities
                 if (guard == null)
                     throw new UnauthorizedAccessException("Tài khoản không phải bảo vệ hợp lệ hoặc chưa được gán Ký túc xá.");
 
-                var roomDifferentDorm = rooms.FirstOrDefault(r => r.Block.DormId != guard.DormId);
-                if (roomDifferentDorm != null)
+                var guardDormRooms = rooms.Where(r => r.Block.DormId == guard.DormId).ToList();
+                if (guardDormRooms.Any())
                 {
+                    rooms = guardDormRooms;
+                }
+                else
+                {
+                    var roomDifferentDorm = rooms.First();
                     var blockDormName = roomDifferentDorm.Block.Dorm?.Name ?? roomDifferentDorm.Block.DormId.ToString();
                     var guardDormName = guard.Dorm?.Name ?? guard.DormId.ToString();
                     throw new UnauthorizedAccessException($"Bảo vệ không có quyền ghi nhận chỉ số cho toà/phòng '{request.BlockCode}' thuộc KTX {blockDormName}. Bạn chỉ được quản lý KTX {guardDormName}.");
@@ -720,6 +735,15 @@ namespace FUD.Services.Utilities
 
                 if (guardDormId.HasValue)
                 {
+                    if (string.IsNullOrWhiteSpace(row.Dorm))
+                    {
+                        var guardDormRooms = rooms.Where(r => r.Block.DormId == guardDormId.Value).ToList();
+                        if (guardDormRooms.Any())
+                        {
+                            rooms = guardDormRooms;
+                        }
+                    }
+
                     var roomDifferentDorm = rooms.FirstOrDefault(r => r.Block.DormId != guardDormId.Value);
                     if (roomDifferentDorm != null)
                     {
@@ -884,6 +908,15 @@ namespace FUD.Services.Utilities
                         if (roomsByDorm.Any())
                         {
                             rowRooms = roomsByDorm;
+                        }
+                    }
+
+                    if (string.IsNullOrWhiteSpace(row.Dorm))
+                    {
+                        var guardDormRooms = rowRooms.Where(r => r.Block.DormId == guard.DormId).ToList();
+                        if (guardDormRooms.Any())
+                        {
+                            rowRooms = guardDormRooms;
                         }
                     }
 
