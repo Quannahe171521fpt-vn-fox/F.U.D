@@ -272,48 +272,11 @@ namespace FUD.Services.Checkin
                     throw new InvalidOperationException("Sinh viên này đã được lập biên bản bàn giao Check-in trước đó.");
                 }
 
-                // 3. Cập nhật trạng thái Residency, Bed và Request
-                residency.Status = "Active";
-                residency.CheckInDate ??= today;
-
-                var bed = residency.Bed ?? await _context.Beds.FirstOrDefaultAsync(b => b.Id == residency.BedId);
-                if (bed == null)
-                {
-                    throw new ArgumentException("Không tìm thấy thông tin giường bàn giao.");
-                }
-                bed.Status = "Occupied";
-                var targetRoomId = bed.RoomId;
-
-                var reqId = dto.BookingRequestId ?? residency.SourceBookingId;
-                if (reqId.HasValue)
-                {
-                    var bookingReq = await _context.BookingRequests.FirstOrDefaultAsync(b => b.Id == reqId.Value);
-                    if (bookingReq != null && bookingReq.Status != "Completed")
-                    {
-                        bookingReq.Status = "Completed";
-                        bookingReq.ProcessedTime = now;
-                    }
-                    else
-                    {
-                        var req = await _context.Requests.FirstOrDefaultAsync(r => r.Id == reqId.Value);
-                        if (req != null && req.Status != "Completed")
-                        {
-                            var oldStatus = req.Status;
-                            req.Status = "Completed";
-                            req.ProcessedTime = now;
-
-                            _context.RequestLogs.Add(new RequestLog
-                            {
-                                RequestId = req.Id,
-                                FromStatus = oldStatus,
-                                ToStatus = "Completed",
-                                Note = "Bảo vệ đã hoàn tất lập biên bản bàn giao nhận phòng (Check-in).",
-                                ChangeTime = now,
-                                ChangedById = guardUserId
-                            });
-                        }
-                    }
-                }
+                // 3. Nếu thiết bị không hư hỏng/thiếu (damaged or missing? = No) -> chuyển sang Pending Acceptance để Sinh viên ký xác nhận (sign to confirm).
+                //    Nếu có hư hỏng/thiếu (damaged or missing? = Yes) -> để ở trạng thái Draft chờ Manager xử lý sự cố (troubleshooting).
+                var targetRoomId = (residency.Bed ?? await _context.Beds.FirstOrDefaultAsync(b => b.Id == residency.BedId))?.RoomId
+                    ?? throw new ArgumentException("Không tìm thấy thông tin giường bàn giao.");
+                var bed = residency.Bed ?? await _context.Beds.FirstAsync(b => b.Id == residency.BedId);
 
                 // 4. Đóng gói thông tin mục 17 (Vật dụng khác, Số điện L/R, Số nước L/R, Chức danh) vào BelongingsNote
                 var meta = new CheckinMetaNote
@@ -380,6 +343,11 @@ namespace FUD.Services.Checkin
                     });
                 }
 
+                // Theo sơ đồ Check-in:
+                // - Nếu damaged or missing? == Yes -> Status = "Draft" (chờ Manager troubleshooting rồi mới chuyển cho Student sign to confirm)
+                // - Nếu damaged or missing? == No  -> Status = "Pending Acceptance" (chuyển thẳng sang Student sign to confirm)
+                var initialStatus = hasDamageOrMissing ? "Draft" : "Pending Acceptance";
+
                 var handover = new Handover
                 {
                     HandoverType = "Checkin",
@@ -391,11 +359,11 @@ namespace FUD.Services.Checkin
                     BelongingsNote = metaJson,
                     HasDamageOrMissingFlag = hasDamageOrMissing,
                     TotalCompensation = 0,
-                    Status = "Completed",
-                    StudentAcceptedFlag = true,
-                    StudentAcceptedTime = now,
+                    Status = initialStatus,
+                    StudentAcceptedFlag = false,
+                    StudentAcceptedTime = null,
                     CreatedTime = now,
-                    CompletedTime = now,
+                    CompletedTime = null,
                     HandoverItems = handoverItems
                 };
 
@@ -404,11 +372,13 @@ namespace FUD.Services.Checkin
                 _context.AuditLogs.Add(new AuditLog
                 {
                     UserId = guardUserId,
-                    ActionType = "CHECKIN_HANDOVER",
+                    ActionType = "CHECKIN_DRAW_UP_RECORD",
                     TargetEntity = "Handover",
                     TargetId = residency.Id.ToString(),
                     OldValue = null,
-                    NewValue = $"Hoàn tất Check-in cho SV ID={dto.StudentId} tại Phòng ID={targetRoomId}, Giường ID={residency.BedId}",
+                    NewValue = hasDamageOrMissing
+                        ? $"Lập biên bản Check-in cho SV ID={dto.StudentId} (Có thiết bị hỏng/thiếu -> Chờ Manager xử lý sự cố)"
+                        : $"Lập biên bản Check-in cho SV ID={dto.StudentId} (Thiết bị đầy đủ -> Chờ Sinh viên ký xác nhận)",
                     CreatedAt = now
                 });
 
@@ -419,12 +389,24 @@ namespace FUD.Services.Checkin
 
                 if (_inAppNotificationService != null)
                 {
-                    await _inAppNotificationService.NotifyUserAsync(
-                        dto.StudentId,
-                        "Hoàn tất bàn giao nhận phòng (Check-in)",
-                        $"Biên bản bàn giao phòng {saved?.RoomNumber} - Giường {bed.BedCode} đã được Bảo vệ xác nhận hoàn tất.",
-                        "Checkin",
-                        handover.Id.ToString());
+                    if (hasDamageOrMissing)
+                    {
+                        await _inAppNotificationService.NotifyUserAsync(
+                            dto.StudentId,
+                            "Biên bản Check-in đang chờ Quản lý xử lý thiết bị",
+                            $"Biên bản phòng {saved?.RoomNumber} - Giường {bed.BedCode} có ghi nhận thiết bị hư hỏng/thiếu, đang chờ Ban Quản lý khắc phục (troubleshooting) trước khi bạn ký xác nhận.",
+                            "Checkin",
+                            handover.Id.ToString());
+                    }
+                    else
+                    {
+                        await _inAppNotificationService.NotifyUserAsync(
+                            dto.StudentId,
+                            "Biên bản Check-in chờ bạn ký xác nhận",
+                            $"Bảo vệ đã lập biên bản bàn giao phòng {saved?.RoomNumber} - Giường {bed.BedCode}. Vui lòng mở mục Biên bản nhận phòng để kiểm tra và ký xác nhận (Sign to confirm).",
+                            "Checkin",
+                            handover.Id.ToString());
+                    }
                 }
 
                 return saved!;
@@ -436,11 +418,300 @@ namespace FUD.Services.Checkin
             }
         }
 
+        private async Task EnsureManagerExistsAsync(int managerUserId)
+        {
+            var exists = await _context.Managers.AnyAsync(m => m.UserId == managerUserId);
+            if (!exists)
+            {
+                _context.Managers.Add(new Manager { UserId = managerUserId });
+                await _context.SaveChangesAsync();
+            }
+        }
+
+        public async Task<CheckinHandoverResponseDto> TroubleshootByManagerAsync(
+            int managerUserId,
+            int handoverId,
+            ManagerTroubleshootCheckinDto? dto = null)
+        {
+            var handover = await _context.Handovers
+                .Include(h => h.Residency)
+                .Include(h => h.Room)
+                .Include(h => h.HandoverItems).ThenInclude(hi => hi.Equipment)
+                .FirstOrDefaultAsync(h => h.Id == handoverId && h.HandoverType == "Checkin");
+
+            if (handover == null)
+            {
+                throw new ArgumentException("Không tìm thấy biên bản bàn giao Check-in.");
+            }
+
+            if (handover.Status != "Draft")
+            {
+                throw new InvalidOperationException("Biên bản này không ở trạng thái chờ Quản lý xử lý sự cố (Draft).");
+            }
+
+            var now = DateTime.UtcNow.AddHours(7);
+            await EnsureManagerExistsAsync(managerUserId);
+
+            // Nếu Manager chọn sửa chữa/thay thế luôn các thiết bị hỏng/thiếu trước khi bàn giao lại cho SV
+            if (dto?.RepairDamagedEquipments != false)
+            {
+                foreach (var item in handover.HandoverItems)
+                {
+                    if (item.ItemCondition != "Good")
+                    {
+                        item.Note = string.IsNullOrWhiteSpace(item.Note)
+                            ? "Quản lý đã khắc phục/thay thế thiết bị"
+                            : $"{item.Note} (QL đã khắc phục)";
+                        item.ItemCondition = "Good";
+                    }
+                    if (item.Equipment != null && item.Equipment.Condition != "Good")
+                    {
+                        item.Equipment.Condition = "Good";
+                    }
+                }
+            }
+
+            handover.Status = "Pending Acceptance";
+            handover.ManagerReviewedById = managerUserId;
+            handover.ManagerReviewedTime = null; // Để dành cho bước cuối "Check record" sau khi lưu biên bản
+            handover.ManagerNote = string.IsNullOrWhiteSpace(dto?.Note)
+                ? "Quản lý đã xử lý sự cố thiết bị (Troubleshooting) và chuyển cho Sinh viên ký xác nhận."
+                : dto!.Note.Trim();
+
+            _context.AuditLogs.Add(new AuditLog
+            {
+                UserId = managerUserId,
+                ActionType = "CHECKIN_TROUBLESHOOTING",
+                TargetEntity = "Handover",
+                TargetId = handover.Id.ToString(),
+                OldValue = "Draft",
+                NewValue = $"Manager xử lý sự cố thiết bị (Troubleshooting): {handover.ManagerNote}",
+                CreatedAt = now
+            });
+
+            await _context.SaveChangesAsync();
+
+            var saved = await GetCheckinByIdAsync(handover.Id);
+            if (_inAppNotificationService != null && handover.Residency != null)
+            {
+                await _inAppNotificationService.NotifyUserAsync(
+                    handover.Residency.StudentId,
+                    "Quản lý đã xử lý thiết bị - Mời bạn ký xác nhận Check-in",
+                    $"Ban Quản lý đã xử lý sự cố thiết bị phòng {saved?.RoomNumber} - Giường {saved?.BedCode}. Vui lòng mở Biên bản nhận phòng để ký xác nhận (Sign to confirm).",
+                    "Checkin",
+                    handover.Id.ToString());
+            }
+
+            return saved!;
+        }
+
+        public async Task<CheckinHandoverResponseDto> StudentSignConfirmAsync(int studentUserId, int handoverId)
+        {
+            var handover = await _context.Handovers
+                .Include(h => h.Residency)
+                .Include(h => h.Room)
+                .FirstOrDefaultAsync(h => h.Id == handoverId && h.HandoverType == "Checkin");
+
+            if (handover == null)
+            {
+                throw new ArgumentException("Không tìm thấy biên bản bàn giao Check-in.");
+            }
+
+            if (handover.Residency == null || handover.Residency.StudentId != studentUserId)
+            {
+                throw new UnauthorizedAccessException("Bạn không có quyền ký xác nhận biên bản của sinh viên khác.");
+            }
+
+            if (handover.Status == "Draft")
+            {
+                throw new InvalidOperationException("Biên bản có thiết bị hư hỏng/thiếu đang chờ Ban Quản lý xử lý sự cố (Troubleshooting).");
+            }
+
+            if (handover.StudentAcceptedFlag)
+            {
+                return (await GetCheckinByIdAsync(handover.Id))!;
+            }
+
+            var now = DateTime.UtcNow.AddHours(7);
+            handover.StudentAcceptedFlag = true;
+            handover.StudentAcceptedTime = now;
+
+            _context.AuditLogs.Add(new AuditLog
+            {
+                UserId = studentUserId,
+                ActionType = "CHECKIN_STUDENT_SIGN",
+                TargetEntity = "Handover",
+                TargetId = handover.Id.ToString(),
+                OldValue = "Pending Student Sign",
+                NewValue = "Sinh viên đã ký xác nhận biên bản Check-in (Sign to confirm)",
+                CreatedAt = now
+            });
+
+            await _context.SaveChangesAsync();
+
+            var saved = await GetCheckinByIdAsync(handover.Id);
+            if (_inAppNotificationService != null)
+            {
+                await _inAppNotificationService.NotifyUserAsync(
+                    handover.GuardId,
+                    "Sinh viên đã ký biên bản Check-in",
+                    $"Sinh viên {saved?.StudentName} ({saved?.StudentCode}) đã ký xác nhận biên bản phòng {saved?.RoomNumber}. Vui lòng bấm Confirm Check-in để chốt nhận phòng.",
+                    "Checkin",
+                    handover.Id.ToString());
+            }
+
+            return saved!;
+        }
+
+        public async Task<CheckinHandoverResponseDto> GuardConfirmCheckinAsync(int guardUserId, int handoverId)
+        {
+            var handover = await _context.Handovers
+                .Include(h => h.Residency).ThenInclude(r => r!.Bed)
+                .Include(h => h.Room)
+                .FirstOrDefaultAsync(h => h.Id == handoverId && h.HandoverType == "Checkin");
+
+            if (handover == null)
+            {
+                throw new ArgumentException("Không tìm thấy biên bản bàn giao Check-in.");
+            }
+
+            if (!handover.StudentAcceptedFlag)
+            {
+                throw new InvalidOperationException("Sinh viên chưa ký xác nhận biên bản (Sign to confirm). Không thể chốt Check-in.");
+            }
+
+            if (handover.Status == "Completed")
+            {
+                return (await GetCheckinByIdAsync(handover.Id))!;
+            }
+
+            var now = DateTime.UtcNow.AddHours(7);
+            var today = DateOnly.FromDateTime(now);
+
+            // Bước System: Save record & Bed -- Occupied
+            handover.Status = "Completed";
+            handover.CompletedTime = now;
+
+            if (handover.Residency != null)
+            {
+                handover.Residency.Status = "Active";
+                handover.Residency.CheckInDate ??= today;
+
+                var bed = handover.Residency.Bed
+                    ?? await _context.Beds.FirstOrDefaultAsync(b => b.Id == handover.Residency.BedId);
+                if (bed != null)
+                {
+                    bed.Status = "Occupied";
+                }
+
+                if (handover.Residency.SourceBookingId.HasValue)
+                {
+                    var bookingReq = await _context.BookingRequests
+                        .FirstOrDefaultAsync(b => b.Id == handover.Residency.SourceBookingId.Value);
+                    if (bookingReq != null && bookingReq.Status != "Completed")
+                    {
+                        bookingReq.Status = "Completed";
+                        bookingReq.ProcessedTime = now;
+                    }
+                }
+            }
+
+            _context.AuditLogs.Add(new AuditLog
+            {
+                UserId = guardUserId,
+                ActionType = "CHECKIN_GUARD_CONFIRM",
+                TargetEntity = "Handover",
+                TargetId = handover.Id.ToString(),
+                OldValue = "Pending Acceptance",
+                NewValue = $"Bảo vệ đã xác nhận hoàn tất Check-in (Save record & Bed -> Occupied) cho biên bản #{handover.Id}",
+                CreatedAt = now
+            });
+
+            await _context.SaveChangesAsync();
+
+            var saved = await GetCheckinByIdAsync(handover.Id);
+            if (_inAppNotificationService != null && handover.Residency != null)
+            {
+                await _inAppNotificationService.NotifyUserAsync(
+                    handover.Residency.StudentId,
+                    "Đã lưu biên bản Check-in & kích hoạt giường ở",
+                    $"Bảo vệ đã xác nhận Check-in phòng {saved?.RoomNumber} - Giường {saved?.BedCode} (Bed -> Occupied). Biên bản đã chuyển cho Ban Quản lý kiểm tra hồ sơ (Check record).",
+                    "Checkin",
+                    handover.Id.ToString());
+            }
+
+            return saved!;
+        }
+
+        public async Task<CheckinHandoverResponseDto> ManagerCheckRecordAsync(
+            int managerUserId,
+            int handoverId,
+            ManagerCheckRecordDto? dto = null)
+        {
+            var handover = await _context.Handovers
+                .Include(h => h.Residency)
+                .Include(h => h.Room)
+                .FirstOrDefaultAsync(h => h.Id == handoverId && h.HandoverType == "Checkin");
+
+            if (handover == null)
+            {
+                throw new ArgumentException("Không tìm thấy biên bản bàn giao Check-in.");
+            }
+
+            if (handover.Status != "Completed")
+            {
+                throw new InvalidOperationException("Chỉ có thể kiểm tra chốt hồ sơ (Check record) sau khi Bảo vệ đã xác nhận hoàn tất Check-in.");
+            }
+
+            var now = DateTime.UtcNow.AddHours(7);
+            await EnsureManagerExistsAsync(managerUserId);
+
+            handover.ManagerReviewedById = managerUserId;
+            handover.ManagerReviewedTime = now;
+            if (!string.IsNullOrWhiteSpace(dto?.Note))
+            {
+                handover.ManagerNote = string.IsNullOrWhiteSpace(handover.ManagerNote)
+                    ? dto.Note.Trim()
+                    : $"{handover.ManagerNote} | Kiểm tra hồ sơ: {dto.Note.Trim()}";
+            }
+            else if (string.IsNullOrWhiteSpace(handover.ManagerNote))
+            {
+                handover.ManagerNote = "Ban Quản lý đã kiểm tra và duyệt lưu hồ sơ biên bản Check-in.";
+            }
+
+            _context.AuditLogs.Add(new AuditLog
+            {
+                UserId = managerUserId,
+                ActionType = "CHECKIN_MANAGER_CHECK_RECORD",
+                TargetEntity = "Handover",
+                TargetId = handover.Id.ToString(),
+                OldValue = "Completed",
+                NewValue = $"Ban Quản lý đã hoàn tất kiểm tra biên bản Check-in (Check record) #{handover.Id}",
+                CreatedAt = now
+            });
+
+            await _context.SaveChangesAsync();
+
+            var saved = await GetCheckinByIdAsync(handover.Id);
+            if (_inAppNotificationService != null && handover.Residency != null)
+            {
+                await _inAppNotificationService.NotifyUserAsync(
+                    handover.Residency.StudentId,
+                    "Ban Quản lý đã hậu kiểm biên bản Check-in",
+                    $"Biên bản nhận phòng {saved?.RoomNumber} - Giường {saved?.BedCode} đã được Ban Quản lý kiểm tra và xác nhận hoàn tất.",
+                    "Checkin",
+                    handover.Id.ToString());
+            }
+
+            return saved!;
+        }
+
         public async Task<List<CheckinHandoverResponseDto>> GetCheckinHistoryAsync(int? blockId = null, int? roomId = null, string? search = null)
         {
             var query = _context.Handovers
                 .AsNoTracking()
                 .Include(h => h.Guard).ThenInclude(g => g.User)
+                .Include(h => h.ManagerReviewedBy).ThenInclude(m => m!.User)
                 .Include(h => h.Room).ThenInclude(rm => rm.Block)
                 .Include(h => h.Residency).ThenInclude(r => r!.Student).ThenInclude(s => s.User)
                 .Include(h => h.Residency).ThenInclude(r => r!.Bed)
@@ -484,6 +755,7 @@ namespace FUD.Services.Checkin
             var list = await _context.Handovers
                 .AsNoTracking()
                 .Include(h => h.Guard).ThenInclude(g => g.User)
+                .Include(h => h.ManagerReviewedBy).ThenInclude(m => m!.User)
                 .Include(h => h.Room).ThenInclude(rm => rm.Block)
                 .Include(h => h.Residency).ThenInclude(r => r!.Student).ThenInclude(s => s.User)
                 .Include(h => h.Residency).ThenInclude(r => r!.Bed)
@@ -502,6 +774,7 @@ namespace FUD.Services.Checkin
             var handover = await _context.Handovers
                 .AsNoTracking()
                 .Include(h => h.Guard).ThenInclude(g => g.User)
+                .Include(h => h.ManagerReviewedBy).ThenInclude(m => m!.User)
                 .Include(h => h.Room).ThenInclude(rm => rm.Block)
                 .Include(h => h.Residency).ThenInclude(r => r!.Student).ThenInclude(s => s.User)
                 .Include(h => h.Residency).ThenInclude(r => r!.Bed)
@@ -511,6 +784,20 @@ namespace FUD.Services.Checkin
                 .FirstOrDefaultAsync(h => h.Id == id && h.HandoverType == "Checkin");
 
             return handover == null ? null : MapToResponseDto(handover);
+        }
+
+        private static string ResolveWorkflowStage(Handover h)
+        {
+            if (h.Status == "Draft")
+            {
+                return "PendingManagerTroubleshooting";
+            }
+            if (h.Status == "Pending Acceptance")
+            {
+                return h.StudentAcceptedFlag ? "PendingGuardConfirm" : "PendingStudentSign";
+            }
+            // Status == "Completed"
+            return h.ManagerReviewedTime.HasValue ? "Completed" : "PendingManagerCheckRecord";
         }
 
         private static CheckinHandoverResponseDto MapToResponseDto(Handover h)
@@ -530,6 +817,7 @@ namespace FUD.Services.Checkin
 
             var studentUser = h.Residency?.Student?.User;
             var guardUser = h.Guard?.User;
+            var managerUser = h.ManagerReviewedBy?.User;
             var bed = h.Residency?.Bed;
             var room = h.Room;
             var block = room?.Block;
@@ -555,7 +843,14 @@ namespace FUD.Services.Checkin
                 BedCode = bed?.BedCode ?? string.Empty,
                 TermName = term != null ? $"{term.Name} ({term.AcademicYear})" : string.Empty,
                 Status = h.Status,
+                WorkflowStage = ResolveWorkflowStage(h),
                 HasDamageOrMissingFlag = h.HasDamageOrMissingFlag,
+                StudentAcceptedFlag = h.StudentAcceptedFlag,
+                StudentAcceptedTime = h.StudentAcceptedTime,
+                ManagerReviewedById = h.ManagerReviewedById,
+                ManagerReviewedByName = managerUser?.FullName,
+                ManagerReviewedTime = h.ManagerReviewedTime,
+                ManagerNote = h.ManagerNote,
                 OtherItems = meta?.OtherItems,
                 ElectricityL = meta?.ElecL,
                 ElectricityR = meta?.ElecR,

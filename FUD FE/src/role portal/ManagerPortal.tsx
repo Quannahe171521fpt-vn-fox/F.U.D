@@ -11,6 +11,7 @@ import { ManagerViolationManagement } from '../pages/Violations/ManagerViolation
 import { ManagerRequestManagement } from '../pages/Requests/ManagerRequestManagement';
 import { ManagerBookingManagement } from '../pages/Booking/ManagerBookingManagement';
 import { ManagerKeepingManagement } from '../pages/Keeping/ManagerKeepingManagement';
+import { ManagerCheckinManagement } from '../pages/Checkin/ManagerCheckinManagement';
 import { EwManagement } from '../pages/FacilityManagement/EwManagement';
 import { ImpersonateStudentPage } from '../pages/Manager/ImpersonateStudentPage';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
@@ -398,6 +399,11 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({
           showBadgeDot: hasPendingBookings,
         },
         {
+          id: 'checkins',
+          name: 'Hậu kiểm Check-in',
+          counter: 'Troubleshooting & Check record',
+        },
+        {
           id: 'violations',
           name: 'Quản lý vi phạm',
           counter: 'Thẩm định & Xử lý biên bản',
@@ -478,6 +484,8 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({
           <ManagerBookingManagement />
         ) : activeTab === 'keeping' ? (
           <ManagerKeepingManagement />
+        ) : activeTab === 'checkins' ? (
+          <ManagerCheckinManagement />
         ) : activeTab === 'ew' ? (
           <EwManagement />
         ) : activeTab === 'impersonate' ? (
