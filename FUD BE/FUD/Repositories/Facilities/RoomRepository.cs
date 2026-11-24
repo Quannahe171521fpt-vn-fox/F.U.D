@@ -78,6 +78,15 @@ namespace FUD.Repositories.Facilities
                             && (excludeId == null || r.Id != excludeId));
         }
 
+        public async Task<bool> IsRoomNumberUniqueOnFloorAsync(int blockId, int floorLevel, string roomNumber, int? excludeId = null)
+        {
+            return !await _context.Rooms
+                .AnyAsync(r => r.BlockId == blockId
+                            && r.FloorLevel == floorLevel
+                            && r.RoomNumber == roomNumber
+                            && (excludeId == null || r.Id != excludeId));
+        }
+
         public async Task<bool> HasActiveBedsAsync(int roomId)
         {
             return await _context.Beds
@@ -97,6 +106,14 @@ namespace FUD.Repositories.Facilities
             return await _context.RoomTypes
                 .OrderBy(rt => rt.BedCapacity)
                 .ToListAsync();
+        }
+
+        public async Task<int?> GetBlockNumberOfFloorsAsync(int blockId)
+        {
+            return await _context.Blocks
+                .Where(b => b.Id == blockId)
+                .Select(b => b.FloorLevel)
+                .FirstOrDefaultAsync();
         }
 
         public async Task<Room> CreateAsync(Room room)

@@ -433,4 +433,70 @@ public class NewsServiceTests
         var auditLogs = await context.AuditLogs.ToListAsync();
         auditLogs.Should().Contain(a => a.ActionType == "UNPUBLISH" && a.TargetId == "15");
     }
+
+    [Fact]
+    public async Task CreateAsync_WhenAttachmentUrlHasJavascriptScheme_ThrowsArgumentException()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var sut = CreateSut(context);
+
+        var dto = new CreateNewsDto
+        {
+            Title = "Bản tin thử nghiệm",
+            Content = "Nội dung bản tin",
+            Category = "News",
+            Action = "Draft",
+            AttachmentUrls = new List<string> { "javascript:alert(1)" }
+        };
+
+        // Act
+        var act = async () => await sut.CreateAsync(dto, userId: 2);
+
+        // Assert
+        await act.Should().ThrowAsync<ArgumentException>()
+            .WithMessage("*https://*");
+        _newsRepoMock.Verify(r => r.AddAsync(It.IsAny<News>()), Times.Never);
+        _newsRepoMock.Verify(r => r.AddAttachmentAsync(It.IsAny<NewsAttachment>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenAttachmentUrlIsValidHttps_SavesNormalizedExtension()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var sut = CreateSut(context);
+
+        var dto = new CreateNewsDto
+        {
+            Title = "Bản tin đính kèm PDF",
+            Content = "Nội dung bản tin",
+            Category = "News",
+            Action = "Draft",
+            AttachmentUrls = new List<string> { "https://res.cloudinary.com/fud/raw/upload/v1/Notice.PDF?dl=1" }
+        };
+
+        var createdNews = new News
+        {
+            Id = 99,
+            AuthorId = 2,
+            Title = dto.Title,
+            Content = dto.Content,
+            Category = "News",
+            Status = "Draft"
+        };
+
+        _newsRepoMock.Setup(r => r.AddAsync(It.IsAny<News>())).ReturnsAsync(createdNews);
+        _newsRepoMock.Setup(r => r.AddAttachmentAsync(It.IsAny<NewsAttachment>())).Returns(Task.CompletedTask);
+        _newsRepoMock.Setup(r => r.GetByIdAsync(99)).ReturnsAsync(createdNews);
+
+        // Act
+        await sut.CreateAsync(dto, userId: 2);
+
+        // Assert
+        _newsRepoMock.Verify(r => r.AddAttachmentAsync(It.Is<NewsAttachment>(a =>
+            a.NewsId == 99 &&
+            a.FileUrl == "https://res.cloudinary.com/fud/raw/upload/v1/Notice.PDF?dl=1" &&
+            a.FileType == "pdf")), Times.Once);
+    }
 }

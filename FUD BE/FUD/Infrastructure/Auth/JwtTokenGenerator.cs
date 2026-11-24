@@ -87,11 +87,8 @@ public class JwtTokenGenerator : IJwtTokenGenerator
             new("imp", "true")
         };
 
-        foreach (var role in roles)
-        {
-            claims.Add(new Claim(ClaimTypes.Role, role));
-            claims.Add(new Claim("role", role));
-        }
+        claims.Add(new Claim(ClaimTypes.Role, "Student"));
+        claims.Add(new Claim("role", "Student"));
 
         var key = new SymmetricSecurityKey(_keyBytes);
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -103,7 +100,7 @@ public class JwtTokenGenerator : IJwtTokenGenerator
             issuer: issuer,
             audience: audience,
             claims: claims,
-            expires: DateTime.UtcNow.AddHours(2),
+            expires: DateTime.UtcNow.AddMinutes(30),
             signingCredentials: creds
         );
 

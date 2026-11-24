@@ -3,6 +3,7 @@ import { CloseIcon, UserIcon, ShieldIcon } from './Icons';
 import { useAuth } from '../contexts/AuthContext';
 import type { UserInfo } from '../contexts/AuthContext';
 import { loginWithCredentials, loginWithGoogle } from '../services/authApi';
+import { env } from '../config/env';
 
 declare global {
   interface Window {
@@ -32,7 +33,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
   useEffect(() => {
     if (!isOpen || role !== 'student') return;
 
-    const clientId = "574869794473-o8hm38oe9p614e6n9snsblmp2vg9hh1f.apps.googleusercontent.com";
+    const clientId = env.googleClientId;
+    if (!clientId) return;
 
     const initGoogle = () => {
       if (window.google?.accounts?.id) {
@@ -171,9 +173,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
           </div>
         ) : role === 'student' ? (
           <div className="student-login-view" style={{ textAlign: 'center', padding: '16px 8px' }}>
-            {errorMessage && (
+            {(errorMessage || !env.googleClientId) && (
               <div style={{ color: '#ef4444', backgroundColor: '#fee2e2', padding: '8px 12px', borderRadius: '6px', fontSize: '13px', marginBottom: '16px', textAlign: 'left' }}>
-                {errorMessage}
+                {errorMessage || 'Chưa cấu hình VITE_GOOGLE_CLIENT_ID cho đăng nhập Google.'}
               </div>
             )}
             <p style={{ color: '#4b5563', fontSize: '14px', lineHeight: '1.6', marginBottom: '20px' }}>
@@ -241,10 +243,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
               <a href="#forgot" onClick={(e) => { e.preventDefault(); alert('Vui lòng liên hệ Quản trị viên IT để cấp lại mật khẩu.'); }} className="forgot-link">
                 Quên mật khẩu?
               </a>
-            </div>
-
-            <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '12px', lineHeight: 1.5 }}>
-              Phiên đăng nhập tự động kết thúc sau 30 phút không thao tác hoặc tối đa 24 giờ.
             </div>
 
             <button type="submit" className="login-submit-btn" disabled={isSubmitting}>

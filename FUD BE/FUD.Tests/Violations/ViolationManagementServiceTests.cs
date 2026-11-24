@@ -321,4 +321,97 @@ public class ViolationManagementServiceTests
         await act.Should().ThrowAsync<ArgumentException>()
             .WithMessage("*Không tìm thấy thông tin sinh viên*");
     }
+
+    [Fact]
+    public async Task GetViolationByIdAsync_WhenStudentRequestsOtherStudentViolation_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        var sut = CreateSut();
+        var violation = new Violation
+        {
+            Id = 50,
+            Code = "VIO-50",
+            StudentId = 100,
+            Status = "Recorded",
+            ViolationEvidences = new List<ViolationEvidence>()
+        };
+        _violationRepoMock.Setup(r => r.GetViolationByIdAsync(50)).ReturnsAsync(violation);
+
+        // Act
+        var act = () => sut.GetViolationByIdAsync(50, callerUserId: 200, isManagerOrAdmin: false, isGuard: false);
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+    }
+
+    [Fact]
+    public async Task GetViolationByIdAsync_WhenGuardRequestsViolationInOtherDorm_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        var sut = CreateSut();
+        var violation = new Violation
+        {
+            Id = 51,
+            Code = "VIO-51",
+            StudentId = 100,
+            Room = new Room { Id = 10, Block = new Block { Id = 2, DormId = 2 } },
+            Status = "Recorded",
+            ViolationEvidences = new List<ViolationEvidence>()
+        };
+        _violationRepoMock.Setup(r => r.GetViolationByIdAsync(51)).ReturnsAsync(violation);
+        _violationRepoMock.Setup(r => r.GetGuardDormIdAsync(77)).ReturnsAsync(1);
+
+        // Act
+        var act = () => sut.GetViolationByIdAsync(51, callerUserId: 77, isManagerOrAdmin: false, isGuard: true);
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+    }
+
+    [Fact]
+    public async Task EvaluateViolationAsync_WhenManagerNoteContainsHtmlTags_EncodesHtmlInEmailBody()
+    {
+        // Arrange
+        var sut = CreateSut();
+        var studentUser = new User { Id = 105, FullName = "Nguyen <script>alert(1)</script>", Email = "se105@fpt.edu.vn" };
+        var student = new Student { UserId = 105, User = studentUser };
+        var violationType = new ViolationType { Id = 1, Name = "Vi phạm <b>nội quy</b>" };
+
+        var violation = new Violation
+        {
+            Id = 95,
+            Code = "VIO-95",
+            StudentId = 105,
+            Student = student,
+            ViolationType = violationType,
+            Status = "Recorded",
+            OccurrenceTime = DateTime.UtcNow,
+            ViolationEvidences = new List<ViolationEvidence>()
+        };
+
+        _violationRepoMock.Setup(r => r.GetViolationByIdAsync(95)).ReturnsAsync(violation);
+        _violationRepoMock.Setup(r => r.UpdateViolationAsync(It.IsAny<Violation>())).Returns(Task.CompletedTask);
+
+        string? capturedBody = null;
+        _emailSenderMock
+            .Setup(e => e.SendEmailAsync("se105@fpt.edu.vn", It.IsAny<string>(), It.IsAny<string>()))
+            .Callback<string, string, string>((_, _, body) => capturedBody = body)
+            .Returns(Task.CompletedTask);
+
+        var request = new EvaluateViolationRequestDto
+        {
+            InitialLevel = "Cảnh cáo",
+            ManagerNote = "<img src=x onerror=alert(2)>"
+        };
+
+        // Act
+        await sut.EvaluateViolationAsync(95, managerUserId: 2, request);
+
+        // Assert
+        capturedBody.Should().NotBeNull();
+        capturedBody.Should().Contain("&lt;img src=x onerror=alert(2)&gt;");
+        capturedBody.Should().Contain("&lt;script&gt;alert(1)&lt;/script&gt;");
+        capturedBody.Should().NotContain("<img src=x onerror=alert(2)>");
+        capturedBody.Should().NotContain("<script>alert(1)</script>");
+    }
 }

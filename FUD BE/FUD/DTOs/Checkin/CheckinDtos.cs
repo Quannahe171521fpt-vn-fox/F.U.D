@@ -25,6 +25,8 @@ namespace FUD.DTOs.Checkin
         public int TermId { get; set; }
         public string TermName { get; set; } = string.Empty;
         public string BookingStatus { get; set; } = string.Empty;
+        public bool CanCheckin { get; set; } = true;
+        public string? CheckinBlockedReason { get; set; }
     }
 
     public class RoomEquipmentCheckinDto

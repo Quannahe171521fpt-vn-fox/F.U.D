@@ -5,6 +5,7 @@ using FUD.Models;
 using FUD.Repositories.Interfaces.Violations;
 using FUD.Services.Interfaces;
 using FUD.Services.Interfaces.Violations;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace FUD.Services.Violations
 {
@@ -14,17 +15,20 @@ namespace FUD.Services.Violations
         private readonly IFileStorage _fileStorage;
         private readonly IEmailSender _emailSender;
         private readonly IInAppNotificationService? _inAppNotificationService;
+        private readonly IMemoryCache? _cache;
 
         public ViolationService(
             IViolationRepository violationRepo,
             IFileStorage fileStorage,
             IEmailSender emailSender,
-            IInAppNotificationService? inAppNotificationService = null)
+            IInAppNotificationService? inAppNotificationService = null,
+            IMemoryCache? cache = null)
         {
             _violationRepo = violationRepo;
             _fileStorage = fileStorage;
             _emailSender = emailSender;
             _inAppNotificationService = inAppNotificationService;
+            _cache = cache;
         }
 
         public async Task<List<ViolationTypeDto>> GetViolationTypesAsync()
@@ -37,8 +41,18 @@ namespace FUD.Services.Violations
             }).ToList();
         }
 
-        public async Task<List<RoomStudentDto>> GetStudentsByRoomAsync(int roomId)
+        public async Task<List<RoomStudentDto>> GetStudentsByRoomAsync(int roomId, int? guardUserId = null)
         {
+            if (guardUserId.HasValue)
+            {
+                var guardDormId = await _violationRepo.GetGuardDormIdAsync(guardUserId.Value);
+                var roomDormId = await _violationRepo.GetRoomDormIdAsync(roomId);
+                if (!guardDormId.HasValue || !roomDormId.HasValue || guardDormId.Value != roomDormId.Value)
+                {
+                    throw new UnauthorizedAccessException("Bạn chỉ được xem danh sách sinh viên của phòng thuộc khu KTX mình phụ trách.");
+                }
+            }
+
             var residencies = await _violationRepo.GetActiveResidenciesByRoomIdAsync(roomId);
             return residencies
                 .Where(r => r.Student != null && r.Student.User != null)
@@ -53,12 +67,40 @@ namespace FUD.Services.Violations
                 }).ToList();
         }
 
-        public async Task<RoomStudentDto?> SearchStudentByCodeAsync(string studentCode, int? currentRoomId = null)
+        public async Task<RoomStudentDto?> SearchStudentByCodeAsync(string studentCode, int? currentRoomId = null, int? guardUserId = null)
         {
+            int? guardDormId = null;
+            if (guardUserId.HasValue)
+            {
+                guardDormId = await _violationRepo.GetGuardDormIdAsync(guardUserId.Value);
+                if (!guardDormId.HasValue)
+                {
+                    throw new UnauthorizedAccessException("Tài khoản bảo vệ chưa được phân công khu KTX.");
+                }
+
+                if (currentRoomId.HasValue)
+                {
+                    var roomDormId = await _violationRepo.GetRoomDormIdAsync(currentRoomId.Value);
+                    if (!roomDormId.HasValue || roomDormId.Value != guardDormId.Value)
+                    {
+                        throw new UnauthorizedAccessException("Bạn chỉ được tra cứu sinh viên trong khu KTX mình phụ trách.");
+                    }
+                }
+            }
+
             var student = await _violationRepo.GetStudentByCodeAsync(studentCode.Trim());
             if (student == null) return null;
 
             var residency = await _violationRepo.GetCurrentResidencyByStudentIdAsync(student.UserId);
+            if (guardDormId.HasValue)
+            {
+                var studentDormId = residency?.Bed?.Room?.Block?.DormId;
+                if (!studentDormId.HasValue || studentDormId.Value != guardDormId.Value)
+                {
+                    throw new UnauthorizedAccessException("Bạn chỉ được tra cứu sinh viên đang lưu trú thuộc khu KTX mình phụ trách.");
+                }
+            }
+
             var bedCode = residency?.Bed?.BedCode ?? "Không có";
             var roomInfo = residency?.Bed?.Room != null ? $"Phòng {residency.Bed.Room.RoomNumber}" : "Chưa xếp phòng";
 
@@ -93,6 +135,13 @@ namespace FUD.Services.Violations
             if (request.Evidences == null || request.Evidences.Count == 0)
             {
                 throw new ArgumentException("Yêu cầu tối thiểu 1 ảnh minh chứng.");
+            }
+
+            var guardDormId = await _violationRepo.GetGuardDormIdAsync(guardUserId);
+            var roomDormId = await _violationRepo.GetRoomDormIdAsync(request.RoomId);
+            if (!guardDormId.HasValue || !roomDormId.HasValue || guardDormId.Value != roomDormId.Value)
+            {
+                throw new UnauthorizedAccessException("Bạn chỉ được ghi nhận vi phạm cho phòng thuộc khu KTX mình phụ trách.");
             }
 
             var occTime = request.OccurrenceTime == default ? DateTime.UtcNow : request.OccurrenceTime.ToUniversalTime();
@@ -196,6 +245,7 @@ namespace FUD.Services.Violations
                         studentUser.SuspendedById = v.EvaluatedById;
                         studentUser.SuspensionReason = $"Bị đình chỉ nội trú theo quyết định kỷ luật biên bản {v.Code} ({v.FinalLevel})";
                         await _violationRepo.UpdateUserAsync(studentUser);
+                        _cache?.Remove($"user_status_{studentUser.Id}");
                     }
                 }
 
@@ -213,10 +263,40 @@ namespace FUD.Services.Violations
             return violations.Select(MapToDto).ToList();
         }
 
-        public async Task<ViolationItemDto?> GetViolationByIdAsync(int id)
+        public async Task<ViolationItemDto?> GetViolationByIdAsync(
+            int id,
+            int? callerUserId = null,
+            bool isManagerOrAdmin = true,
+            bool isGuard = false)
         {
             var v = await _violationRepo.GetViolationByIdAsync(id);
             if (v == null) return null;
+
+            if (!isManagerOrAdmin)
+            {
+                if (isGuard)
+                {
+                    if (!callerUserId.HasValue)
+                    {
+                        throw new UnauthorizedAccessException("Không xác định được danh tính bảo vệ.");
+                    }
+
+                    var guardDormId = await _violationRepo.GetGuardDormIdAsync(callerUserId.Value);
+                    var violationDormId = v.Room?.Block?.DormId;
+                    if (!guardDormId.HasValue || !violationDormId.HasValue || guardDormId.Value != violationDormId.Value)
+                    {
+                        throw new UnauthorizedAccessException("Bạn không có quyền xem biên bản vi phạm của khu KTX khác.");
+                    }
+                }
+                else
+                {
+                    if (!callerUserId.HasValue || v.StudentId != callerUserId.Value)
+                    {
+                        throw new UnauthorizedAccessException("Bạn chỉ được xem biên bản vi phạm của chính mình.");
+                    }
+                }
+            }
+
             var dto = MapToDto(v);
             dto.PriorViolationsCount = await _violationRepo.GetStudentPriorViolationsCountAsync(v.StudentId, v.Id);
             return dto;
@@ -247,6 +327,7 @@ namespace FUD.Services.Violations
                         studentUser.SuspendedById = v.EvaluatedById;
                         studentUser.SuspensionReason = $"Bị đình chỉ nội trú theo quyết định kỷ luật biên bản {v.Code} ({v.FinalLevel})";
                         await _violationRepo.UpdateUserAsync(studentUser);
+                        _cache?.Remove($"user_status_{studentUser.Id}");
                     }
                 }
 
@@ -284,6 +365,8 @@ namespace FUD.Services.Violations
 
             return query.Select(MapToDto).ToList();
         }
+
+        private static string Enc(string? v) => System.Net.WebUtility.HtmlEncode(v ?? string.Empty);
 
         // UC23: Quản lý đánh giá mức độ vi phạm ban đầu, gửi thông báo & set hạn gửi request
         public async Task<ViolationItemDto> EvaluateViolationAsync(int violationId, int managerUserId, EvaluateViolationRequestDto request)
@@ -330,9 +413,9 @@ namespace FUD.Services.Violations
                     _ = _emailSender.SendEmailAsync(
                         studentEmail,
                         $"[KTX FUD] Thông báo bác bỏ biên bản vi phạm {violation.Code}",
-                        $@"<h3>Kính gửi sinh viên {dismissedUpdated?.Student?.User?.FullName},</h3>
-                           <p>Ban Quản lý KTX FUD thông báo biên bản vi phạm <strong>{violation.Code}</strong> đã được <strong>BÁC BỎ</strong>.</p>
-                           <p><strong>Lý do:</strong> {request.ManagerNote}</p>
+                        $@"<h3>Kính gửi sinh viên {Enc(dismissedUpdated?.Student?.User?.FullName)},</h3>
+                           <p>Ban Quản lý KTX FUD thông báo biên bản vi phạm <strong>{Enc(violation.Code)}</strong> đã được <strong>BÁC BỎ</strong>.</p>
+                           <p><strong>Lý do:</strong> {Enc(request.ManagerNote)}</p>
                            <p>Hồ sơ này không ghi nhận kỷ luật vào tài khoản của bạn.</p>
                            <br/><p>Trân trọng,<br/>Ban Quản lý Ký túc xá FUD</p>"
                     );
@@ -371,13 +454,13 @@ namespace FUD.Services.Violations
                 _ = _emailSender.SendEmailAsync(
                     email,
                     $"[KTX FUD] Thông báo xử lý vi phạm kỷ luật {violation.Code}",
-                    $@"<h3>Kính gửi sinh viên {updated?.Student?.User?.FullName},</h3>
-                       <p>Ban Quản lý KTX FUD thông báo về việc xử lý biên bản vi phạm <strong>{violation.Code}</strong> của bạn như sau:</p>
+                    $@"<h3>Kính gửi sinh viên {Enc(updated?.Student?.User?.FullName)},</h3>
+                       <p>Ban Quản lý KTX FUD thông báo về việc xử lý biên bản vi phạm <strong>{Enc(violation.Code)}</strong> của bạn như sau:</p>
                        <ul>
-                         <li><strong>Hành vi vi phạm:</strong> {updated?.ViolationType?.Name}</li>
-                         <li><strong>Mức độ đánh giá:</strong> <span style='color:red;font-weight:bold;'>{request.InitialLevel}</span></li>
+                         <li><strong>Hành vi vi phạm:</strong> {Enc(updated?.ViolationType?.Name)}</li>
+                         <li><strong>Mức độ đánh giá:</strong> <span style='color:red;font-weight:bold;'>{Enc(request.InitialLevel)}</span></li>
                          <li><strong>Thời điểm vi phạm:</strong> {updated?.OccurrenceTime:dd/MM/yyyy HH:mm}</li>
-                         <li><strong>Ghi chú từ BQL:</strong> {request.ManagerNote ?? "Không có"}</li>
+                         <li><strong>Ghi chú từ BQL:</strong> {Enc(request.ManagerNote ?? "Không có")}</li>
                        </ul>
                        <p>Nếu bạn thấy quyết định này chưa thỏa đáng, vui lòng truy cập hệ thống và gửi <strong>Đơn khiếu nại (Request)</strong> trong vòng 24 giờ tới.</p>
                        <br/><p>Trân trọng,<br/>Ban Quản lý Ký túc xá FUD</p>"
@@ -400,6 +483,7 @@ namespace FUD.Services.Violations
             studentUser.SuspendedById = null;
             studentUser.SuspensionReason = null;
             await _violationRepo.UpdateUserAsync(studentUser);
+            _cache?.Remove($"user_status_{studentUser.Id}");
 
             if (_inAppNotificationService != null)
             {
@@ -416,9 +500,9 @@ namespace FUD.Services.Violations
                 _ = _emailSender.SendEmailAsync(
                     studentUser.Email,
                     "[KTX FUD] Thông báo Mở khóa quyền nội trú & Giữ phòng",
-                    $@"<h3>Kính gửi sinh viên {studentUser.FullName},</h3>
+                    $@"<h3>Kính gửi sinh viên {Enc(studentUser.FullName)},</h3>
                        <p>Ban Quản lý Ký túc xá FUD xin thông báo: Quyền đăng ký nội trú, giữ chỗ và book phòng của bạn đã được <strong>MỞ KHÓA</strong> thành công.</p>
-                       <p><strong>Ghi chú từ BQL:</strong> {note ?? "Đã hoàn thành thời hạn đình chỉ hoặc có quyết định xóa kỷ luật."}</p>
+                       <p><strong>Ghi chú từ BQL:</strong> {Enc(note ?? "Đã hoàn thành thời hạn đình chỉ hoặc có quyết định xóa kỷ luật.")}</p>
                        <br/><p>Trân trọng,<br/>Ban Quản lý Ký túc xá FUD</p>"
                 );
             }

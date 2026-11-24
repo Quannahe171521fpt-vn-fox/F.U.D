@@ -1,13 +1,23 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import '../../styles/facilities.css';
 import { Pagination } from '../../components/Pagination';
+import { MeterPhotoScanner } from '../../components/MeterPhotoScanner';
+import { ImageLightboxModal } from '../../components/ImageLightboxModal';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   ewApi,
+  dormApi,
   type BillingPeriodLookupDto,
   type ExcelPreviewResponseDto,
   type ImportBatchItemDto,
   type EwUsageRow,
   type EwReadingDetailItem,
+  type UsageAnomalyItemDto,
+  type BlockProgressResponseDto,
+  type BlockFormDataResponseDto,
+  type RoomOldReadingDto,
+  type MeterPhotoScanResponseDto,
+  type ManualConfirmRequestDto,
 } from '../../services/api';
 
 // ── Usage table row (computed) ──────────────────────────
@@ -140,14 +150,74 @@ function buildUsageRows(rawRows: EwUsageRow[]): UsageTableRow[] {
   });
 }
 
+type CaptureSlotKey = 'electricityLeft' | 'electricityRight' | 'waterLeft' | 'waterRight';
+
+interface CaptureSlotState {
+  value: string;
+  evidenceUrl?: string;
+  source?: 'Manual' | 'PhotoOCR';
+  editedManually: boolean;
+}
+
+const EMPTY_CAPTURE_SLOTS: Record<CaptureSlotKey, CaptureSlotState> = {
+  electricityLeft: { value: '', editedManually: false },
+  electricityRight: { value: '', editedManually: false },
+  waterLeft: { value: '', editedManually: false },
+  waterRight: { value: '', editedManually: false },
+};
+
 // ── Component ───────────────────────────────────────────
 export const EwManagement: React.FC = () => {
-  const [activeSection, setActiveSection] = useState<'import' | 'usage' | 'history'>('usage');
+  const { currentUser } = useAuth();
+  const roles = currentUser?.roles || [];
+  const isManager =
+    currentUser?.primaryRole === 'Manager' ||
+    currentUser?.primaryRole === 'Admin' ||
+    roles.includes('Manager') ||
+    roles.includes('Admin');
+  const isGuard =
+    !isManager &&
+    (currentUser?.primaryRole === 'Guard' || roles.includes('Guard'));
+
+  const [activeSection, setActiveSection] = useState<'import' | 'capture' | 'usage' | 'anomalies' | 'history'>('usage');
+
+  // ── Lightbox preview for evidence images ──
+  const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string; subtitle?: string } | null>(null);
+
+  // ── AI Photo Capture by Block (Guard) ──
+  const [blockProgress, setBlockProgress] = useState<BlockProgressResponseDto | null>(null);
+  const [progressLoading, setProgressLoading] = useState(false);
+  const [blockSearch, setBlockSearch] = useState('');
+  const [blockFilter, setBlockFilter] = useState<'all' | 'incomplete' | 'completed'>('all');
+  const [selectedBlockCode, setSelectedBlockCode] = useState<string>('');
+  const [blockFormData, setBlockFormData] = useState<BlockFormDataResponseDto | null>(null);
+  const [blockFormLoading, setBlockFormLoading] = useState(false);
+  const [captureSlots, setCaptureSlots] = useState<Record<CaptureSlotKey, CaptureSlotState>>(EMPTY_CAPTURE_SLOTS);
+  const [captureNote, setCaptureNote] = useState('');
+  const [savingBlock, setSavingBlock] = useState(false);
+  const [captureMsg, setCaptureMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // ── Billing Periods ──
   const [periods, setPeriods] = useState<BillingPeriodLookupDto[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState<number | ''>('');
   const [periodsLoading, setPeriodsLoading] = useState(false);
+
+  // ── Anomalies & Billing Calculation (Manager) ──
+  const [anomalies, setAnomalies] = useState<UsageAnomalyItemDto[]>([]);
+  const [anomaliesLoading, setAnomaliesLoading] = useState(false);
+  const [anomalyStatusFilter, setAnomalyStatusFilter] = useState<string>('Flagged');
+  const [anomalyDormFilter, setAnomalyDormFilter] = useState<string>('');
+  const [anomalyRoomSearch, setAnomalyRoomSearch] = useState<string>('');
+  const [anomalyMeterFilter, setAnomalyMeterFilter] = useState<string>('');
+  const [anomalyPage, setAnomalyPage] = useState<number>(1);
+  const [anomalyPageSize] = useState<number>(6);
+  const [resolvingAnomaly, setResolvingAnomaly] = useState<UsageAnomalyItemDto | null>(null);
+  const [resolveAction, setResolveAction] = useState<'Confirm' | 'Adjust'>('Confirm');
+  const [resolveValue, setResolveValue] = useState<string>('');
+  const [resolveNote, setResolveNote] = useState<string>('');
+  const [resolveLoading, setResolveLoading] = useState(false);
+  const [anomalyMsg, setAnomalyMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [calcLoading, setCalcLoading] = useState(false);
 
   // ── Import ──
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -161,7 +231,9 @@ export const EwManagement: React.FC = () => {
   const [usageRows, setUsageRows] = useState<UsageTableRow[]>([]);
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError] = useState<string | null>(null);
+  const [dormOptions, setDormOptions] = useState<string[]>(['Dom A', 'Dom B']);
   const [usageFilter, setUsageFilter] = useState({
+    dormName: '',
     termId: '',
     billingPeriodId: '',
     blockCode: '',
@@ -169,6 +241,32 @@ export const EwManagement: React.FC = () => {
     month: '',
     year: '',
   });
+
+  useEffect(() => {
+    dormApi
+      .getAll({ status: 'Active', pageSize: 50 })
+      .then((res) => {
+        if (res?.items && res.items.length > 0) {
+          const names = Array.from(new Set(res.items.map((d) => d.name).filter(Boolean)));
+          if (names.length > 0) setDormOptions(names);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const availableDorms = React.useMemo(() => {
+    const set = new Set<string>(dormOptions);
+    for (const r of usageRows) {
+      if (r.dormName) set.add(r.dormName);
+    }
+    return Array.from(set).sort();
+  }, [dormOptions, usageRows]);
+
+  const filteredUsageRows = React.useMemo(() => {
+    if (!usageFilter.dormName) return usageRows;
+    const target = usageFilter.dormName.trim().toLowerCase();
+    return usageRows.filter((r) => (r.dormName || '').trim().toLowerCase() === target);
+  }, [usageRows, usageFilter.dormName]);
 
   // ── Pagination ──
   const [page, setPage] = useState(1);
@@ -178,11 +276,11 @@ export const EwManagement: React.FC = () => {
     setPage(1);
   }, [usageFilter]);
 
-  const totalCount = usageRows.length;
+  const totalCount = filteredUsageRows.length;
   const paginatedUsageRows = React.useMemo(() => {
     const startIndex = (page - 1) * pageSize;
-    return usageRows.slice(startIndex, startIndex + pageSize);
-  }, [usageRows, page, pageSize]);
+    return filteredUsageRows.slice(startIndex, startIndex + pageSize);
+  }, [filteredUsageRows, page, pageSize]);
 
   // ── Modal Detail ──
   const [detailGroup, setDetailGroup] = useState<BlockUsageGroup | null>(null);
@@ -366,11 +464,17 @@ export const EwManagement: React.FC = () => {
       }
     }
 
-    // Re-evaluate validity
+    // Re-evaluate validity (bao gồm kiểm tra vượt quá 1000 số điện / 50 số nước sau khi trừ định mức)
+    const isElecRow = (row.meterType || '').toLowerCase().includes('elec') || (row.meterType || '').toLowerCase().includes('điện');
+    const rowQuota = isElecRow ? 200 : 12;
+    const rowSpikeThreshold = isElecRow ? 1000 : 50;
+
     const leftBelow = row.leftValue !== undefined && row.leftValue < row.leftOldReading;
     const rightBelow = row.rightValue !== undefined && row.rightValue < row.rightOldReading;
     const leftZero = row.leftValue !== undefined && row.leftValue === row.leftOldReading;
     const rightZero = row.rightValue !== undefined && row.rightValue === row.rightOldReading;
+    const leftSpike = row.leftValue !== undefined && (row.leftConsumption - rowQuota) > rowSpikeThreshold;
+    const rightSpike = row.rightValue !== undefined && (row.rightConsumption - rowQuota) > rowSpikeThreshold;
 
     if (leftBelow || rightBelow) {
       row.status = 'Warning';
@@ -378,6 +482,11 @@ export const EwManagement: React.FC = () => {
     } else if (leftZero || rightZero) {
       row.status = 'Warning';
       row.flagReason = 'Mức tiêu thụ bằng 0';
+    } else if (leftSpike || rightSpike) {
+      row.status = 'Warning';
+      row.flagReason = isElecRow
+        ? `Tiêu thụ điện vượt > 1,000 kWh sau khi trừ định mức (${leftSpike ? 'Phòng L' : ''} ${rightSpike ? 'Phòng R' : ''}), nghi vấn dùng thiết bị cấm (bếp từ...)`
+        : `Tiêu thụ nước vượt > 50 m³ sau khi trừ định mức (${leftSpike ? 'Phòng L' : ''} ${rightSpike ? 'Phòng R' : ''}), nghi vấn rò rỉ nước`;
     } else if (row.leftValue === undefined || row.rightValue === undefined) {
       row.status = 'Warning';
       row.flagReason = 'Chưa nhập đủ chỉ số';
@@ -426,6 +535,7 @@ export const EwManagement: React.FC = () => {
       setImportFile(null);
       if (fileRef.current) fileRef.current.value = '';
       loadUsage();
+      if (isManager) loadAnomalies();
     } catch (err: any) {
       setImportMsg({ type: 'error', text: err.message });
     } finally {
@@ -460,6 +570,82 @@ export const EwManagement: React.FC = () => {
     }
   }, [activeSection, loadUsage]);
 
+  // ── Load anomalies (Manager) ──
+  const loadAnomalies = useCallback(async () => {
+    if (!isManager) return;
+    setAnomaliesLoading(true);
+    try {
+      const data = await ewApi.getAnomalies({
+        billingPeriodId: selectedPeriodId ? Number(selectedPeriodId) : undefined,
+        status: anomalyStatusFilter || undefined,
+      });
+      setAnomalies(data);
+    } catch {
+      setAnomalies([]);
+    } finally {
+      setAnomaliesLoading(false);
+    }
+  }, [isManager, selectedPeriodId, anomalyStatusFilter]);
+
+  useEffect(() => {
+    if (isManager) {
+      loadAnomalies();
+    }
+  }, [isManager, loadAnomalies]);
+
+  const handleOpenResolveModal = (item: UsageAnomalyItemDto, defaultAction: 'Confirm' | 'Adjust') => {
+    setResolvingAnomaly(item);
+    setResolveAction(defaultAction);
+    setResolveValue(item.currentValue.toString());
+    setResolveNote(item.managerNote || '');
+    setAnomalyMsg(null);
+  };
+
+  const handleSubmitResolveAnomaly = async () => {
+    if (!resolvingAnomaly) return;
+    setResolveLoading(true);
+    setAnomalyMsg(null);
+    try {
+      let adjVal: number | undefined = undefined;
+      if (resolveAction === 'Adjust') {
+        adjVal = parseFloat(resolveValue);
+        if (isNaN(adjVal) || adjVal < 0) {
+          setAnomalyMsg({ type: 'error', text: 'Vui lòng nhập chỉ số điều chỉnh hợp lệ (>= 0)' });
+          setResolveLoading(false);
+          return;
+        }
+      }
+      const res = await ewApi.resolveAnomaly(resolvingAnomaly.anomalyId, {
+        action: resolveAction,
+        adjustedValue: adjVal,
+        managerNote: resolveNote,
+      });
+      setAnomalyMsg({ type: 'success', text: res.message });
+      setResolvingAnomaly(null);
+      await loadAnomalies();
+      loadUsage();
+    } catch (err: any) {
+      setAnomalyMsg({ type: 'error', text: err.message || 'Lỗi khi xử lý cảnh báo bất thường' });
+    } finally {
+      setResolveLoading(false);
+    }
+  };
+
+  const handleCalculateSurcharges = async () => {
+    if (!selectedPeriodId) return;
+    setCalcLoading(true);
+    setAnomalyMsg(null);
+    try {
+      const res = await ewApi.calculatePeriodSurcharges(Number(selectedPeriodId));
+      setAnomalyMsg({ type: 'success', text: res.message });
+      loadUsage();
+    } catch (err: any) {
+      setAnomalyMsg({ type: 'error', text: err.message || 'Lỗi khi tính phụ trội điện nước' });
+    } finally {
+      setCalcLoading(false);
+    }
+  };
+
   // ── Load batches ──
   const loadBatches = useCallback(async () => {
     setBatchLoading(true);
@@ -477,6 +663,297 @@ export const EwManagement: React.FC = () => {
     if (activeSection === 'history') loadBatches();
   }, [activeSection, loadBatches]);
 
+  // ── Load block progress & block form for AI capture tab ──
+  const isBlockComplete = useCallback((b: BlockProgressResponseDto['blocks'][number]) => {
+    const leftDone = Boolean(b.electricityLeft?.hasReading && b.waterLeft?.hasReading);
+    const hasRight = Boolean(b.electricityRight || b.waterRight);
+    const rightDone = !hasRight || Boolean(b.electricityRight?.hasReading && b.waterRight?.hasReading);
+    return leftDone && rightDone;
+  }, []);
+
+  const loadBlockForm = useCallback(async (blockCode: string, periodId: number) => {
+    setSelectedBlockCode(blockCode);
+    setBlockFormLoading(true);
+    setCaptureMsg(null);
+    try {
+      const form = await ewApi.getBlockFormData(blockCode, periodId);
+      setBlockFormData(form);
+      const initSlot = (slot?: RoomOldReadingDto): CaptureSlotState => ({
+        value: slot?.existingCurrentValue !== undefined ? String(slot.existingCurrentValue) : '',
+        evidenceUrl: slot?.existingEvidenceImageUrl,
+        source: slot?.existingSource === 'PhotoOCR' ? 'PhotoOCR' : slot?.existingSource ? 'Manual' : undefined,
+        editedManually: false,
+      });
+      setCaptureSlots({
+        electricityLeft: initSlot(form.electricityLeft),
+        electricityRight: initSlot(form.electricityRight),
+        waterLeft: initSlot(form.waterLeft),
+        waterRight: initSlot(form.waterRight),
+      });
+      setCaptureNote('');
+    } catch (err: unknown) {
+      setBlockFormData(null);
+      setCaptureMsg({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Không thể tải dữ liệu công tơ của block',
+      });
+    } finally {
+      setBlockFormLoading(false);
+    }
+  }, []);
+
+  const loadBlockProgress = useCallback(
+    async (periodId: number, autoSelectBlock?: string) => {
+      setProgressLoading(true);
+      try {
+        const data = await ewApi.getBlockProgress(periodId);
+        setBlockProgress(data);
+        const targetCode =
+          autoSelectBlock ||
+          selectedBlockCode ||
+          data.blocks.find((b) => !isBlockComplete(b))?.blockCode ||
+          data.blocks[0]?.blockCode ||
+          '';
+        if (targetCode && data.blocks.some((b) => b.blockCode === targetCode)) {
+          await loadBlockForm(targetCode, periodId);
+        } else {
+          setSelectedBlockCode('');
+          setBlockFormData(null);
+        }
+      } catch (err: unknown) {
+        setBlockProgress(null);
+        setCaptureMsg({
+          type: 'error',
+          text: err instanceof Error ? err.message : 'Không thể tải tiến độ các block',
+        });
+      } finally {
+        setProgressLoading(false);
+      }
+    },
+    [selectedBlockCode, isBlockComplete, loadBlockForm]
+  );
+
+  useEffect(() => {
+    if (activeSection === 'capture' && isGuard && selectedPeriodId) {
+      void loadBlockProgress(Number(selectedPeriodId));
+    }
+  }, [activeSection, isGuard, selectedPeriodId, loadBlockProgress]);
+
+  const filteredProgressBlocks = React.useMemo(() => {
+    if (!blockProgress) return [];
+    const q = blockSearch.trim().toLowerCase();
+    return blockProgress.blocks.filter((b) => {
+      const done = isBlockComplete(b);
+      if (blockFilter === 'completed' && !done) return false;
+      if (blockFilter === 'incomplete' && done) return false;
+      if (!q) return true;
+      return (
+        b.blockCode.toLowerCase().includes(q) ||
+        b.blockName.toLowerCase().includes(q) ||
+        b.dormName.toLowerCase().includes(q)
+      );
+    });
+  }, [blockProgress, blockSearch, blockFilter, isBlockComplete]);
+
+  const handleSlotScanned = (slotKey: CaptureSlotKey, res: MeterPhotoScanResponseDto) => {
+    setCaptureSlots((prev) => {
+      const current = prev[slotKey];
+      return {
+        ...prev,
+        [slotKey]: {
+          value: res.readingValue !== undefined ? String(res.readingValue) : current.value,
+          evidenceUrl: res.evidenceImageUrl || current.evidenceUrl,
+          source: res.evidenceImageUrl ? 'PhotoOCR' : current.source,
+          editedManually: false,
+        },
+      };
+    });
+  };
+
+  const handleSlotValueChange = (slotKey: CaptureSlotKey, nextValue: string) => {
+    setCaptureSlots((prev) => {
+      const current = prev[slotKey];
+      return {
+        ...prev,
+        [slotKey]: {
+          ...current,
+          value: nextValue,
+          source: current.evidenceUrl ? current.source : 'Manual',
+          editedManually: Boolean(current.evidenceUrl),
+        },
+      };
+    });
+  };
+
+  const handleConfirmBlockCapture = async (advanceToNext: boolean) => {
+    if (!selectedPeriodId || !selectedBlockCode || !blockFormData) return;
+
+    const parseOptional = (raw: string): number | undefined => {
+      if (raw.trim() === '') return undefined;
+      const num = parseFloat(raw);
+      return Number.isNaN(num) ? undefined : num;
+    };
+
+    const payload: ManualConfirmRequestDto = {
+      billingPeriodId: Number(selectedPeriodId),
+      blockCode: selectedBlockCode,
+      electricityLeftNewValue: blockFormData.electricityLeft ? parseOptional(captureSlots.electricityLeft.value) : undefined,
+      electricityRightNewValue: blockFormData.electricityRight ? parseOptional(captureSlots.electricityRight.value) : undefined,
+      waterLeftNewValue: blockFormData.waterLeft ? parseOptional(captureSlots.waterLeft.value) : undefined,
+      waterRightNewValue: blockFormData.waterRight ? parseOptional(captureSlots.waterRight.value) : undefined,
+      electricityLeftEvidenceUrl: captureSlots.electricityLeft.evidenceUrl,
+      electricityRightEvidenceUrl: captureSlots.electricityRight.evidenceUrl,
+      waterLeftEvidenceUrl: captureSlots.waterLeft.evidenceUrl,
+      waterRightEvidenceUrl: captureSlots.waterRight.evidenceUrl,
+      electricityLeftSource: captureSlots.electricityLeft.evidenceUrl ? 'PhotoOCR' : 'Manual',
+      electricityRightSource: captureSlots.electricityRight.evidenceUrl ? 'PhotoOCR' : 'Manual',
+      waterLeftSource: captureSlots.waterLeft.evidenceUrl ? 'PhotoOCR' : 'Manual',
+      waterRightSource: captureSlots.waterRight.evidenceUrl ? 'PhotoOCR' : 'Manual',
+      note: captureNote.trim() || undefined,
+      importOnlyValid: false,
+    };
+
+    const hasAnyValue =
+      payload.electricityLeftNewValue !== undefined ||
+      payload.electricityRightNewValue !== undefined ||
+      payload.waterLeftNewValue !== undefined ||
+      payload.waterRightNewValue !== undefined;
+
+    if (!hasAnyValue) {
+      setCaptureMsg({ type: 'error', text: 'Vui lòng chụp ảnh hoặc nhập ít nhất 1 chỉ số trước khi lưu.' });
+      return;
+    }
+
+    setSavingBlock(true);
+    setCaptureMsg(null);
+    try {
+      const res = await ewApi.confirmManualReading(payload);
+      const summary = res.managerAlerted
+        ? `Đã lưu ${res.saved} chỉ số cho block ${selectedBlockCode} (${res.flagged} chỉ số bất thường đã gửi cảnh báo Quản lý).`
+        : `Đã lưu thành công ${res.saved} chỉ số cho block ${selectedBlockCode}!`;
+
+      loadUsage();
+
+      const updatedProgress = await ewApi.getBlockProgress(Number(selectedPeriodId));
+      setBlockProgress(updatedProgress);
+
+      if (advanceToNext) {
+        const nextBlock =
+          updatedProgress.blocks.find((b) => b.blockCode !== selectedBlockCode && !isBlockComplete(b)) ||
+          updatedProgress.blocks.find((b) => b.blockCode !== selectedBlockCode);
+        if (nextBlock) {
+          await loadBlockForm(nextBlock.blockCode, Number(selectedPeriodId));
+          setCaptureMsg({ type: 'success', text: `${summary} Đã chuyển sang block ${nextBlock.blockCode}.` });
+        } else {
+          await loadBlockForm(selectedBlockCode, Number(selectedPeriodId));
+          setCaptureMsg({ type: 'success', text: `${summary} Đã hoàn tất toàn bộ block!` });
+        }
+      } else {
+        await loadBlockForm(selectedBlockCode, Number(selectedPeriodId));
+        setCaptureMsg({ type: 'success', text: summary });
+      }
+    } catch (err: unknown) {
+      setCaptureMsg({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Không thể lưu chỉ số của block',
+      });
+    } finally {
+      setSavingBlock(false);
+    }
+  };
+
+  const flaggedAnomaliesCount = anomalies.filter((a) => a.status === 'Flagged').length;
+
+  const availableAnomalyDorms = React.useMemo(() => {
+    const set = new Set<string>(dormOptions);
+    for (const a of anomalies) {
+      if (a.dormName) set.add(a.dormName);
+    }
+    return Array.from(set).sort();
+  }, [dormOptions, anomalies]);
+
+  const groupedAnomalies = React.useMemo(() => {
+    const isElecItem = (item: UsageAnomalyItemDto) =>
+      (item.meterType || '').toLowerCase().includes('elec') ||
+      (item.meterType || '').toLowerCase().includes('điện');
+
+    const map = new Map<
+      string,
+      {
+        key: string;
+        roomId: number;
+        roomNumber: string;
+        blockCode: string;
+        dormName: string;
+        billingPeriodId?: number;
+        billingPeriodDisplay: string;
+        guardName: string;
+        guardPhone?: string;
+        items: UsageAnomalyItemDto[];
+        hasElec: boolean;
+        hasWater: boolean;
+      }
+    >();
+
+    for (const item of anomalies) {
+      const key = `${item.roomId}-${item.billingPeriodId ?? item.billingPeriodDisplay}`;
+      let group = map.get(key);
+      if (!group) {
+        group = {
+          key,
+          roomId: item.roomId,
+          roomNumber: item.roomNumber,
+          blockCode: item.blockCode,
+          dormName: item.dormName || 'Dom A',
+          billingPeriodId: item.billingPeriodId,
+          billingPeriodDisplay: item.billingPeriodDisplay || '—',
+          guardName: item.guardName || 'Bảo vệ',
+          guardPhone: item.guardPhone,
+          items: [],
+          hasElec: false,
+          hasWater: false,
+        };
+        map.set(key, group);
+      }
+      group.items.push(item);
+      if (isElecItem(item)) group.hasElec = true;
+      else group.hasWater = true;
+    }
+
+    const q = anomalyRoomSearch.trim().toLowerCase();
+    const dormTarget = anomalyDormFilter.trim().toLowerCase();
+
+    return Array.from(map.values())
+      .map((g) => ({
+        ...g,
+        // Sắp xếp Điện lên trước, Nước sau cho đồng nhất
+        items: [...g.items].sort((a, b) => (isElecItem(a) ? 0 : 1) - (isElecItem(b) ? 0 : 1)),
+      }))
+      .filter((g) => {
+        if (dormTarget && g.dormName.trim().toLowerCase() !== dormTarget) return false;
+        if (q) {
+          const matchRoom =
+            g.roomNumber.toLowerCase().includes(q) ||
+            g.blockCode.toLowerCase().includes(q) ||
+            g.dormName.toLowerCase().includes(q);
+          if (!matchRoom) return false;
+        }
+        if (anomalyMeterFilter === 'Electricity' && !g.hasElec) return false;
+        if (anomalyMeterFilter === 'Water' && !g.hasWater) return false;
+        if (anomalyMeterFilter === 'Both' && !(g.hasElec && g.hasWater)) return false;
+        return true;
+      });
+  }, [anomalies, anomalyDormFilter, anomalyRoomSearch, anomalyMeterFilter]);
+
+  useEffect(() => {
+    setAnomalyPage(1);
+  }, [selectedPeriodId, anomalyStatusFilter, anomalyDormFilter, anomalyRoomSearch, anomalyMeterFilter]);
+
+  const paginatedAnomalyGroups = React.useMemo(() => {
+    const start = (anomalyPage - 1) * anomalyPageSize;
+    return groupedAnomalies.slice(start, start + anomalyPageSize);
+  }, [groupedAnomalies, anomalyPage, anomalyPageSize]);
+
   return (
     <div className="facilities-container" style={{ padding: '24px 32px' }}>
       {/* ── Header ── */}
@@ -491,12 +968,26 @@ export const EwManagement: React.FC = () => {
       </div>
 
       {/* ── Tab nav ── */}
-      <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid #E2E8F0', marginBottom: 24 }}>
-        {([
-          { key: 'usage', label: 'Bảng theo dõi sử dụng' },
-          { key: 'import', label: 'Import chỉ số Excel' },
-          { key: 'history', label: 'Lịch sử import' },
-        ] as const).map((tab) => (
+      <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid #E2E8F0', marginBottom: 24, flexWrap: 'wrap' }}>
+        {(
+          isManager
+            ? ([
+                { key: 'usage', label: 'Bảng theo dõi sử dụng' },
+                ...(isGuard ? [{ key: 'capture' as const, label: 'Chụp ảnh công tơ (AI)' }] : []),
+                {
+                  key: 'anomalies',
+                  label: `Cảnh báo bất thường${flaggedAnomaliesCount > 0 ? ` (${flaggedAnomaliesCount})` : ''}`,
+                },
+                { key: 'import', label: 'Import chỉ số Excel' },
+                { key: 'history', label: 'Lịch sử import' },
+              ] as const)
+            : ([
+                { key: 'usage', label: 'Bảng theo dõi sử dụng' },
+                ...(isGuard ? [{ key: 'capture' as const, label: 'Chụp ảnh công tơ (AI)' }] : []),
+                { key: 'import', label: 'Import chỉ số Excel' },
+                { key: 'history', label: 'Lịch sử import' },
+              ] as const)
+        ).map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveSection(tab.key)}
@@ -518,6 +1009,459 @@ export const EwManagement: React.FC = () => {
       </div>
 
       {/* ════════════════════════════════════════════════
+          SECTION: CHỤP ẢNH CÔNG TƠ (AI) — GUARD
+          ════════════════════════════════════════════════ */}
+      {activeSection === 'capture' && isGuard && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          {/* Period & Progress header */}
+          <div
+            style={{
+              background: '#fff',
+              border: '1px solid #E2E8F0',
+              borderRadius: 12,
+              padding: '16px 20px',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 16,
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', flex: 1, minWidth: 260 }}>
+              <div style={{ minWidth: 240, flex: 1, maxWidth: 360 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
+                  Kỳ thanh toán
+                </label>
+                <select
+                  value={selectedPeriodId}
+                  onChange={(e) => {
+                    const nextId = e.target.value ? Number(e.target.value) : '';
+                    setSelectedPeriodId(nextId);
+                    setSelectedBlockCode('');
+                    setBlockFormData(null);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    border: '1px solid #CBD5E1',
+                    fontSize: 13,
+                    background: '#fff',
+                  }}
+                >
+                  <option value="">-- Chọn kỳ thanh toán --</option>
+                  {periods.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.displayName} ({p.termName}) — {p.status === 'Open' ? 'Đang mở' : 'Đã đóng'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {selectedPeriod && (
+                <span
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: 20,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    background: selectedPeriod.status === 'Open' ? '#DCFCE7' : '#FEE2E2',
+                    color: selectedPeriod.status === 'Open' ? '#15803D' : '#DC2626',
+                    marginTop: 18,
+                  }}
+                >
+                  {selectedPeriod.status === 'Open' ? 'Kỳ đang mở' : 'Kỳ đã đóng'}
+                </span>
+              )}
+            </div>
+
+            {blockProgress && (
+              <div style={{ minWidth: 230 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, color: '#0F172A', marginBottom: 6 }}>
+                  <span>Tiến độ ghi chỉ số</span>
+                  <span style={{ color: '#D97026' }}>
+                    {blockProgress.completedBlocks}/{blockProgress.totalBlocks} block
+                  </span>
+                </div>
+                <div style={{ width: '100%', height: 8, background: '#E2E8F0', borderRadius: 99, overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      width: `${blockProgress.totalBlocks > 0 ? Math.round((blockProgress.completedBlocks / blockProgress.totalBlocks) * 100) : 0}%`,
+                      height: '100%',
+                      background: '#D97026',
+                      transition: 'width 0.2s ease',
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {isClosed && selectedPeriod && (
+            <div
+              style={{
+                padding: '12px 16px',
+                borderRadius: 10,
+                background: '#FEF2F2',
+                border: '1px solid #FECACA',
+                color: '#DC2626',
+                fontWeight: 600,
+                fontSize: 13,
+              }}
+            >
+              Kỳ thanh toán này đã đóng — chức năng chụp ảnh &amp; lưu chỉ số đã được khóa.
+            </div>
+          )}
+
+          {captureMsg && (
+            <div
+              style={{
+                padding: '12px 16px',
+                borderRadius: 8,
+                background: captureMsg.type === 'success' ? '#DCFCE7' : '#FEF2F2',
+                border: `1px solid ${captureMsg.type === 'success' ? '#86EFAC' : '#FECACA'}`,
+                color: captureMsg.type === 'success' ? '#15803D' : '#DC2626',
+                fontSize: 13,
+                fontWeight: 600,
+              }}
+            >
+              {captureMsg.text}
+            </div>
+          )}
+
+          {/* Main 2-column capture workspace */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 300px) minmax(0, 1fr)', gap: 18, alignItems: 'start' }}>
+            {/* Left: Block list */}
+            <div
+              style={{
+                background: '#fff',
+                border: '1px solid #E2E8F0',
+                borderRadius: 12,
+                padding: 14,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
+              <input
+                type="text"
+                value={blockSearch}
+                onChange={(e) => setBlockSearch(e.target.value)}
+                placeholder="Tìm mã Block / KTX..."
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  border: '1px solid #CBD5E1',
+                  fontSize: 13,
+                  boxSizing: 'border-box',
+                }}
+              />
+
+              <div style={{ display: 'flex', gap: 6 }}>
+                {(
+                  [
+                    { id: 'all', label: 'Tất cả' },
+                    { id: 'incomplete', label: 'Chưa đủ' },
+                    { id: 'completed', label: 'Đã đủ' },
+                  ] as const
+                ).map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setBlockFilter(f.id)}
+                    style={{
+                      flex: 1,
+                      padding: '5px 6px',
+                      borderRadius: 6,
+                      border: blockFilter === f.id ? '1px solid #D97026' : '1px solid #E2E8F0',
+                      background: blockFilter === f.id ? '#FFF7ED' : '#F8FAFC',
+                      color: blockFilter === f.id ? '#C2410C' : '#475569',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ maxHeight: 520, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {progressLoading ? (
+                  <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#94A3B8' }}>
+                    Đang tải danh sách block...
+                  </div>
+                ) : filteredProgressBlocks.length === 0 ? (
+                  <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#94A3B8' }}>
+                    Không có block phù hợp.
+                  </div>
+                ) : (
+                  filteredProgressBlocks.map((b) => {
+                    const done = isBlockComplete(b);
+                    const isSelected = b.blockCode === selectedBlockCode;
+                    return (
+                      <button
+                        key={`${b.dormName}-${b.blockCode}`}
+                        type="button"
+                        onClick={() => {
+                          if (selectedPeriodId) {
+                            void loadBlockForm(b.blockCode, Number(selectedPeriodId));
+                          }
+                        }}
+                        style={{
+                          width: '100%',
+                          textAlign: 'left',
+                          padding: '10px 12px',
+                          borderRadius: 8,
+                          border: isSelected ? '2px solid #D97026' : '1px solid #E2E8F0',
+                          background: isSelected ? '#FFF7ED' : '#FFFFFF',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 8,
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: '#0F172A' }}>
+                            Block {b.blockCode}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#64748B' }}>{b.dormName || b.blockName}</div>
+                        </div>
+                        <span
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: 10,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            background: done ? '#DCFCE7' : '#FEF3C7',
+                            color: done ? '#15803D' : '#B45309',
+                          }}
+                        >
+                          {done ? 'Đủ' : 'Thiếu'}
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Right: 4 meter cards for selected block */}
+            <div
+              style={{
+                background: '#fff',
+                border: '1px solid #E2E8F0',
+                borderRadius: 12,
+                padding: 20,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 16,
+              }}
+            >
+              {blockFormLoading ? (
+                <div style={{ padding: 40, textAlign: 'center', color: '#94A3B8', fontSize: 14 }}>
+                  Đang tải công tơ của block {selectedBlockCode}...
+                </div>
+              ) : !blockFormData ? (
+                <div style={{ padding: 40, textAlign: 'center', color: '#94A3B8', fontSize: 14 }}>
+                  Chọn một Block ở cột bên trái để bắt đầu chụp ảnh công tơ.
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#0F172A' }}>
+                        Block {blockFormData.blockCode} — {blockFormData.displayPeriod}
+                      </h3>
+                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
+                        Chụp ảnh công tơ để AI tự điền chỉ số, kiểm tra lại rồi bấm Xác nhận lưu.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+                    {(
+                      [
+                        { key: 'electricityLeft' as const, title: 'Điện phòng Trái', meterType: 'Electricity' as const, unit: 'kWh', slot: blockFormData.electricityLeft },
+                        { key: 'electricityRight' as const, title: 'Điện phòng Phải', meterType: 'Electricity' as const, unit: 'kWh', slot: blockFormData.electricityRight },
+                        { key: 'waterLeft' as const, title: 'Nước phòng Trái', meterType: 'Water' as const, unit: 'm³', slot: blockFormData.waterLeft },
+                        { key: 'waterRight' as const, title: 'Nước phòng Phải', meterType: 'Water' as const, unit: 'm³', slot: blockFormData.waterRight },
+                      ]
+                    )
+                      .filter((item): item is typeof item & { slot: RoomOldReadingDto } => Boolean(item.slot))
+                      .map(({ key, title, meterType, unit, slot }) => {
+                        const state = captureSlots[key];
+                        const isElec = meterType === 'Electricity';
+                        const parsedNew = state.value.trim() === '' ? undefined : parseFloat(state.value);
+                        const consumption = parsedNew !== undefined && !Number.isNaN(parsedNew) ? parsedNew - slot.oldReading : undefined;
+                        const isNegative = consumption !== undefined && consumption < 0;
+                        const isZero = consumption !== undefined && consumption === 0;
+
+                        return (
+                          <div
+                            key={`${blockFormData.blockCode}-${key}`}
+                            style={{
+                              border: `1px solid ${isElec ? '#FED7AA' : '#BFDBFE'}`,
+                              background: isElec ? '#FFFBF5' : '#F8FBFF',
+                              borderRadius: 10,
+                              padding: 14,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 10,
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                              <div>
+                                <div style={{ fontWeight: 700, fontSize: 14, color: isElec ? '#C2410C' : '#1D4ED8' }}>
+                                  {title} ({slot.roomNumber})
+                                </div>
+                                <div style={{ fontSize: 12, color: '#64748B' }}>
+                                  Chỉ số cũ: <strong>{slot.oldReading} {unit}</strong>
+                                </div>
+                              </div>
+                              <span
+                                style={{
+                                  padding: '2px 8px',
+                                  borderRadius: 10,
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  background: state.evidenceUrl ? '#ECFDF5' : slot.alreadyRecorded ? '#EFF6FF' : '#F1F5F9',
+                                  color: state.evidenceUrl ? '#047857' : slot.alreadyRecorded ? '#1D4ED8' : '#64748B',
+                                }}
+                              >
+                                {state.evidenceUrl
+                                  ? state.editedManually
+                                    ? 'AI + Đã sửa tay'
+                                    : 'AI Camera'
+                                  : slot.alreadyRecorded
+                                    ? 'Đã ghi trước đó'
+                                    : 'Chưa ghi'}
+                              </span>
+                            </div>
+
+                            <MeterPhotoScanner
+                              key={`${blockFormData.blockCode}-${key}-${slot.roomId}`}
+                              expectedMeterType={meterType}
+                              previousValue={slot.oldReading}
+                              saveEvidence
+                              disabled={isClosed || savingBlock}
+                              label={slot.roomNumber}
+                              existingImageUrl={state.evidenceUrl || slot.existingEvidenceImageUrl}
+                              onScanned={(res) => handleSlotScanned(key, res)}
+                            />
+
+                            <div>
+                              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>
+                                Chỉ số mới ({unit})
+                              </label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                disabled={isClosed || savingBlock}
+                                value={state.value}
+                                onChange={(e) => handleSlotValueChange(key, e.target.value)}
+                                placeholder={`Nhập >= ${slot.oldReading}`}
+                                style={{
+                                  width: '100%',
+                                  padding: '8px 10px',
+                                  borderRadius: 7,
+                                  border: isNegative ? '1px solid #EF4444' : isZero ? '1px solid #F59E0B' : '1px solid #CBD5E1',
+                                  background: isNegative ? '#FEF2F2' : '#FFFFFF',
+                                  fontSize: 14,
+                                  fontWeight: 700,
+                                  color: '#0F172A',
+                                  boxSizing: 'border-box',
+                                }}
+                              />
+                              {consumption !== undefined && (
+                                <div
+                                  style={{
+                                    marginTop: 4,
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    color: isNegative ? '#DC2626' : isZero ? '#B45309' : '#047857',
+                                  }}
+                                >
+                                  Tiêu thụ dự kiến: {consumption.toFixed(2)} {unit}
+                                  {isNegative ? ' (Nhỏ hơn chỉ số cũ!)' : isZero ? ' (Bằng 0 — kiểm tra lại)' : ''}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+
+                  {/* Shared note & Save buttons */}
+                  <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
+                        Ghi chú chung cho Block (tùy chọn)
+                      </label>
+                      <input
+                        type="text"
+                        disabled={isClosed || savingBlock}
+                        value={captureNote}
+                        onChange={(e) => setCaptureNote(e.target.value)}
+                        placeholder="VD: Đồng hồ kính hơi mờ, đã đối chiếu trực tiếp..."
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          borderRadius: 8,
+                          border: '1px solid #CBD5E1',
+                          fontSize: 13,
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        disabled={isClosed || savingBlock}
+                        onClick={() => void handleConfirmBlockCapture(false)}
+                        style={{
+                          padding: '9px 18px',
+                          borderRadius: 8,
+                          border: '1px solid #D97026',
+                          background: '#FFF7ED',
+                          color: '#C2410C',
+                          fontWeight: 700,
+                          fontSize: 13,
+                          cursor: isClosed || savingBlock ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {savingBlock ? 'Đang lưu...' : 'Xác nhận lưu Block'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isClosed || savingBlock}
+                        onClick={() => void handleConfirmBlockCapture(true)}
+                        style={{
+                          padding: '9px 20px',
+                          borderRadius: 8,
+                          border: 'none',
+                          background: isClosed || savingBlock ? '#94A3B8' : '#D97026',
+                          color: '#FFFFFF',
+                          fontWeight: 700,
+                          fontSize: 13,
+                          cursor: isClosed || savingBlock ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {savingBlock ? 'Đang lưu...' : 'Lưu & sang Block tiếp theo →'}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════
           SECTION: BẢNG SỬ DỤNG
           ════════════════════════════════════════════════ */}
       {activeSection === 'usage' && (
@@ -535,6 +1479,30 @@ export const EwManagement: React.FC = () => {
               alignItems: 'flex-end',
             }}
           >
+            {/* 0. Ký túc xá (Dorm) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Dorm</label>
+              <select
+                value={usageFilter.dormName}
+                onChange={(e) => setUsageFilter((prev) => ({ ...prev, dormName: e.target.value }))}
+                style={{
+                  padding: '8px 12px',
+                  border: '1px solid #CBD5E1',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  minWidth: 145,
+                  background: '#fff',
+                }}
+              >
+                <option value="">Tất cả Dorm</option>
+                {availableDorms.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* 1. Học kỳ */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <label style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Học kỳ</label>
@@ -642,10 +1610,10 @@ export const EwManagement: React.FC = () => {
             </button>
 
             {/* 6. Xóa bộ lọc */}
-            {(usageFilter.termId || usageFilter.billingPeriodId || usageFilter.blockCode || usageFilter.meterType || usageFilter.month || usageFilter.year) && (
+            {(usageFilter.dormName || usageFilter.termId || usageFilter.billingPeriodId || usageFilter.blockCode || usageFilter.meterType || usageFilter.month || usageFilter.year) && (
               <button
                 onClick={() => {
-                  setUsageFilter({ termId: '', billingPeriodId: '', blockCode: '', meterType: '', month: '', year: '' });
+                  setUsageFilter({ dormName: '', termId: '', billingPeriodId: '', blockCode: '', meterType: '', month: '', year: '' });
                 }}
                 style={{
                   padding: '8px 16px',
@@ -664,7 +1632,7 @@ export const EwManagement: React.FC = () => {
 
           {/* Kết quả banner */}
           <div style={{ fontSize: '18px', fontWeight: 700, color: '#1D4ED8', margin: '4px 0 0 2px' }}>
-            Kết quả: <span style={{ fontWeight: 800 }}>{usageRows.length}</span>
+            Kết quả: <span style={{ fontWeight: 800 }}>{filteredUsageRows.length}</span>
           </div>
 
           {/* Usage table */}
@@ -683,7 +1651,7 @@ export const EwManagement: React.FC = () => {
               <div style={{ padding: 40, color: '#94a3b8', textAlign: 'center' }}>
                 <p style={{ margin: 0, fontSize: 14 }}>Đang tải danh sách chỉ số từ máy chủ...</p>
               </div>
-            ) : usageRows.length === 0 ? (
+            ) : filteredUsageRows.length === 0 ? (
               <div style={{ padding: 40, color: '#94a3b8', textAlign: 'center' }}>
                 Không tìm thấy dữ liệu phù hợp. Hãy điều chỉnh bộ lọc hoặc chọn kỳ thanh toán khác.
               </div>
@@ -718,10 +1686,7 @@ export const EwManagement: React.FC = () => {
                     <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '6%' }}>
                       Đơn vị
                     </th>
-                    <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '4%' }}>
-                      Reset
-                    </th>
-                    <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '7%' }}>
+                    <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: '#475569', width: '11%' }}>
                       Thao tác
                     </th>
                   </tr>
@@ -816,9 +1781,6 @@ export const EwManagement: React.FC = () => {
                         </td>
                         <td style={{ padding: '12px 14px', textAlign: 'center', color: '#64748B' }}>
                           {row.donvi}
-                        </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'center', color: '#94A3B8' }}>
-                          —
                         </td>
                         <td style={{ padding: '12px 14px', textAlign: 'center' }}>
                           <button
@@ -1082,7 +2044,7 @@ export const EwManagement: React.FC = () => {
                       }}
                     >
                       <span>
-                        💡 <strong>Chỉnh sửa trực tiếp:</strong> Bạn có thể gõ sửa trực tiếp chỉ số tại cột <strong>Giá trị L</strong> và <strong>Giá trị R</strong> bên dưới. Mức tiêu thụ sẽ được tự động tính toán lại tức thì trước khi bạn bấm <strong>Xác nhận lưu</strong>.
+                        <strong>Chỉnh sửa trực tiếp:</strong> Bạn có thể gõ sửa trực tiếp chỉ số tại cột <strong>Giá trị L</strong> và <strong>Giá trị R</strong> bên dưới. Mức tiêu thụ sẽ được tự động tính toán lại tức thì trước khi bạn bấm <strong>Xác nhận lưu</strong>.
                       </span>
                     </div>
 
@@ -1256,6 +2218,634 @@ export const EwManagement: React.FC = () => {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════
+          SECTION: CẢNH BÁO BẤT THƯỜNG (MANAGER ADJUST / CONFIRM)
+          ════════════════════════════════════════════════ */}
+      {activeSection === 'anomalies' && isManager && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Workflow Banner */}
+          <div
+            style={{
+              background: '#FFF7ED',
+              border: '1px solid #FDBA74',
+              borderRadius: 12,
+              padding: '14px 18px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 12,
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 280 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#9A3412', marginBottom: 4 }}>
+                Quy trình xử lý cảnh báo bất thường (Điện vượt &gt; 1,000 kWh / Nước vượt &gt; 50 m³ sau định mức)
+              </div>
+              <div style={{ fontSize: 12.5, color: '#C2410C', lineHeight: 1.55 }}>
+                1. Liên hệ Bảo vệ tòa nhà để kiểm tra phòng (rò rỉ nước / thiết bị cấm như bếp từ).
+                <br />
+                2. Bấm <strong>Xác nhận (Confirm)</strong> nếu sinh viên dùng thật, hoặc <strong>Điều chỉnh (Adjust)</strong> nếu do rò rỉ/nhập sai. Hệ thống sẽ tự động tính phụ trội, tạo hóa đơn và gửi thông báo công nợ ngay khi xử lý xong.
+              </div>
+            </div>
+
+            {selectedPeriodId && (
+              <button
+                onClick={handleCalculateSurcharges}
+                disabled={calcLoading}
+                title="Chạy đồng bộ / tính lại phụ trội và tạo hóa đơn còn thiếu cho toàn bộ phòng hợp lệ (không bị Flagged) trong kỳ này"
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: '#D97026',
+                  color: '#fff',
+                  fontWeight: 700,
+                  fontSize: 12.5,
+                  cursor: calcLoading ? 'not-allowed' : 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {calcLoading ? 'Đang đồng bộ...' : 'Đồng bộ / Tính lại phụ trội kỳ này'}
+              </button>
+            )}
+          </div>
+
+          {/* Filter Bar */}
+          <div
+            style={{
+              background: '#fff',
+              border: '1px solid #E2E8F0',
+              borderRadius: 12,
+              padding: '14px 16px',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 10,
+              alignItems: 'flex-end',
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 11.5, fontWeight: 600, color: '#475569' }}>Kỳ thanh toán</label>
+              <select
+                value={selectedPeriodId}
+                onChange={(e) => setSelectedPeriodId(e.target.value ? Number(e.target.value) : '')}
+                style={{
+                  padding: '7px 10px',
+                  borderRadius: 8,
+                  border: '1px solid #CBD5E1',
+                  background: '#fff',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  minWidth: 190,
+                }}
+              >
+                <option value="">Tất cả kỳ thanh toán</option>
+                {periods.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.displayName} ({p.termName})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 11.5, fontWeight: 600, color: '#475569' }}>Khu KTX (Dorm)</label>
+              <select
+                value={anomalyDormFilter}
+                onChange={(e) => setAnomalyDormFilter(e.target.value)}
+                style={{
+                  padding: '7px 10px',
+                  borderRadius: 8,
+                  border: '1px solid #CBD5E1',
+                  background: '#fff',
+                  fontSize: 13,
+                  minWidth: 145,
+                }}
+              >
+                <option value="">Tất cả Dorm</option>
+                {availableAnomalyDorms.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 11.5, fontWeight: 600, color: '#475569' }}>Phòng / Block</label>
+              <input
+                type="text"
+                value={anomalyRoomSearch}
+                onChange={(e) => setAnomalyRoomSearch(e.target.value)}
+                placeholder="VD: 202R, 101..."
+                style={{
+                  padding: '7px 10px',
+                  borderRadius: 8,
+                  border: '1px solid #CBD5E1',
+                  background: '#fff',
+                  fontSize: 13,
+                  width: 140,
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 11.5, fontWeight: 600, color: '#475569' }}>Loại bất thường</label>
+              <select
+                value={anomalyMeterFilter}
+                onChange={(e) => setAnomalyMeterFilter(e.target.value)}
+                style={{
+                  padding: '7px 10px',
+                  borderRadius: 8,
+                  border: '1px solid #CBD5E1',
+                  background: '#fff',
+                  fontSize: 13,
+                  minWidth: 145,
+                }}
+              >
+                <option value="">Tất cả (Điện & Nước)</option>
+                <option value="Electricity">Có Điện bất thường</option>
+                <option value="Water">Có Nước bất thường</option>
+                <option value="Both">Cả Điện & Nước</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 11.5, fontWeight: 600, color: '#475569' }}>Trạng thái</label>
+              <select
+                value={anomalyStatusFilter}
+                onChange={(e) => setAnomalyStatusFilter(e.target.value)}
+                style={{
+                  padding: '7px 10px',
+                  borderRadius: 8,
+                  border: '1px solid #CBD5E1',
+                  background: '#fff',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  minWidth: 165,
+                }}
+              >
+                <option value="">Tất cả trạng thái</option>
+                <option value="Flagged">Đang chờ xử lý (Flagged)</option>
+                <option value="Resolved">Đã xử lý (Resolved)</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+              {(anomalyDormFilter || anomalyRoomSearch || anomalyMeterFilter || anomalyStatusFilter !== 'Flagged') && (
+                <button
+                  onClick={() => {
+                    setAnomalyDormFilter('');
+                    setAnomalyRoomSearch('');
+                    setAnomalyMeterFilter('');
+                    setAnomalyStatusFilter('Flagged');
+                  }}
+                  style={{
+                    padding: '7px 12px',
+                    borderRadius: 8,
+                    border: '1px solid #CBD5E1',
+                    background: '#F8FAFC',
+                    color: '#64748B',
+                    fontWeight: 600,
+                    fontSize: 12.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Xóa lọc
+                </button>
+              )}
+              <button
+                onClick={loadAnomalies}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 8,
+                  border: '1px solid #CBD5E1',
+                  background: '#fff',
+                  color: '#374151',
+                  fontWeight: 600,
+                  fontSize: 12.5,
+                  cursor: 'pointer',
+                }}
+              >
+                Làm mới
+              </button>
+            </div>
+          </div>
+
+          {/* Summary count */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, color: '#475569', padding: '0 2px' }}>
+            <span>
+              Hiển thị <strong style={{ color: '#0F172A' }}>{groupedAnomalies.length}</strong> phòng có cảnh báo
+              {anomalies.length > 0 && (
+                <span> ({anomalies.length} chỉ số bất thường)</span>
+              )}
+            </span>
+          </div>
+
+          {anomalyMsg && (
+            <div
+              style={{
+                padding: '12px 16px',
+                borderRadius: 10,
+                background: anomalyMsg.type === 'success' ? '#F0FDF4' : '#FEF2F2',
+                border: `1px solid ${anomalyMsg.type === 'success' ? '#86EFAC' : '#FCA5A5'}`,
+                color: anomalyMsg.type === 'success' ? '#166534' : '#991B1B',
+                fontWeight: 600,
+                fontSize: 13,
+              }}
+            >
+              {anomalyMsg.text}
+            </div>
+          )}
+
+          {/* Anomalies Table (Grouped by Room, 100% width fit) */}
+          <div
+            style={{
+              background: '#fff',
+              border: '1px solid #E2E8F0',
+              borderRadius: 12,
+              overflow: 'hidden',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            }}
+          >
+            {anomaliesLoading ? (
+              <div style={{ padding: 28, textAlign: 'center', color: '#64748B' }}>
+                Đang tải danh sách cảnh báo bất thường...
+              </div>
+            ) : groupedAnomalies.length === 0 ? (
+              <div style={{ padding: 36, textAlign: 'center', color: '#64748B' }}>
+                Không có phòng nào có cảnh báo bất thường theo bộ lọc hiện tại.
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', fontSize: 12.5 }}>
+                <thead>
+                  <tr style={{ background: '#F8FAFC', borderBottom: '2px solid #E2E8F0' }}>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#374151', width: '19%' }}>
+                      Phòng / KTX &amp; Bảo vệ
+                    </th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#374151', width: '24%' }}>
+                      Loại &amp; Chỉ số tiêu thụ
+                    </th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#374151', width: '33%' }}>
+                      Lý do cảnh báo
+                    </th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#374151', width: '24%' }}>
+                      Trạng thái &amp; Thao tác
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedAnomalyGroups.map((group, gIdx) => {
+                    const rowBg = gIdx % 2 === 0 ? '#FFFFFF' : '#F8FAFC';
+                    return group.items.map((item, itemIdx) => {
+                      const isElec =
+                        (item.meterType || '').toLowerCase().includes('elec') ||
+                        (item.meterType || '').toLowerCase().includes('điện');
+                      const unit = isElec ? 'kWh' : 'm³';
+                      const isFlagged = item.status === 'Flagged';
+                      const isLastInGroup = itemIdx === group.items.length - 1;
+
+                      return (
+                        <tr
+                          key={item.anomalyId}
+                          style={{
+                            background: rowBg,
+                            borderBottom: isLastInGroup ? '2px solid #E2E8F0' : '1px dashed #CBD5E1',
+                          }}
+                        >
+                          {itemIdx === 0 && (
+                            <td
+                              rowSpan={group.items.length}
+                              style={{
+                                padding: '12px',
+                                verticalAlign: 'top',
+                                borderRight: '1px solid #F1F5F9',
+                                wordBreak: 'break-word',
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                <span style={{ fontWeight: 800, fontSize: 14, color: '#0F172A' }}>
+                                  Phòng {group.roomNumber}
+                                </span>
+                                {group.hasElec && group.hasWater && (
+                                  <span
+                                    style={{
+                                      padding: '1px 6px',
+                                      borderRadius: 6,
+                                      fontSize: 10,
+                                      fontWeight: 700,
+                                      background: '#FEF2F2',
+                                      color: '#B91C1C',
+                                      border: '1px solid #FECACA',
+                                    }}
+                                  >
+                                    Điện + Nước
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: 12, color: '#475569', marginTop: 2 }}>
+                                {group.dormName} • {group.billingPeriodDisplay}
+                              </div>
+                              <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid #F1F5F9', fontSize: 11.5 }}>
+                                <div style={{ fontWeight: 600, color: '#334155' }}>BV: {group.guardName}</div>
+                                {group.guardPhone && (
+                                  <div style={{ color: '#0284C7', fontWeight: 600 }}>SĐT: {group.guardPhone}</div>
+                                )}
+                              </div>
+                            </td>
+                          )}
+
+                          <td style={{ padding: '10px 12px', verticalAlign: 'top', wordBreak: 'break-word' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+                              <span
+                                style={{
+                                  padding: '2px 8px',
+                                  borderRadius: 10,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  background: isElec ? '#FEF3C7' : '#DBEAFE',
+                                  color: isElec ? '#B45309' : '#1D4ED8',
+                                }}
+                              >
+                                {isElec ? 'Điện' : 'Nước'}
+                              </span>
+                              <span style={{ fontWeight: 600, color: '#334155' }}>
+                                {item.previousValue} → <span style={{ color: '#DC2626' }}>{item.currentValue}</span>
+                              </span>
+                            </div>
+                            <div style={{ fontWeight: 700, color: '#0F172A' }}>
+                              Tiêu thụ: {item.consumption.toLocaleString('vi-VN')} {unit}
+                            </div>
+                            <div style={{ fontSize: 11, color: item.overUsage > 0 ? '#DC2626' : '#64748B', marginTop: 2 }}>
+                              Định mức: {item.quota} {unit} | Vượt: {item.overUsage > 0 ? `+${item.overUsage.toLocaleString('vi-VN')}` : 0} {unit}
+                            </div>
+                          </td>
+
+                          <td style={{ padding: '10px 12px', verticalAlign: 'top', color: '#991B1B', lineHeight: 1.45, wordBreak: 'break-word' }}>
+                            <div style={{ fontWeight: 500 }}>{item.flagReason}</div>
+                            {item.managerNote && (
+                              <div style={{ fontSize: 11, color: '#475569', marginTop: 4, fontStyle: 'italic' }}>
+                                Ghi chú QL: {item.managerNote}
+                              </div>
+                            )}
+                          </td>
+
+                          <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
+                            <div style={{ marginBottom: 8 }}>
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  padding: '3px 8px',
+                                  borderRadius: 10,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  background: isFlagged ? '#FEE2E2' : '#DCFCE7',
+                                  color: isFlagged ? '#991B1B' : '#166534',
+                                }}
+                              >
+                                {isFlagged
+                                  ? 'Chờ kiểm tra (Flagged)'
+                                  : item.resolution === 'Corrected'
+                                  ? 'Đã điều chỉnh'
+                                  : 'Đã xác nhận'}
+                              </span>
+                            </div>
+                            {isFlagged ? (
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                <button
+                                  onClick={() => handleOpenResolveModal(item, 'Confirm')}
+                                  style={{
+                                    padding: '5px 10px',
+                                    borderRadius: 6,
+                                    border: '1px solid #16A34A',
+                                    background: '#F0FDF4',
+                                    color: '#15803D',
+                                    fontWeight: 700,
+                                    fontSize: 11.5,
+                                    cursor: 'pointer',
+                                  }}
+                                  title="Xác nhận chỉ số đúng (sinh viên dùng bếp từ / dùng nhiều thật) và tính phụ trội"
+                                >
+                                  Xác nhận
+                                </button>
+                                <button
+                                  onClick={() => handleOpenResolveModal(item, 'Adjust')}
+                                  style={{
+                                    padding: '5px 10px',
+                                    borderRadius: 6,
+                                    border: '1px solid #D97026',
+                                    background: '#FFF7ED',
+                                    color: '#C2410C',
+                                    fontWeight: 700,
+                                    fontSize: 11.5,
+                                    cursor: 'pointer',
+                                  }}
+                                  title="Điều chỉnh lại chỉ số (do rò rỉ nước hoặc bảo vệ ghi nhầm) rồi tính phụ trội"
+                                >
+                                  Điều chỉnh
+                                </button>
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: 11.5, color: '#64748B' }}>
+                                Đã chốt {item.resolvedByName ? `bởi ${item.resolvedByName}` : ''}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Pagination */}
+          {groupedAnomalies.length > 0 && (
+            <Pagination
+              currentPage={anomalyPage}
+              totalItems={groupedAnomalies.length}
+              pageSize={anomalyPageSize}
+              onPageChange={setAnomalyPage}
+              itemName="phòng"
+            />
+          )}
+
+          {/* Modal Adjust or Confirm Utility Data */}
+          {resolvingAnomaly && (
+            <div
+              style={{
+                position: 'fixed',
+                inset: 0,
+                background: 'rgba(15, 23, 42, 0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1100,
+                padding: 16,
+              }}
+            >
+              <div
+                style={{
+                  background: '#fff',
+                  borderRadius: 14,
+                  maxWidth: 520,
+                  width: '100%',
+                  padding: '24px 26px',
+                  boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)',
+                }}
+              >
+                <h3 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 800, color: '#0F172A' }}>
+                  {resolveAction === 'Confirm'
+                    ? 'Xác nhận chỉ số bất thường (Confirm Utility Data)'
+                    : 'Điều chỉnh chỉ số điện/nước (Adjust Utility Data)'}
+                </h3>
+                <p style={{ margin: '0 0 16px', fontSize: 13, color: '#475569', lineHeight: 1.5 }}>
+                  Phòng <strong>{resolvingAnomaly.roomNumber}</strong> ({resolvingAnomaly.dormName}) —{' '}
+                  <strong>{resolvingAnomaly.meterType === 'Electricity' ? 'Điện' : 'Nước'}</strong> ({resolvingAnomaly.billingPeriodDisplay})
+                  <br />
+                  <span style={{ color: '#B91C1C' }}>Cảnh báo: {resolvingAnomaly.flagReason}</span>
+                </p>
+
+                <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+                  <button
+                    type="button"
+                    onClick={() => setResolveAction('Confirm')}
+                    style={{
+                      flex: 1,
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: resolveAction === 'Confirm' ? '2px solid #16A34A' : '1px solid #CBD5E1',
+                      background: resolveAction === 'Confirm' ? '#F0FDF4' : '#fff',
+                      color: resolveAction === 'Confirm' ? '#15803D' : '#475569',
+                      fontWeight: 700,
+                      fontSize: 13,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Giữ nguyên chỉ số (Confirm)
+                    <div style={{ fontSize: 11, fontWeight: 500, marginTop: 2 }}>
+                      SV dùng nhiều thật / dùng bếp từ
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setResolveAction('Adjust')}
+                    style={{
+                      flex: 1,
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: resolveAction === 'Adjust' ? '2px solid #D97026' : '1px solid #CBD5E1',
+                      background: resolveAction === 'Adjust' ? '#FFF7ED' : '#fff',
+                      color: resolveAction === 'Adjust' ? '#C2410C' : '#475569',
+                      fontWeight: 700,
+                      fontSize: 13,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Sửa lại chỉ số (Adjust)
+                    <div style={{ fontSize: 11, fontWeight: 500, marginTop: 2 }}>
+                      Do rò rỉ nước / bảo vệ ghi nhầm
+                    </div>
+                  </button>
+                </div>
+
+                <div style={{ marginBottom: 14, fontSize: 13, color: '#334155' }}>
+                  Chỉ số kỳ trước: <strong>{resolvingAnomaly.previousValue}</strong> | Chỉ số bảo vệ nhập:{' '}
+                  <strong>{resolvingAnomaly.currentValue}</strong> (Tiêu thụ: <strong>{resolvingAnomaly.consumption}</strong>)
+                </div>
+
+                {resolveAction === 'Adjust' && (
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 6 }}>
+                      Chỉ số mới sau khi kiểm tra (&ge; {resolvingAnomaly.previousValue}) *
+                    </label>
+                    <input
+                      type="number"
+                      value={resolveValue}
+                      onChange={(e) => setResolveValue(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: 8,
+                        border: '1px solid #CBD5E1',
+                        fontSize: 14,
+                        fontWeight: 600,
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                )}
+
+                <div style={{ marginBottom: 18 }}>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 6 }}>
+                    Ghi chú kết quả kiểm tra từ Bảo vệ
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={resolveNote}
+                    onChange={(e) => setResolveNote(e.target.value)}
+                    placeholder={
+                      resolveAction === 'Confirm'
+                        ? 'VD: Đã gọi bảo vệ kiểm tra phòng, xác nhận sinh viên sử dụng bếp từ nấu ăn...'
+                        : 'VD: Bảo vệ kiểm tra phát hiện rò rỉ van nước nhà vệ sinh, điều chỉnh lại chỉ số...'
+                    }
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: 8,
+                      border: '1px solid #CBD5E1',
+                      fontSize: 13,
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => setResolvingAnomaly(null)}
+                    disabled={resolveLoading}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: '1px solid #CBD5E1',
+                      background: '#fff',
+                      color: '#475569',
+                      fontWeight: 600,
+                      fontSize: 13,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSubmitResolveAnomaly}
+                    disabled={resolveLoading}
+                    style={{
+                      padding: '8px 18px',
+                      borderRadius: 8,
+                      border: 'none',
+                      background: resolveAction === 'Confirm' ? '#16A34A' : '#D97026',
+                      color: '#fff',
+                      fontWeight: 700,
+                      fontSize: 13,
+                      cursor: resolveLoading ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {resolveLoading
+                      ? 'Đang xử lý...'
+                      : resolveAction === 'Confirm'
+                      ? 'Xác nhận & Tính phụ trội'
+                      : 'Lưu điều chỉnh & Tính phụ trội'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1546,7 +3136,7 @@ export const EwManagement: React.FC = () => {
                 );
 
                 return (
-                  <div style={{ border: '1px solid #E2E8F0', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ border: '1px solid #E2E8F0', borderRadius: 8, overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
                         <tr style={{ background: '#F8FAFC' }}>
@@ -1555,6 +3145,8 @@ export const EwManagement: React.FC = () => {
                           <th style={{ padding: '8px 10px', textAlign: 'right', color: '#475569', borderBottom: '1px solid #E2E8F0' }}>Chỉ số cũ</th>
                           <th style={{ padding: '8px 10px', textAlign: 'right', color: '#475569', borderBottom: '1px solid #E2E8F0', width: 110 }}>Chỉ số mới</th>
                           <th style={{ padding: '8px 10px', textAlign: 'right', color: '#475569', borderBottom: '1px solid #E2E8F0' }}>Tiêu thụ</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'center', color: '#475569', borderBottom: '1px solid #E2E8F0' }}>Nguồn</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'center', color: '#475569', borderBottom: '1px solid #E2E8F0' }}>Ảnh công tơ</th>
                           <th style={{ padding: '8px 10px', textAlign: 'center', color: '#475569', borderBottom: '1px solid #E2E8F0' }}>Trạng thái</th>
                           <th style={{ padding: '8px 10px', textAlign: 'left', color: '#475569', borderBottom: '1px solid #E2E8F0' }}>Người ghi</th>
                           <th style={{ padding: '8px 10px', textAlign: 'left', color: '#475569', borderBottom: '1px solid #E2E8F0' }}>Thời gian</th>
@@ -1627,6 +3219,59 @@ export const EwManagement: React.FC = () => {
                                 {isEditing && !isNaN(parseFloat(editReadingValue))
                                   ? (parseFloat(editReadingValue) - m.previousValue).toFixed(2)
                                   : m.consumption.toFixed(2)}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                                <span
+                                  style={{
+                                    display: 'inline-block',
+                                    padding: '2px 7px',
+                                    borderRadius: 6,
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    background: m.source === 'PhotoOCR' ? '#ECFDF5' : m.source === 'Import' ? '#EFF6FF' : '#F1F5F9',
+                                    color: m.source === 'PhotoOCR' ? '#047857' : m.source === 'Import' ? '#1D4ED8' : '#475569',
+                                  }}
+                                >
+                                  {m.source === 'PhotoOCR'
+                                    ? 'AI Camera'
+                                    : m.source === 'Import'
+                                      ? 'Excel'
+                                      : m.source === 'Handover'
+                                        ? 'Bàn giao'
+                                        : 'Nhập tay'}
+                                </span>
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                {m.evidenceImageUrl ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setLightboxImage({
+                                        url: m.evidenceImageUrl!,
+                                        title: `Ảnh công tơ phòng ${m.roomNumber} (${(m.meterType || '').toLowerCase().includes('electric') ? 'Điện' : 'Nước'})`,
+                                        subtitle: `Chỉ số: ${m.previousValue.toFixed(2)} → ${m.currentValue.toFixed(2)}`,
+                                      })
+                                    }
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 4,
+                                      padding: '3px 8px',
+                                      borderRadius: 6,
+                                      border: '1px solid #BFDBFE',
+                                      background: '#EFF6FF',
+                                      color: '#1D4ED8',
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      cursor: 'pointer',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    Xem ảnh
+                                  </button>
+                                ) : (
+                                  <span style={{ color: '#94A3B8' }}>—</span>
+                                )}
                               </td>
                               <td style={{ padding: '8px 10px', textAlign: 'center' }}>
                                 <span
@@ -1741,6 +3386,13 @@ export const EwManagement: React.FC = () => {
           </div>
         </div>
       )}
+
+      <ImageLightboxModal
+        imageUrl={lightboxImage?.url ?? null}
+        title={lightboxImage?.title}
+        subtitle={lightboxImage?.subtitle}
+        onClose={() => setLightboxImage(null)}
+      />
     </div>
   );
 };

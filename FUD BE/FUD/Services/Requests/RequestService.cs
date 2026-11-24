@@ -10,6 +10,7 @@ using FUD.Repositories.Interfaces.Requests;
 using FUD.Repositories.Interfaces.Violations;
 using FUD.Services.Interfaces;
 using FUD.Services.Interfaces.Requests;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace FUD.Services.Requests
 {
@@ -20,19 +21,27 @@ namespace FUD.Services.Requests
         private readonly IFileStorage _fileStorage;
         private readonly IEmailSender _emailSender;
         private readonly IInAppNotificationService? _inAppNotificationService;
+        private readonly Microsoft.Extensions.Configuration.IConfiguration? _configuration;
+        private readonly IMemoryCache? _cache;
+
+        private static string Enc(string? v) => System.Net.WebUtility.HtmlEncode(v ?? string.Empty);
 
         public RequestService(
             IRequestRepository requestRepo,
             IViolationRepository violationRepo,
             IFileStorage fileStorage,
             IEmailSender emailSender,
-            IInAppNotificationService? inAppNotificationService = null)
+            IInAppNotificationService? inAppNotificationService = null,
+            Microsoft.Extensions.Configuration.IConfiguration? configuration = null,
+            IMemoryCache? cache = null)
         {
             _requestRepo = requestRepo;
             _violationRepo = violationRepo;
             _fileStorage = fileStorage;
             _emailSender = emailSender;
             _inAppNotificationService = inAppNotificationService;
+            _configuration = configuration;
+            _cache = cache;
         }
 
         public async Task<List<RequestItemDto>> GetAllRequestsAsync(string? requestType = null, string? status = null)
@@ -175,6 +184,20 @@ namespace FUD.Services.Requests
             if (dto.RequestType == "BedTransfer")
             {
                 return await CreateBedTransferInternalAsync(studentId, studentUser, dto);
+            }
+
+            if (dto.RequestType == "Complaint" && dto.TargetViolationId.HasValue)
+            {
+                var targetViolation = await _violationRepo.GetViolationByIdAsync(dto.TargetViolationId.Value);
+                if (targetViolation == null)
+                {
+                    throw new ArgumentException("Biên bản vi phạm không tồn tại.");
+                }
+
+                if (targetViolation.StudentId != studentId)
+                {
+                    throw new UnauthorizedAccessException("Bạn chỉ được khiếu nại biên bản vi phạm của chính mình.");
+                }
             }
 
             int termId = dto.TermId ?? 0;
@@ -320,13 +343,21 @@ namespace FUD.Services.Requests
             if (dto.TransferDate.HasValue)
             {
                 var todayVn = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
-                if (dto.TransferDate.Value < todayVn)
+                var minTransferDate = todayVn.AddDays(7);
+                if (minTransferDate > activeResidency.Term.EndDate)
                 {
-                    throw new InvalidOperationException("Ngày dự kiến chuyển không được nhỏ hơn ngày hiện tại.");
+                    throw new InvalidOperationException(
+                        $"Thời gian còn lại của học kỳ ít hơn 1 tuần (kết thúc ngày {activeResidency.Term.EndDate:dd/MM/yyyy}), không thể chọn ngày dự kiến chuyển sau 7 ngày kể từ ngày tạo đơn.");
+                }
+                if (dto.TransferDate.Value < minTransferDate)
+                {
+                    throw new InvalidOperationException(
+                        $"Ngày dự kiến chuyển giường phải sau ít nhất 1 tuần kể từ ngày tạo đơn (từ ngày {minTransferDate:dd/MM/yyyy} trở đi).");
                 }
                 if (dto.TransferDate.Value > activeResidency.Term.EndDate)
                 {
-                    throw new InvalidOperationException("Ngày dự kiến chuyển phải nằm trong thời gian của học kỳ hiện tại.");
+                    throw new InvalidOperationException(
+                        $"Ngày dự kiến chuyển phải nằm trong thời gian của học kỳ hiện tại (không vượt quá ngày {activeResidency.Term.EndDate:dd/MM/yyyy}).");
                 }
             }
 
@@ -454,6 +485,18 @@ namespace FUD.Services.Requests
             if (dto.CurrentWaterReading < prevWater)
                 throw new InvalidOperationException($"Chỉ số nước hiện tại ({dto.CurrentWaterReading}) không được nhỏ hơn chỉ số cũ ({prevWater}).");
 
+            string? validElecUrl;
+            string? validWaterUrl;
+            try
+            {
+                validElecUrl = FUD.Services.Utilities.MeterEvidenceUrlValidator.ValidateOrNull(dto.ElectricityEvidenceImageUrl, _configuration);
+                validWaterUrl = FUD.Services.Utilities.MeterEvidenceUrlValidator.ValidateOrNull(dto.WaterEvidenceImageUrl, _configuration);
+            }
+            catch (ArgumentException ex)
+            {
+                throw new InvalidOperationException(ex.Message);
+            }
+
             var roomEquipments = await _requestRepo.GetRoomAndBedEquipmentsAsync(fromRoomId, bt.FromBedId);
             var validEquipMap = roomEquipments.ToDictionary(e => e.Id);
 
@@ -533,7 +576,8 @@ namespace FUD.Services.Requests
                     Status = "Recorded",
                     RecordedById = guardUserId,
                     RecordedTime = now,
-                    Note = trimmedNote
+                    Note = trimmedNote,
+                    EvidenceImageUrl = validElecUrl
                 },
                 new MeterReading
                 {
@@ -546,7 +590,8 @@ namespace FUD.Services.Requests
                     Status = "Recorded",
                     RecordedById = guardUserId,
                     RecordedTime = now,
-                    Note = trimmedNote
+                    Note = trimmedNote,
+                    EvidenceImageUrl = validWaterUrl
                 }
             };
 
@@ -677,6 +722,7 @@ namespace FUD.Services.Requests
                             studentUser.SuspendedById = managerId;
                             studentUser.SuspensionReason = $"Bị đình chỉ nội trú theo quyết định kỷ luật biên bản {violation.Code} ({violation.FinalLevel})";
                             await _requestRepo.UpdateUserAsync(studentUser);
+                            _cache?.Remove($"user_status_{studentUser.Id}");
                         }
                         else if (violation.Status == "Dismissed" || (violation.Status == "Finalized" && !string.IsNullOrEmpty(violation.FinalLevel) && !violation.FinalLevel.Contains("Đình chỉ")))
                         {
@@ -687,6 +733,7 @@ namespace FUD.Services.Requests
                                 studentUser.SuspendedById = null;
                                 studentUser.SuspensionReason = null;
                                 await _requestRepo.UpdateUserAsync(studentUser);
+                                _cache?.Remove($"user_status_{studentUser.Id}");
                             }
                         }
                     }
@@ -702,14 +749,14 @@ namespace FUD.Services.Requests
                         var body = $@"
 <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
     <h2 style='color: #ea580c;'>Kết quả xử lý Đơn khiếu nại</h2>
-    <p>Xin chào <strong>{studentName}</strong>,</p>
-    <p>Ban Quản lý Ký túc xá đã hoàn tất xem xét và phản hồi đơn khiếu nại của bạn đối với biên bản vi phạm <strong>{violation.Code}</strong>.</p>
+    <p>Xin chào <strong>{Enc(studentName)}</strong>,</p>
+    <p>Ban Quản lý Ký túc xá đã hoàn tất xem xét và phản hồi đơn khiếu nại của bạn đối với biên bản vi phạm <strong>{Enc(violation.Code)}</strong>.</p>
     <div style='background: #f8fafc; border-left: 4px solid #ea580c; padding: 12px; margin: 16px 0;'>
-        <p><strong>Biên bản:</strong> {violation.Code}</p>
-        <p><strong>Lỗi vi phạm:</strong> {violation.ViolationType?.Name}</p>
-        <p><strong>Trạng thái kết luận:</strong> {statusVi}</p>
-        <p><strong>Mức độ chính thức:</strong> {violation.FinalLevel ?? "Đã hủy bỏ"}</p>
-        <p><strong>Phản hồi từ Ban Quản lý:</strong> {dto.Note ?? "Không có"}</p>
+        <p><strong>Biên bản:</strong> {Enc(violation.Code)}</p>
+        <p><strong>Lỗi vi phạm:</strong> {Enc(violation.ViolationType?.Name)}</p>
+        <p><strong>Trạng thái kết luận:</strong> {Enc(statusVi)}</p>
+        <p><strong>Mức độ chính thức:</strong> {Enc(violation.FinalLevel ?? "Đã hủy bỏ")}</p>
+        <p><strong>Phản hồi từ Ban Quản lý:</strong> {Enc(dto.Note ?? "Không có")}</p>
     </div>
     <p>Vui lòng đăng nhập hệ thống F.U.D để xem chi tiết đầy đủ hồ sơ của bạn.</p>
     <hr style='border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;'/>
@@ -858,12 +905,12 @@ namespace FUD.Services.Requests
                     $"[KTX FUD] Thông báo từ chối đơn chuyển giường {requestCode}",
                     $@"<div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
                         <h2 style='color: #dc2626;'>Đơn chuyển giường bị từ chối</h2>
-                        <p>Xin chào <strong>{req.Student?.User?.FullName}</strong>,</p>
-                        <p>Đơn yêu cầu chuyển giường <strong>{requestCode}</strong> của bạn đã bị Ban Quản lý từ chối.</p>
+                        <p>Xin chào <strong>{Enc(req.Student?.User?.FullName)}</strong>,</p>
+                        <p>Đơn yêu cầu chuyển giường <strong>{Enc(requestCode)}</strong> của bạn đã bị Ban Quản lý từ chối.</p>
                         <div style='background: #fef2f2; border-left: 4px solid #dc2626; padding: 12px; margin: 16px 0;'>
-                            <p><strong>Giường hiện tại:</strong> {bt.FromBed?.BedCode} - P.{bt.FromBed?.Room?.RoomNumber}</p>
-                            <p><strong>Giường đăng ký chuyển:</strong> {bt.ToBed?.BedCode} - P.{bt.ToBed?.Room?.RoomNumber}</p>
-                            <p><strong>Lý do từ chối:</strong> {rejectReason}</p>
+                            <p><strong>Giường hiện tại:</strong> {Enc(bt.FromBed?.BedCode)} - P.{Enc(bt.FromBed?.Room?.RoomNumber)}</p>
+                            <p><strong>Giường đăng ký chuyển:</strong> {Enc(bt.ToBed?.BedCode)} - P.{Enc(bt.ToBed?.Room?.RoomNumber)}</p>
+                            <p><strong>Lý do từ chối:</strong> {Enc(rejectReason)}</p>
                         </div>
                         <p>Bạn vẫn tiếp tục lưu trú tại giường hiện tại.</p>
                     </div>");
@@ -879,15 +926,34 @@ namespace FUD.Services.Requests
                     throw new InvalidOperationException("Đơn chuyển giường không ở trạng thái Chờ xử lý (Pending) để duyệt Bước 1.");
                 }
 
-                if (!dto.AssignedGuardId.HasValue || dto.AssignedGuardId.Value <= 0)
+                var oldDormId = bt.FromBed?.Room?.Block?.DormId ?? 0;
+                Guard? guard;
+                if (dto.AssignedGuardId.HasValue && dto.AssignedGuardId.Value > 0)
                 {
-                    throw new InvalidOperationException("Vui lòng chọn Bảo vệ phụ trách kiểm tra phòng cũ trước khi duyệt đơn.");
-                }
+                    guard = await _requestRepo.GetGuardByUserIdAsync(dto.AssignedGuardId.Value);
+                    if (guard == null)
+                    {
+                        throw new InvalidOperationException("Không tìm thấy Bảo vệ được phân công hoặc tài khoản Bảo vệ không hoạt động.");
+                    }
 
-                var guard = await _requestRepo.GetGuardByUserIdAsync(dto.AssignedGuardId.Value);
-                if (guard == null)
+                    if (oldDormId > 0 && guard.DormId != oldDormId)
+                    {
+                        throw new InvalidOperationException("Chỉ được phân công Bảo vệ đang phụ trách tòa KTX phòng cũ của sinh viên.");
+                    }
+                }
+                else
                 {
-                    throw new InvalidOperationException("Không tìm thấy Bảo vệ được phân công hoặc tài khoản Bảo vệ không hoạt động.");
+                    if (oldDormId <= 0)
+                    {
+                        throw new InvalidOperationException("Không xác định được tòa KTX phòng cũ để tự động phân công Bảo vệ.");
+                    }
+
+                    var dormGuards = await _requestRepo.GetGuardsAsync(oldDormId);
+                    guard = dormGuards.FirstOrDefault(g => g.DormId == oldDormId);
+                    if (guard == null)
+                    {
+                        throw new InvalidOperationException("Tòa KTX phòng cũ của sinh viên hiện chưa có Bảo vệ đang hoạt động để phân công.");
+                    }
                 }
 
                 var term = bt.FromResidency?.Term ?? req.Term
@@ -901,7 +967,6 @@ namespace FUD.Services.Requests
                 }
 
                 var roomPrices = await _requestRepo.GetPublishedRoomPricesAsync(req.TermId);
-                var oldDormId = bt.FromBed?.Room?.Block?.DormId ?? 0;
                 var oldRoomTypeId = bt.FromBed?.Room?.RoomTypeId ?? 0;
                 var newDormId = bt.ToBed?.Room?.Block?.DormId ?? 0;
                 var newRoomTypeId = bt.ToBed?.Room?.RoomTypeId ?? 0;
@@ -982,13 +1047,13 @@ namespace FUD.Services.Requests
                     $"[KTX FUD] Chấp thuận Bước 1 đơn chuyển giường {requestCode}",
                     $@"<div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
                         <h2 style='color: #2563eb;'>Đơn chuyển giường đã được chấp thuận Bước 1</h2>
-                        <p>Xin chào <strong>{req.Student?.User?.FullName}</strong>,</p>
-                        <p>Ban Quản lý KTX đã chấp thuận yêu cầu chuyển giường <strong>{requestCode}</strong> và phân công cán bộ Bảo vệ phối hợp kiểm tra bàn giao phòng cũ.</p>
+                        <p>Xin chào <strong>{Enc(req.Student?.User?.FullName)}</strong>,</p>
+                        <p>Ban Quản lý KTX đã chấp thuận yêu cầu chuyển giường <strong>{Enc(requestCode)}</strong> và phân công cán bộ Bảo vệ phối hợp kiểm tra bàn giao phòng cũ.</p>
                         <div style='background: #eff6ff; border-left: 4px solid #2563eb; padding: 12px; margin: 16px 0;'>
-                            <p><strong>Giường cũ:</strong> {bt.FromBed?.BedCode} - P.{bt.FromBed?.Room?.RoomNumber}</p>
-                            <p><strong>Giường mới:</strong> {bt.ToBed?.BedCode} - P.{bt.ToBed?.Room?.RoomNumber}</p>
+                            <p><strong>Giường cũ:</strong> {Enc(bt.FromBed?.BedCode)} - P.{Enc(bt.FromBed?.Room?.RoomNumber)}</p>
+                            <p><strong>Giường mới:</strong> {Enc(bt.ToBed?.BedCode)} - P.{Enc(bt.ToBed?.Room?.RoomNumber)}</p>
                             <p><strong>Ngày chuyển dự kiến:</strong> {transferDate:dd/MM/yyyy}</p>
-                            <p><strong>Bảo vệ phụ trách:</strong> {guardDisplayName} ({guard.User?.Phone ?? "N/A"})</p>
+                            <p><strong>Bảo vệ phụ trách:</strong> {Enc(guardDisplayName)} ({Enc(guard.User?.Phone ?? "N/A")})</p>
                         </div>
                         <p>Vui lòng phối hợp cùng Bảo vệ và bạn cùng phòng để kiểm tra thiết bị, chốt điện nước phòng cũ trước khi Quản lý phát hành hóa đơn và cập nhật giường mới.</p>
                     </div>");
@@ -1153,13 +1218,34 @@ namespace FUD.Services.Requests
                 Channel = "InApp",
                 Title = $"Hoàn tất chuyển giường ({requestCode}) - Giường mới {bt.ToBed?.BedCode}",
                 Content = $"Yêu cầu chuyển giường sang P.{bt.ToBed?.Room?.RoomNumber} - Giường {bt.ToBed?.BedCode} đã hoàn tất."
-                          + (totalBilled > 0m ? $" Hóa đơn công nợ đã phát hành: {invoiceCodes} (hạn thanh toán {dueDate:dd/MM/yyyy})." : " Không có khoản công nợ phát sinh.")
+                          + (totalBilled > 0m ? $" Hóa đơn công nợ đã phát hành và đẩy sang mục Thanh toán hóa đơn: {invoiceCodes} (hạn thanh toán {dueDate:dd/MM/yyyy})." : " Không có khoản công nợ phát sinh.")
                           + (refundDue > 0m ? $" Số tiền chênh lệch giảm phòng ({refundDue:N0}đ) sẽ được Ban Quản lý đối soát hoàn/cấn trừ." : string.Empty),
                 ReferenceType = "Request",
                 ReferenceId = req.Id.ToString(),
                 ReadFlag = false,
                 SentTime = now
             };
+
+            var invoiceNotifications = invoices.Select(inv =>
+            {
+                var typeTitle = inv.InvoiceType == "Compensation"
+                    ? "Hóa đơn bồi thường chuyển giường"
+                    : inv.InvoiceType == "Utility"
+                        ? "Hóa đơn điện nước chốt chuyển giường"
+                        : "Hóa đơn phí chuyển giường";
+
+                return new Notification
+                {
+                    UserId = req.StudentId,
+                    Channel = "InApp",
+                    Title = $"{typeTitle} ({inv.InvoiceNumber})",
+                    Content = $"Ban Quản lý đã phát hành hóa đơn {inv.InvoiceNumber} ({inv.Amount:N0}đ) từ đơn chuyển giường {requestCode}, hạn thanh toán {inv.DueDate:dd/MM/yyyy}. Bấm để mở mục Thanh toán hóa đơn.",
+                    ReferenceType = "Invoice",
+                    ReferenceId = null,
+                    ReadFlag = false,
+                    SentTime = now
+                };
+            }).ToList();
 
             await _requestRepo.CompleteBedTransferAsync(
                 req,
@@ -1174,22 +1260,27 @@ namespace FUD.Services.Requests
                 managerId,
                 string.IsNullOrWhiteSpace(dto.Note) ? null : dto.Note.Trim(),
                 completeLog,
-                completeNotification);
+                completeNotification,
+                invoiceNotifications);
+
+            var paymentGuidanceHtml = totalBilled > 0m
+                ? "<p>Hóa đơn công nợ đã được đẩy sang mục <strong>Thanh toán hóa đơn</strong> trên Cổng Sinh viên F.U.D. Vui lòng truy cập để quét mã VietQR và hoàn tất thanh toán đúng hạn.</p>"
+                : "<p>Đơn chuyển giường không phát sinh khoản công nợ cần thanh toán.</p>";
 
             await TrySendEmailAsync(
                 req.Student?.User?.Email,
                 $"[KTX FUD] Hoàn tất chuyển giường {requestCode} - Nhận giường mới {bt.ToBed?.BedCode}",
                 $@"<div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
                     <h2 style='color: #16a34a;'>Hoàn tất chuyển giường giữa kỳ</h2>
-                    <p>Xin chào <strong>{req.Student?.User?.FullName}</strong>,</p>
-                    <p>Ban Quản lý Ký túc xá xác nhận đã hoàn tất thủ tục chuyển giường <strong>{requestCode}</strong> cho bạn.</p>
+                    <p>Xin chào <strong>{Enc(req.Student?.User?.FullName)}</strong>,</p>
+                    <p>Ban Quản lý Ký túc xá xác nhận đã hoàn tất thủ tục chuyển giường <strong>{Enc(requestCode)}</strong> cho bạn.</p>
                     <div style='background: #f0fdf4; border-left: 4px solid #16a34a; padding: 12px; margin: 16px 0;'>
-                        <p><strong>Giường cũ (đã trả):</strong> {bt.FromBed?.BedCode} - P.{bt.FromBed?.Room?.RoomNumber} ({bt.FromBed?.Room?.Block?.Dorm?.Name})</p>
-                        <p><strong>Giường mới (đang lưu trú):</strong> {bt.ToBed?.BedCode} - P.{bt.ToBed?.Room?.RoomNumber} ({bt.ToBed?.Room?.Block?.Dorm?.Name})</p>
+                        <p><strong>Giường cũ (đã trả):</strong> {Enc(bt.FromBed?.BedCode)} - P.{Enc(bt.FromBed?.Room?.RoomNumber)} ({Enc(bt.FromBed?.Room?.Block?.Dorm?.Name)})</p>
+                        <p><strong>Giường mới (đang lưu trú):</strong> {Enc(bt.ToBed?.BedCode)} - P.{Enc(bt.ToBed?.Room?.RoomNumber)} ({Enc(bt.ToBed?.Room?.Block?.Dorm?.Name)})</p>
                         <p><strong>Ngày hiệu lực:</strong> {newCheckInDate:dd/MM/yyyy}</p>
-                        <p><strong>Hóa đơn công nợ:</strong> {invoiceCodes}</p>
+                        <p><strong>Hóa đơn công nợ:</strong> {Enc(invoiceCodes)}</p>
                     </div>
-                    <p>Vui lòng kiểm tra mục Hóa đơn / Yêu cầu trên hệ thống F.U.D để hoàn tất thanh toán đúng hạn.</p>
+                    {paymentGuidanceHtml}
                 </div>");
 
             var reloadedComplete = await _requestRepo.GetRequestByIdAsync(req.Id) ?? req;
@@ -1384,7 +1475,8 @@ namespace FUD.Services.Requests
                         StudentShareCost = shareCost,
                         ResidentCount = Math.Max(1, residentCount),
                         RecordedTime = m.RecordedTime,
-                        Note = m.Note
+                        Note = m.Note,
+                        EvidenceImageUrl = m.EvidenceImageUrl
                     };
                 })
                 .ToList();

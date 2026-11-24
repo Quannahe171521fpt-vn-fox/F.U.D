@@ -6,7 +6,8 @@ import type {
   SaveSchedulePayload,
 } from '../types/management';
 import { authFetch } from './apiClient';
-const BASE_URL = '/api';
+import { env } from '../config/env';
+const BASE_URL = env.apiBaseUrl;
 
 async function parseJsonSafe(res: Response): Promise<any> {
   const text = await res.text();
@@ -891,6 +892,8 @@ export interface RoomDto {
   status: string;
   totalBeds: number;
   freeBeds: number;
+  occupiedBeds: number;      // số giường có sinh viên ở thực tế
+  isEditable: boolean;       // = occupiedBeds === 0 (do backend tính)
 }
 
 export interface RoomTypeLookup {
@@ -1111,6 +1114,7 @@ export interface BedTransferMeterReadingDto {
   residentCount: number;
   recordedTime: string;
   note?: string;
+  evidenceImageUrl?: string;
 }
 
 export interface BedTransferInvoiceSummaryDto {
@@ -1169,6 +1173,8 @@ export interface TransferInspectionTaskDto {
 export interface SubmitTransferInspectionPayload {
   currentElectricityReading: number;
   currentWaterReading: number;
+  electricityEvidenceImageUrl?: string;
+  waterEvidenceImageUrl?: string;
   note?: string;
   items: Array<{
     equipmentId: number;
@@ -1406,6 +1412,8 @@ export interface PendingCheckinStudent {
   termId: number;
   termName: string;
   bookingStatus: string;
+  canCheckin?: boolean;
+  checkinBlockedReason?: string | null;
 }
 
 export interface RoomEquipmentCheckin {
@@ -1660,6 +1668,7 @@ export interface ResidencyTransferRecord {
   transferDate?: string;
   priceDifference?: number;
   createdTime: string;
+  hasUnpaidInvoice?: boolean;
 }
 
 export interface ResidencyCheckoutRecord {
@@ -1722,8 +1731,108 @@ export interface EwReadingDetailItem {
   source: string;
   status: string;
   note?: string;
+  evidenceImageUrl?: string;
   recordedTime: string;
   recordedByName?: string;
+}
+
+export interface MeterPhotoScanResponseDto {
+  isMeterImage: boolean;
+  readingValue?: number;
+  rawDigits?: string;
+  detectedMeterType: 'Electricity' | 'Water' | 'Unknown' | string;
+  meterTypeMismatch: boolean;
+  confidence: number;
+  confidenceLevel: 'High' | 'Medium' | 'Low' | string;
+  aiNotes?: string;
+  evidenceImageUrl?: string;
+  previousValue?: number;
+  estimatedConsumption?: number;
+  validationStatus: 'Valid' | 'Warning' | 'Error' | string;
+  warnings?: string[];
+}
+
+export interface RoomReadingStatusDto {
+  roomId: number;
+  roomNumber: string;
+  hasReading: boolean;
+  currentValue?: number;
+  recordedAt?: string;
+  status?: string;
+}
+
+export interface BlockProgressItemDto {
+  blockCode: string;
+  blockName: string;
+  dormName: string;
+  electricityLeft?: RoomReadingStatusDto;
+  electricityRight?: RoomReadingStatusDto;
+  waterLeft?: RoomReadingStatusDto;
+  waterRight?: RoomReadingStatusDto;
+}
+
+export interface BlockProgressResponseDto {
+  billingPeriodId: number;
+  displayName: string;
+  totalBlocks: number;
+  completedBlocks: number;
+  missingBlocks: number;
+  blocks: BlockProgressItemDto[];
+}
+
+export interface RoomOldReadingDto {
+  roomId: number;
+  roomNumber: string;
+  oldReading: number;
+  alreadyRecorded: boolean;
+  existingCurrentValue?: number;
+  existingEvidenceImageUrl?: string;
+  existingSource?: string;
+}
+
+export interface BlockFormDataResponseDto {
+  blockCode: string;
+  billingPeriodId: number;
+  displayPeriod: string;
+  electricityLeft?: RoomOldReadingDto;
+  electricityRight?: RoomOldReadingDto;
+  waterLeft?: RoomOldReadingDto;
+  waterRight?: RoomOldReadingDto;
+}
+
+export interface ManualConfirmRequestDto {
+  billingPeriodId: number;
+  blockCode: string;
+  electricityLeftNewValue?: number;
+  electricityRightNewValue?: number;
+  waterLeftNewValue?: number;
+  waterRightNewValue?: number;
+  electricityLeftEvidenceUrl?: string;
+  electricityRightEvidenceUrl?: string;
+  waterLeftEvidenceUrl?: string;
+  waterRightEvidenceUrl?: string;
+  electricityLeftSource?: 'Manual' | 'PhotoOCR';
+  electricityRightSource?: 'Manual' | 'PhotoOCR';
+  waterLeftSource?: 'Manual' | 'PhotoOCR';
+  waterRightSource?: 'Manual' | 'PhotoOCR';
+  note?: string;
+  importOnlyValid?: boolean;
+}
+
+export interface ReadingConfirmResultDto {
+  readingId?: number;
+  roomNumber: string;
+  meterType: string;
+  status: string;
+  anomalyReason?: string;
+}
+
+export interface ManualConfirmResponseDto {
+  saved: number;
+  flagged: number;
+  skipped: number;
+  managerAlerted: boolean;
+  results: ReadingConfirmResultDto[];
 }
 
 export interface EwUsageRow {
@@ -1790,6 +1899,55 @@ export interface ImportBatchItemDto {
   totalRows: number;
   errorRows: number;
   importTime: string;
+}
+
+export interface UsageAnomalyItemDto {
+  anomalyId: number;
+  readingId: number;
+  billingPeriodId?: number;
+  billingPeriodDisplay: string;
+  roomId: number;
+  roomNumber: string;
+  blockCode: string;
+  blockName: string;
+  dormName: string;
+  meterType: string;
+  previousValue: number;
+  currentValue: number;
+  consumption: number;
+  quota: number;
+  overUsage: number;
+  flagReason: string;
+  status: string; // 'Flagged' | 'Resolved'
+  resolution?: string; // 'Accepted' | 'Corrected'
+  managerNote?: string;
+  guardName: string;
+  guardPhone?: string;
+  createdTime: string;
+  resolvedTime?: string;
+  resolvedByName?: string;
+}
+
+export interface ResolveAnomalyResponseDto {
+  anomalyId: number;
+  readingId: number;
+  status: string;
+  resolution: string;
+  finalReadingValue: number;
+  finalConsumption: number;
+  surchargeCalculated: boolean;
+  debtNotificationsSent: number;
+  sharePerStudent?: number;
+  message: string;
+}
+
+export interface BillingCalculationResultDto {
+  billingPeriodId: number;
+  roomsCalculated: number;
+  roomsSkippedFlagged: number;
+  invoicesCreated: number;
+  notificationsSent: number;
+  message: string;
 }
 
 export interface StudentTermOptionDto {
@@ -1912,9 +2070,21 @@ export const ewApi = {
     return json.data || [];
   },
 
-  downloadTemplate: (billingPeriodId?: number): void => {
+  downloadTemplate: async (billingPeriodId?: number): Promise<void> => {
     const qs = billingPeriodId ? `?billingPeriodId=${billingPeriodId}` : '';
-    window.open(`${BASE_URL}/ew/import/template${qs}`, '_blank');
+    const res = await authFetch(`${BASE_URL}/ew/import/template${qs}`);
+    if (!res.ok) {
+      throw new Error('Không thể tải file mẫu Excel');
+    }
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'Ew_Template.xlsx');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
   },
 
   updateReading: async (id: number, currentValue: number, note?: string): Promise<{ success: boolean; message: string }> => {
@@ -1941,6 +2111,98 @@ export const ewApi = {
     const json = await safeParseResponse<StudentEwReportDto | null>(res);
     if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải thông tin điện nước');
     return json.data || null;
+  },
+
+  getAnomalies: async (params?: { billingPeriodId?: number; status?: string }): Promise<UsageAnomalyItemDto[]> => {
+    const query = new URLSearchParams();
+    if (params?.billingPeriodId) query.append('billingPeriodId', params.billingPeriodId.toString());
+    if (params?.status) query.append('status', params.status);
+    const qs = query.toString();
+    const res = await authFetch(`${BASE_URL}/ew/anomalies${qs ? `?${qs}` : ''}`);
+    const json = await safeParseResponse<UsageAnomalyItemDto[]>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải danh sách cảnh báo bất thường');
+    return json.data || [];
+  },
+
+  resolveAnomaly: async (
+    id: number,
+    payload: { action: 'Confirm' | 'Adjust'; adjustedValue?: number; managerNote?: string }
+  ): Promise<ResolveAnomalyResponseDto> => {
+    const res = await authFetch(`${BASE_URL}/ew/anomalies/${id}/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<ResolveAnomalyResponseDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Lỗi khi xử lý cảnh báo bất thường');
+    return json.data || ({ message: json.message } as ResolveAnomalyResponseDto);
+  },
+
+  calculatePeriodSurcharges: async (billingPeriodId: number): Promise<BillingCalculationResultDto> => {
+    const res = await authFetch(`${BASE_URL}/ew/billing-periods/${billingPeriodId}/calculate`, {
+      method: 'POST',
+    });
+    const json = await safeParseResponse<BillingCalculationResultDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Lỗi khi tính phụ trội điện nước');
+    return json.data || ({ message: json.message } as BillingCalculationResultDto);
+  },
+
+  getBlockProgress: async (billingPeriodId: number): Promise<BlockProgressResponseDto> => {
+    const res = await authFetch(`${BASE_URL}/ew/billing-periods/${billingPeriodId}/blocks`);
+    const json = await safeParseResponse<BlockProgressResponseDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải tiến độ ghi chỉ số các block');
+    return json.data;
+  },
+
+  getBlockFormData: async (blockCode: string, billingPeriodId: number): Promise<BlockFormDataResponseDto> => {
+    const query = new URLSearchParams({
+      blockCode,
+      billingPeriodId: billingPeriodId.toString(),
+    });
+    const res = await authFetch(`${BASE_URL}/ew/readings/block-form?${query.toString()}`);
+    const json = await safeParseResponse<BlockFormDataResponseDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể tải thông tin công tơ của block');
+    return json.data;
+  },
+
+  confirmManualReading: async (payload: ManualConfirmRequestDto): Promise<ManualConfirmResponseDto> => {
+    const res = await authFetch(`${BASE_URL}/ew/readings/manual/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await safeParseResponse<ManualConfirmResponseDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể lưu chỉ số điện nước');
+    return json.data;
+  },
+
+  scanMeterPhoto: async (
+    photo: File,
+    options?: {
+      expectedMeterType?: 'Electricity' | 'Water';
+      previousValue?: number;
+      saveEvidence?: boolean;
+    }
+  ): Promise<MeterPhotoScanResponseDto> => {
+    const form = new FormData();
+    form.append('photo', photo);
+    if (options?.expectedMeterType) {
+      form.append('expectedMeterType', options.expectedMeterType);
+    }
+    if (options?.previousValue !== undefined && !Number.isNaN(options.previousValue)) {
+      form.append('previousValue', options.previousValue.toString());
+    }
+    if (options?.saveEvidence !== undefined) {
+      form.append('saveEvidence', options.saveEvidence ? 'true' : 'false');
+    }
+
+    const res = await authFetch(`${BASE_URL}/ew/readings/scan-photo`, {
+      method: 'POST',
+      body: form,
+    });
+    const json = await safeParseResponse<MeterPhotoScanResponseDto>(res);
+    if (!res.ok || json.success === false) throw new Error(json.message || 'Không thể nhận diện chỉ số từ ảnh công tơ');
+    return json.data;
   },
 };
 
@@ -2074,6 +2336,69 @@ export const accountApi = {
 
   restore: (id: number, payload: { reason?: string }) =>
     adminAccountRequest<AccountItem>(`${BASE_URL}/admin/users/${id}/restore`, jsonInit('POST', payload), 'Lỗi khi khôi phục tài khoản'),
+};
+
+// ── Audit Log API (Admin) ───────────────────────────────────
+export interface AuditLogItem {
+  id: number;
+  logType: 'Impersonation' | 'RoleChange' | 'AccountStatus' | 'System';
+  actorId?: number;
+  actorName?: string;
+  actorCode?: string;
+  targetUserId?: number;
+  targetUserName?: string;
+  targetUserCode?: string;
+  actionType?: string;
+  targetEntity?: string;
+  targetId?: string;
+  oldValue?: string;
+  newValue?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  createdAt: string;
+  notes?: string;
+}
+
+export interface AuditLogDetail extends AuditLogItem {
+  rawPayload?: string;
+}
+
+export interface AuditLogQuery {
+  page?: number;
+  pageSize?: number;
+  logType?: string;
+  actorId?: number;
+  fromDate?: string;
+  toDate?: string;
+  search?: string;
+}
+
+export const auditApi = {
+  getAll: (params?: AuditLogQuery) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.append('page', params.page.toString());
+    if (params?.pageSize) query.append('pageSize', params.pageSize.toString());
+    if (params?.logType && params.logType !== 'All') query.append('logType', params.logType);
+    if (params?.actorId) query.append('actorId', params.actorId.toString());
+    if (params?.fromDate) query.append('fromDate', params.fromDate);
+    if (params?.toDate) query.append('toDate', params.toDate);
+    if (params?.search) query.append('search', params.search);
+    return adminAccountRequest<PagedResult<AuditLogItem>>(
+      `${BASE_URL}/admin/audit-logs?${query.toString()}`,
+      undefined,
+      'Không thể tải nhật ký kiểm toán'
+    );
+  },
+
+  getDetail: (id: number, logType?: string) => {
+    const query = new URLSearchParams();
+    if (logType) query.append('logType', logType);
+    return adminAccountRequest<AuditLogDetail>(
+      `${BASE_URL}/admin/audit-logs/${id}?${query.toString()}`,
+      undefined,
+      'Không thể tải chi tiết nhật ký kiểm toán'
+    );
+  },
 };
 
 
@@ -2685,17 +3010,6 @@ export const paymentApi = {
       'Không thể khởi tạo giao dịch VietQR'
     ),
 
-  mockConfirm: (transactionId: number, gatewayReference?: string): Promise<PaymentSuccessDto> =>
-    studentPaymentRequest<PaymentSuccessDto>(
-      `${BASE_URL}/student/payments/${transactionId}/mock-confirm`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(gatewayReference ? { gatewayReference } : {}),
-      },
-      'Không thể xác nhận thanh toán giao dịch'
-    ),
-
   cancelTransaction: (transactionId: number, reason?: string): Promise<PaymentCancelResultDto> =>
     studentPaymentRequest<PaymentCancelResultDto>(
       `${BASE_URL}/student/payments/${transactionId}/cancel`,
@@ -2731,23 +3045,7 @@ export const paymentApi = {
       // Fallback nếu server chưa cập nhật endpoint /history
     }
 
-    // 2. Gộp thêm từ bộ nhớ cache biên lai trên trình duyệt
-    try {
-      const rawCache = localStorage.getItem('fud_payment_history_cache');
-      if (rawCache) {
-        const cachedList = JSON.parse(rawCache) as PaymentHistoryItemDto[];
-        for (const item of cachedList || []) {
-          const key = item.receiptNumber || `TX-${item.transactionId}`;
-          if (!mergedMap.has(key)) {
-            mergedMap.set(key, item);
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
-
-    // 3. Gộp thêm các hóa đơn có trạng thái Paid trong Lịch sử lưu trú
+    // 2. Gộp thêm các hóa đơn có trạng thái Paid trong Lịch sử lưu trú
     try {
       const coveredInvIds = new Set<number>();
       for (const h of mergedMap.values()) {

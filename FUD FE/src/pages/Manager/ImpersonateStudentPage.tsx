@@ -41,7 +41,7 @@ export const ImpersonateStudentPage: React.FC = () => {
   const handleStartImpersonate = async () => {
     if (!foundStudent || !currentUser) return;
 
-    if (foundStudent.accountStatus === 'Banned' || foundStudent.accountStatus === 'Locked') {
+    if (foundStudent.accountStatus?.toLowerCase() !== 'active') {
       setErrorMsg(`Tài khoản sinh viên đang ở trạng thái ${foundStudent.accountStatus}, không thể đăng nhập hộ.`);
       return;
     }

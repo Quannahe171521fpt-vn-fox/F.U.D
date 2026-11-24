@@ -59,6 +59,7 @@ namespace FUD.Services.Payments
                                 || i.Status == InvoiceStatuses.Overdue
                                 || i.Status == InvoiceStatuses.Processing))
                 .Include(i => i.InvoiceItems)
+                .Include(i => i.Handover)
                 .OrderByDescending(i => i.Status == InvoiceStatuses.Overdue)
                 .ThenBy(i => i.DueDate)
                 .ThenByDescending(i => i.IssuedTime)
@@ -176,16 +177,24 @@ namespace FUD.Services.Payments
             var invoice = await _context.Invoices
                 .AsNoTracking()
                 .Include(i => i.InvoiceItems)
+                .Include(i => i.Handover)
+                .Include(i => i.BookingRequest)
                 .Where(i => i.StudentId == studentId
                             && i.DeletedAt == null
                             && (i.Status == InvoiceStatuses.Unpaid
                                 || i.Status == InvoiceStatuses.Overdue
                                 || i.Status == InvoiceStatuses.Processing))
+                .OrderByDescending(i => i.InvoiceType == InvoiceTypes.BedTransfer)
+                .ThenBy(i => i.Id)
                 .FirstOrDefaultAsync(i =>
                     (normalized == "booking" && i.InvoiceType == InvoiceTypes.RoomFee && i.BookingRequestId == sourceId)
                     || (normalized == "keeping" && i.InvoiceType == InvoiceTypes.RoomFee && i.BookingRequestId == sourceId)
                     || (normalized == "utility" && i.InvoiceType == InvoiceTypes.Utility && i.UtilityBillId == sourceId)
-                    || (normalized == "bedtransfer" && i.InvoiceType == InvoiceTypes.BedTransfer && i.TransferRequestId == sourceId)
+                    || (normalized == "bedtransfer" && (
+                        i.TransferRequestId == sourceId
+                        || (i.HandoverId != null && i.Handover != null
+                            && i.Handover.HandoverType == "BedTransfer"
+                            && i.Handover.RequestId == sourceId)))
                     || (normalized == "checkout" && i.HandoverId == sourceId));
 
             if (invoice == null)
@@ -207,6 +216,7 @@ namespace FUD.Services.Payments
                 DueDate = invoice.DueDate,
                 PaidTime = invoice.PaidTime,
                 Status = invoice.Status,
+                SourceType = ResolveSourceType(invoice, invoice.BookingRequest?.BookingKind),
                 SourceId = ResolveSourceId(invoice),
                 Items = invoice.InvoiceItems
                     .OrderBy(it => it.Id)
@@ -290,6 +300,22 @@ namespace FUD.Services.Payments
                 var now = DateTime.Now;
                 var expiryTime = now.AddMinutes(QrExpiryMinutes);
                 var gatewayReference = await GenerateGatewayReferenceAsync();
+
+                if (_context.Database.IsRelational())
+                {
+                    var lockedCount = await _context.Invoices
+                        .Where(i => invoiceIds.Contains(i.Id)
+                                    && i.StudentId == studentId
+                                    && i.DeletedAt == null
+                                    && (i.Status == InvoiceStatuses.Unpaid || i.Status == InvoiceStatuses.Overdue))
+                        .ExecuteUpdateAsync(s => s.SetProperty(i => i.Status, InvoiceStatuses.Processing));
+
+                    if (lockedCount != invoiceIds.Count)
+                    {
+                        throw new InvalidOperationException(
+                            "PAY_409: Một hoặc nhiều hóa đơn vừa được xử lý ở phiên khác. Vui lòng tải lại danh sách.");
+                    }
+                }
 
                 var transaction = new PaymentTransaction
                 {
@@ -388,7 +414,16 @@ namespace FUD.Services.Payments
         // ============================================================
         //  3. Giả lập xác nhận thanh toán (+ side-effects)
         // ============================================================
-        public async Task<PaymentSuccessDto> MockConfirmAsync(int studentId, int transactionId, MockConfirmPaymentDto? dto)
+        public Task<PaymentSuccessDto> MockConfirmAsync(int studentId, int transactionId, MockConfirmPaymentDto? dto)
+        {
+            return ConfirmTransactionInternalAsync(studentId, transactionId, dto, null);
+        }
+
+        private async Task<PaymentSuccessDto> ConfirmTransactionInternalAsync(
+            int studentId,
+            int transactionId,
+            MockConfirmPaymentDto? dto,
+            string? gatewayPayload = null)
         {
             await using var dbTransaction = await _transactionFactory.BeginAsync();
             try
@@ -421,12 +456,42 @@ namespace FUD.Services.Payments
                 }
 
                 var now = DateTime.Now;
+                if (transaction.ExpiryTime <= now)
+                {
+                    throw new InvalidOperationException("PAY_409: Phiên giao dịch QR đã hết hạn.");
+                }
+
+                var receiptNumber = "RC-" + transaction.GatewayReference.Replace("VQR-", string.Empty);
+                var effectivePayload = string.IsNullOrWhiteSpace(gatewayPayload)
+                    ? "{\"code\":\"00\",\"desc\":\"Mock payment success\"}"
+                    : gatewayPayload;
+
+                if (_context.Database.IsRelational())
+                {
+                    var affected = await _context.PaymentTransactions
+                        .Where(t => t.Id == transactionId
+                                    && t.DeletedAt == null
+                                    && t.Status == PaymentTransactionStatuses.Processing
+                                    && t.ExpiryTime > now)
+                        .ExecuteUpdateAsync(s => s
+                            .SetProperty(t => t.Status, PaymentTransactionStatuses.Success)
+                            .SetProperty(t => t.PaidTime, now)
+                            .SetProperty(t => t.CallbackTime, now)
+                            .SetProperty(t => t.ReceiptNumber, receiptNumber)
+                            .SetProperty(t => t.GatewayPayload, effectivePayload));
+
+                    if (affected != 1)
+                    {
+                        throw new InvalidOperationException(
+                            "PAY_409: Giao dịch đã được xử lý ở phiên khác hoặc đã hết hạn.");
+                    }
+                }
 
                 transaction.Status = PaymentTransactionStatuses.Success;
                 transaction.PaidTime = now;
                 transaction.CallbackTime = now;
-                transaction.ReceiptNumber = "RC-" + transaction.GatewayReference.Replace("VQR-", string.Empty);
-                transaction.GatewayPayload = "{\"code\":\"00\",\"desc\":\"Mock payment success\"}";
+                transaction.ReceiptNumber = receiptNumber;
+                transaction.GatewayPayload = effectivePayload;
 
                 var invoiceIds = transaction.TransactionInvoices.Select(ti => ti.InvoiceId).ToList();
 
@@ -539,6 +604,21 @@ namespace FUD.Services.Payments
 
                 var now = DateTime.Now;
                 var today = DateOnly.FromDateTime(now);
+
+                if (_context.Database.IsRelational())
+                {
+                    var affected = await _context.PaymentTransactions
+                        .Where(t => t.Id == transactionId
+                                    && t.DeletedAt == null
+                                    && t.Status == PaymentTransactionStatuses.Processing)
+                        .ExecuteUpdateAsync(s => s.SetProperty(t => t.Status, PaymentTransactionStatuses.Cancelled));
+
+                    if (affected != 1)
+                    {
+                        throw new InvalidOperationException(
+                            "PAY_409: Giao dịch đã thay đổi trạng thái ở phiên khác nên không thể hủy.");
+                    }
+                }
 
                 transaction.Status = PaymentTransactionStatuses.Cancelled;
 
@@ -678,28 +758,51 @@ namespace FUD.Services.Payments
             string? authorizationHeader = null)
         {
             var expectedApiKey = _config?["SePay:WebhookApiKey"];
-            if (!string.IsNullOrWhiteSpace(expectedApiKey))
+            if (string.IsNullOrWhiteSpace(expectedApiKey))
             {
-                var provided = (authorizationHeader ?? string.Empty).Trim();
-                if (provided.StartsWith("Apikey ", StringComparison.OrdinalIgnoreCase))
-                {
-                    provided = provided.Substring("Apikey ".Length).Trim();
-                }
-                else if (provided.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-                {
-                    provided = provided.Substring("Bearer ".Length).Trim();
-                }
+                throw new UnauthorizedAccessException("SePay Webhook API Key chưa được cấu hình trên máy chủ.");
+            }
 
-                if (!string.Equals(provided, expectedApiKey, StringComparison.Ordinal))
-                {
-                    throw new UnauthorizedAccessException("SePay Webhook API Key không hợp lệ.");
-                }
+            var provided = (authorizationHeader ?? string.Empty).Trim();
+            if (provided.StartsWith("Apikey ", StringComparison.OrdinalIgnoreCase))
+            {
+                provided = provided.Substring("Apikey ".Length).Trim();
+            }
+            else if (provided.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                provided = provided.Substring("Bearer ".Length).Trim();
+            }
+
+            var providedBytes = System.Text.Encoding.UTF8.GetBytes(provided);
+            var expectedBytes = System.Text.Encoding.UTF8.GetBytes(expectedApiKey.Trim());
+            if (providedBytes.Length != expectedBytes.Length ||
+                !CryptographicOperations.FixedTimeEquals(providedBytes, expectedBytes))
+            {
+                throw new UnauthorizedAccessException("SePay Webhook API Key không hợp lệ.");
             }
 
             if (!string.IsNullOrWhiteSpace(payload.TransferType) &&
                 !string.Equals(payload.TransferType, "in", StringComparison.OrdinalIgnoreCase))
             {
                 return (false, "Bỏ qua giao dịch không phải tiền vào (transferType != in).", null);
+            }
+
+            if (payload.Id > 0)
+            {
+                var idMarkerPascal = $"\"Id\":{payload.Id}";
+                var idMarkerCamel = $"\"id\":{payload.Id}";
+                var alreadyProcessed = await _context.PaymentTransactions
+                    .AsNoTracking()
+                    .AnyAsync(t => t.DeletedAt == null
+                                   && t.Status == PaymentTransactionStatuses.Success
+                                   && t.GatewayPayload != null
+                                   && (t.GatewayPayload.Contains(idMarkerPascal)
+                                       || t.GatewayPayload.Contains(idMarkerCamel)));
+
+                if (alreadyProcessed)
+                {
+                    return (true, "Webhook đã được xử lý trước đó (idempotent).", null);
+                }
             }
 
             var rawText = $"{payload.Code} {payload.Content} {payload.Description}".Trim();
@@ -715,45 +818,37 @@ namespace FUD.Services.Payments
                 return (false, "Không có giao dịch nào đang ở trạng thái chờ thanh toán (Processing).", null);
             }
 
-            // 1. Ưu tiên khớp theo mã GatewayReference (có hoặc không có dấu gạch ngang '-').
+            // Chỉ khớp nghiêm ngặt theo mã GatewayReference (có hoặc không có dấu gạch ngang '-').
             PaymentTransaction? matched = activeTransactions.FirstOrDefault(t =>
                 (!string.IsNullOrWhiteSpace(rawText) &&
                  rawText.Contains(t.GatewayReference, StringComparison.OrdinalIgnoreCase))
                 || (!string.IsNullOrWhiteSpace(normalizedText) &&
                     normalizedText.Contains(NormalizeRef(t.GatewayReference), StringComparison.OrdinalIgnoreCase)));
 
-            // 2. Hỗ trợ SePay Test Mode: nếu người dùng bấm "Mô phỏng giao dịch" trên SePay với đúng số tiền
-            //    hoặc chỉ có 1 giao dịch đang chờ quét QR trên tài khoản test 0000000001.
-            if (matched == null && payload.TransferAmount > 0)
-            {
-                matched = activeTransactions.FirstOrDefault(t => t.TotalAmount == payload.TransferAmount);
-            }
-
-            if (matched == null &&
-                (string.Equals(payload.AccountNumber, "0000000001", StringComparison.OrdinalIgnoreCase)
-                 || string.Equals(payload.AccountNumber, "4271030639", StringComparison.OrdinalIgnoreCase)
-                 || string.Equals(payload.SubAccount, "96247FUD26", StringComparison.OrdinalIgnoreCase)))
-            {
-                matched = activeTransactions.FirstOrDefault();
-            }
-
             if (matched == null)
             {
                 return (false, "Không tìm thấy giao dịch khớp với nội dung hoặc số tiền chuyển khoản.", null);
             }
 
-            var receipt = await MockConfirmAsync(
+            if (matched.ExpiryTime <= DateTime.Now)
+            {
+                return (false, "Giao dịch QR đã hết hạn.", null);
+            }
+
+            if (payload.TransferAmount != matched.TotalAmount)
+            {
+                _logger.LogWarning(
+                    "SePay Webhook bị từ chối do lệch số tiền cho giao dịch #{TxId}: TotalAmount={TotalAmount}, TransferAmount={TransferAmount}.",
+                    matched.Id, matched.TotalAmount, payload.TransferAmount);
+                return (false, "Số tiền chuyển khoản không khớp với tổng tiền giao dịch.", null);
+            }
+
+            var serializedPayload = System.Text.Json.JsonSerializer.Serialize(payload);
+            var receipt = await ConfirmTransactionInternalAsync(
                 matched.StudentId,
                 matched.Id,
-                new MockConfirmPaymentDto { GatewayReference = matched.GatewayReference });
-
-            // Lưu thông tin payload SePay thật vào bản ghi giao dịch.
-            var confirmedTx = await _context.PaymentTransactions.FirstOrDefaultAsync(t => t.Id == matched.Id);
-            if (confirmedTx != null)
-            {
-                confirmedTx.GatewayPayload = System.Text.Json.JsonSerializer.Serialize(payload);
-                await _context.SaveChangesAsync();
-            }
+                new MockConfirmPaymentDto { GatewayReference = matched.GatewayReference },
+                serializedPayload);
 
             _logger.LogInformation(
                 "SePay Webhook đã xác nhận thành công giao dịch #{TxId} ({GatewayRef}), số tiền {Amount}.",
@@ -1147,6 +1242,11 @@ namespace FUD.Services.Payments
         /// </summary>
         private static string? ResolveSourceType(Invoice invoice, string? bookingKind)
         {
+            var isBedTransferHandover = string.Equals(
+                invoice.Handover?.HandoverType,
+                "BedTransfer",
+                StringComparison.OrdinalIgnoreCase);
+
             // Ưu tiên nguồn theo loại hóa đơn để tương thích với query param sourceType của Frontend.
             return invoice.InvoiceType switch
             {
@@ -1154,21 +1254,36 @@ namespace FUD.Services.Payments
                     ? "Keeping"
                     : "Booking",
                 InvoiceTypes.BedTransfer => "BedTransfer",
-                InvoiceTypes.Utility => invoice.HandoverId.HasValue ? "Checkout" : "Utility",
-                InvoiceTypes.Compensation => "Checkout",
+                InvoiceTypes.Utility => invoice.TransferRequestId.HasValue
+                    ? "BedTransfer"
+                    : invoice.HandoverId.HasValue
+                        ? (isBedTransferHandover ? "BedTransfer" : "Checkout")
+                        : "Utility",
+                InvoiceTypes.Compensation => isBedTransferHandover ? "BedTransfer" : "Checkout",
                 _ => null
             };
         }
 
         private static int? ResolveSourceId(Invoice invoice)
         {
+            var isBedTransferHandover = string.Equals(
+                invoice.Handover?.HandoverType,
+                "BedTransfer",
+                StringComparison.OrdinalIgnoreCase);
+
             return invoice.InvoiceType switch
             {
                 InvoiceTypes.RoomFee => invoice.BookingRequestId,
                 InvoiceTypes.BedTransfer => invoice.TransferRequestId,
-                InvoiceTypes.Compensation => invoice.HandoverId,
-                // Utility gắn với Utility_Bills (chung cả phòng) hoặc hóa đơn cuối lúc Checkout.
-                InvoiceTypes.Utility => invoice.HandoverId ?? invoice.UtilityBillId,
+                InvoiceTypes.Compensation => isBedTransferHandover
+                    ? (invoice.Handover?.RequestId ?? invoice.HandoverId)
+                    : invoice.HandoverId,
+                // Utility gắn với đơn chuyển giường (TransferRequestId), bàn giao (HandoverId) hoặc Utility_Bills.
+                InvoiceTypes.Utility => invoice.TransferRequestId
+                    ?? (isBedTransferHandover
+                        ? (invoice.Handover?.RequestId ?? invoice.HandoverId)
+                        : invoice.HandoverId)
+                    ?? invoice.UtilityBillId,
                 _ => null
             };
         }
@@ -1237,7 +1352,7 @@ namespace FUD.Services.Payments
                 }
             }
 
-            // ── 3. Handover / Checkout ────────────────────────────────────────
+            // ── 3. Handover / Checkout / BedTransfer Compensation ────────────
             if (invoice.HandoverId.HasValue)
             {
                 var handover = await _context.Handovers
@@ -1245,38 +1360,62 @@ namespace FUD.Services.Payments
 
                 if (handover?.RequestId != null)
                 {
-                    // Kiểm tra tất cả hóa đơn gắn với Handover này đã Paid hay chưa.
-                    // Lưu ý: các hóa đơn vừa được đánh dấu Paid trong phiên làm việc này
-                    // chưa có trong DB, nên phải loại trừ chúng khỏi điều kiện "chưa thanh toán".
-                    var hasUnpaid = await _context.Invoices
-                        .Where(i => i.HandoverId == handover.Id
-                                    && i.DeletedAt == null
-                                    && !newlyPaidInvoiceIds.Contains(i.Id))
-                        .AnyAsync(i => i.Status != InvoiceStatuses.Paid);
-
-                    if (!hasUnpaid)
+                    if (string.Equals(handover.HandoverType, "BedTransfer", StringComparison.OrdinalIgnoreCase))
                     {
-                        var checkoutRequest = await _context.Requests
+                        var transferRequest = await _context.Requests
                             .FirstOrDefaultAsync(r => r.Id == handover.RequestId.Value);
 
-                        if (checkoutRequest != null && checkoutRequest.Status == "Approved")
+                        if (transferRequest != null)
                         {
-                            var previousStatus = checkoutRequest.Status;
-                            checkoutRequest.Status = "Completed";
-                            checkoutRequest.ProcessedTime = now;
-
                             _context.RequestLogs.Add(new RequestLog
                             {
-                                RequestId = checkoutRequest.Id,
-                                FromStatus = previousStatus,
-                                ToStatus = "Completed",
-                                Note = "Sinh viên đã hoàn tất thanh toán phí bàn giao/trả phòng.",
+                                RequestId = transferRequest.Id,
+                                FromStatus = transferRequest.Status,
+                                ToStatus = transferRequest.Status,
+                                Note = "Sinh viên đã thanh toán hóa đơn bồi thường thiết bị chuyển giường.",
                                 ChangeTime = now,
                                 ChangedById = studentId
                             });
 
                             sideEffectNotes.Add(
-                                $"Yêu cầu trả phòng #{checkoutRequest.Id} đã hoàn tất (Completed) sau khi trả đủ công nợ.");
+                                $"Yêu cầu chuyển giường #{transferRequest.Id} đã ghi nhận thanh toán bồi thường thiết bị.");
+                        }
+                    }
+                    else
+                    {
+                        // Kiểm tra tất cả hóa đơn gắn với Handover này đã Paid hay chưa.
+                        // Lưu ý: các hóa đơn vừa được đánh dấu Paid trong phiên làm việc này
+                        // chưa có trong DB, nên phải loại trừ chúng khỏi điều kiện "chưa thanh toán".
+                        var hasUnpaid = await _context.Invoices
+                            .Where(i => i.HandoverId == handover.Id
+                                        && i.DeletedAt == null
+                                        && !newlyPaidInvoiceIds.Contains(i.Id))
+                            .AnyAsync(i => i.Status != InvoiceStatuses.Paid);
+
+                        if (!hasUnpaid)
+                        {
+                            var checkoutRequest = await _context.Requests
+                                .FirstOrDefaultAsync(r => r.Id == handover.RequestId.Value);
+
+                            if (checkoutRequest != null && checkoutRequest.Status == "Approved")
+                            {
+                                var previousStatus = checkoutRequest.Status;
+                                checkoutRequest.Status = "Completed";
+                                checkoutRequest.ProcessedTime = now;
+
+                                _context.RequestLogs.Add(new RequestLog
+                                {
+                                    RequestId = checkoutRequest.Id,
+                                    FromStatus = previousStatus,
+                                    ToStatus = "Completed",
+                                    Note = "Sinh viên đã hoàn tất thanh toán phí bàn giao/trả phòng.",
+                                    ChangeTime = now,
+                                    ChangedById = studentId
+                                });
+
+                                sideEffectNotes.Add(
+                                    $"Yêu cầu trả phòng #{checkoutRequest.Id} đã hoàn tất (Completed) sau khi trả đủ công nợ.");
+                            }
                         }
                     }
                 }

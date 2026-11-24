@@ -40,6 +40,7 @@ public class RoomServiceTests
             DormId = 1,
             Code = "B101",
             Name = "Block 101",
+            FloorLevel = 5,
             GenderType = "Male",
             Status = "Active",
             Dorm = dorm
@@ -247,6 +248,7 @@ public class RoomServiceTests
         var (createdRoom, _, _) = CreateSampleRoomEntity(15, dto.BlockId, dto.RoomTypeId, dto.RoomNumber, dto.FloorLevel.Value, "Active");
 
         _roomRepoMock.Setup(r => r.IsRoomNumberUniqueAsync(dto.BlockId, dto.RoomNumber, null)).ReturnsAsync(true);
+        _roomRepoMock.Setup(r => r.IsRoomNumberUniqueOnFloorAsync(dto.BlockId, dto.FloorLevel!.Value, dto.RoomNumber, null)).ReturnsAsync(true);
         _roomRepoMock.Setup(r => r.CreateAsync(It.IsAny<Room>())).ReturnsAsync(createdRoom);
         _roomRepoMock.Setup(r => r.GetByIdAsync(createdRoom.Id)).ReturnsAsync(createdRoom);
 
@@ -294,6 +296,31 @@ public class RoomServiceTests
         _roomRepoMock.Verify(r => r.CreateAsync(It.IsAny<Room>()), Times.Never);
     }
 
+    [Fact]
+    public async Task CreateAsync_WhenFloorLevelExceedsBlockFloors_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        var dto = new CreateRoomDto
+        {
+            BlockId = 1,
+            RoomTypeId = 1,
+            RoomNumber = "601L",
+            FloorLevel = 6 // Block chỉ có 5 tầng
+        };
+        _roomRepoMock.Setup(r => r.IsRoomNumberUniqueAsync(dto.BlockId, dto.RoomNumber, null)).ReturnsAsync(true);
+        _roomRepoMock.Setup(r => r.GetBlockNumberOfFloorsAsync(dto.BlockId)).ReturnsAsync(5);
+
+        var sut = CreateSut();
+
+        // Act
+        Func<Task> act = async () => await sut.CreateAsync(dto);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("Số tầng (6) không hợp lệ. Block chỉ có 5 tầng");
+        _roomRepoMock.Verify(r => r.CreateAsync(It.IsAny<Room>()), Times.Never);
+    }
+
     #endregion
 
     #region UpdateAsync Tests
@@ -313,6 +340,7 @@ public class RoomServiceTests
 
         _roomRepoMock.Setup(r => r.GetByIdAsync(roomId)).ReturnsAsync(existingRoom);
         _roomRepoMock.Setup(r => r.IsRoomNumberUniqueAsync(existingRoom.BlockId, dto.RoomNumber, roomId)).ReturnsAsync(true);
+        _roomRepoMock.Setup(r => r.IsRoomNumberUniqueOnFloorAsync(existingRoom.BlockId, dto.FloorLevel!.Value, dto.RoomNumber, roomId)).ReturnsAsync(true);
         _roomRepoMock.Setup(r => r.UpdateAsync(existingRoom)).ReturnsAsync(existingRoom);
 
         var sut = CreateSut();
@@ -372,6 +400,28 @@ public class RoomServiceTests
         // Assert
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage($"Phòng '{dto.RoomNumber}' đã tồn tại trong block này");
+        _roomRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Room>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenFloorLevelExceedsBlockFloors_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        const int roomId = 10;
+        var dto = new UpdateRoomDto { RoomTypeId = 1, RoomNumber = "101L", FloorLevel = 7 };
+        var (existingRoom, _, _) = CreateSampleRoomEntity(roomId, 1, 1, "101L", 1); // block có 5 tầng
+
+        _roomRepoMock.Setup(r => r.GetByIdAsync(roomId)).ReturnsAsync(existingRoom);
+        _roomRepoMock.Setup(r => r.IsRoomNumberUniqueAsync(existingRoom.BlockId, dto.RoomNumber, roomId)).ReturnsAsync(true);
+
+        var sut = CreateSut();
+
+        // Act
+        Func<Task> act = async () => await sut.UpdateAsync(roomId, dto);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("Số tầng (7) không hợp lệ. Block chỉ có 5 tầng");
         _roomRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Room>()), Times.Never);
     }
 
@@ -449,6 +499,109 @@ public class RoomServiceTests
         // Assert
         await act.Should().ThrowAsync<KeyNotFoundException>()
             .WithMessage($"Phòng {nonExistentId} không tồn tại");
+        _roomRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Room>()), Times.Never);
+    }
+
+    #endregion
+
+    #region UpdateAsync Tests
+
+    [Fact]
+    public async Task UpdateAsync_WhenRoomIsActive_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        const int roomId = 10;
+        var dto = new UpdateRoomDto { RoomNumber = "101L", RoomTypeId = 1, FloorLevel = 1 };
+        var (activeRoom, _, _) = CreateSampleRoomEntity(roomId, status: "Active");
+
+        _roomRepoMock.Setup(r => r.GetByIdAsync(roomId)).ReturnsAsync(activeRoom);
+        // Phòng có sinh viên ở → HasActiveBedsAsync = true
+        _roomRepoMock.Setup(r => r.HasActiveBedsAsync(roomId)).ReturnsAsync(true);
+
+        var sut = CreateSut();
+
+        // Act
+        Func<Task> act = async () => await sut.UpdateAsync(roomId, dto);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*sinh viên cư trú*");
+        _roomRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Room>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenRoomIsMaintenance_AllowsUpdate()
+    {
+        // Arrange
+        const int roomId = 20;
+        var dto = new UpdateRoomDto { RoomNumber = "102L", RoomTypeId = 1, FloorLevel = 2 };
+        var (maintenanceRoom, _, _) = CreateSampleRoomEntity(roomId, roomNumber: "102L", floor: 2, status: "Maintenance");
+
+        _roomRepoMock.Setup(r => r.GetByIdAsync(roomId)).ReturnsAsync(maintenanceRoom);
+        // Phòng trống → HasActiveBedsAsync = false → cho phép sửa
+        _roomRepoMock.Setup(r => r.HasActiveBedsAsync(roomId)).ReturnsAsync(false);
+        _roomRepoMock.Setup(r => r.IsRoomNumberUniqueAsync(maintenanceRoom.BlockId, dto.RoomNumber, roomId)).ReturnsAsync(true);
+        _roomRepoMock.Setup(r => r.IsRoomNumberUniqueOnFloorAsync(maintenanceRoom.BlockId, dto.FloorLevel!.Value, dto.RoomNumber, roomId)).ReturnsAsync(true);
+        _roomRepoMock.Setup(r => r.UpdateAsync(maintenanceRoom)).ReturnsAsync(maintenanceRoom);
+        _roomRepoMock.Setup(r => r.GetByIdAsync(roomId)).ReturnsAsync(maintenanceRoom);
+
+        var sut = CreateSut();
+
+        // Act
+        Func<Task> act = async () => await sut.UpdateAsync(roomId, dto);
+
+        // Assert
+        await act.Should().NotThrowAsync<InvalidOperationException>();
+        _roomRepoMock.Verify(r => r.UpdateAsync(maintenanceRoom), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenRoomIsActiveButEmpty_AllowsUpdate()
+    {
+        // Arrange — Phòng Active nhưng không có ai ở → được phép sửa
+        const int roomId = 30;
+        var dto = new UpdateRoomDto { RoomNumber = "103L", RoomTypeId = 1, FloorLevel = 3 };
+        var (activeEmptyRoom, _, _) = CreateSampleRoomEntity(roomId, roomNumber: "103L", floor: 3, status: "Active", freeBeds: 4, occupiedBeds: 0);
+
+        _roomRepoMock.Setup(r => r.GetByIdAsync(roomId)).ReturnsAsync(activeEmptyRoom);
+        _roomRepoMock.Setup(r => r.HasActiveBedsAsync(roomId)).ReturnsAsync(false); // Không có ai ở
+        _roomRepoMock.Setup(r => r.IsRoomNumberUniqueAsync(activeEmptyRoom.BlockId, dto.RoomNumber, roomId)).ReturnsAsync(true);
+        _roomRepoMock.Setup(r => r.IsRoomNumberUniqueOnFloorAsync(activeEmptyRoom.BlockId, dto.FloorLevel!.Value, dto.RoomNumber, roomId)).ReturnsAsync(true);
+        _roomRepoMock.Setup(r => r.UpdateAsync(activeEmptyRoom)).ReturnsAsync(activeEmptyRoom);
+        _roomRepoMock.Setup(r => r.GetByIdAsync(roomId)).ReturnsAsync(activeEmptyRoom);
+
+        var sut = CreateSut();
+
+        // Act
+        Func<Task> act = async () => await sut.UpdateAsync(roomId, dto);
+
+        // Assert
+        await act.Should().NotThrowAsync<InvalidOperationException>();
+        _roomRepoMock.Verify(r => r.UpdateAsync(activeEmptyRoom), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenRoomNumberDuplicateOnSameFloor_ThrowsInvalidOperationException()
+    {
+        // Arrange — Tầng 3 đã có phòng "103L", không được tạo thêm
+        const int roomId = 40;
+        var dto = new UpdateRoomDto { RoomNumber = "103L", RoomTypeId = 1, FloorLevel = 3 };
+        var (room, _, _) = CreateSampleRoomEntity(roomId, roomNumber: "101L", floor: 3, status: "Maintenance");
+
+        _roomRepoMock.Setup(r => r.GetByIdAsync(roomId)).ReturnsAsync(room);
+        _roomRepoMock.Setup(r => r.HasActiveBedsAsync(roomId)).ReturnsAsync(false);
+        _roomRepoMock.Setup(r => r.IsRoomNumberUniqueAsync(room.BlockId, dto.RoomNumber, roomId)).ReturnsAsync(true);
+        // Trùng trên cùng tầng
+        _roomRepoMock.Setup(r => r.IsRoomNumberUniqueOnFloorAsync(room.BlockId, dto.FloorLevel!.Value, dto.RoomNumber, roomId)).ReturnsAsync(false);
+
+        var sut = CreateSut();
+
+        // Act
+        Func<Task> act = async () => await sut.UpdateAsync(roomId, dto);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*đã tồn tại ở tầng*");
         _roomRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Room>()), Times.Never);
     }
 

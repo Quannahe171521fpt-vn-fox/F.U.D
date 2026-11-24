@@ -168,6 +168,8 @@ public class RecordViolationServiceTests
         };
 
         _violationRepoMock.Setup(r => r.RoomExistsAsync(roomId)).ReturnsAsync(true);
+        _violationRepoMock.Setup(r => r.GetGuardDormIdAsync(guardUserId)).ReturnsAsync(1);
+        _violationRepoMock.Setup(r => r.GetRoomDormIdAsync(roomId)).ReturnsAsync(1);
         _fileStorageMock.Setup(f => f.UploadImagesAsync(evidences, "violations")).ReturnsAsync(uploadedUrls);
 
         var residency1 = new Residency { Id = 1001, StudentId = 101 };
@@ -316,6 +318,8 @@ public class RecordViolationServiceTests
             Evidences = new List<IFormFile> { mockFile }
         };
         _violationRepoMock.Setup(r => r.RoomExistsAsync(1)).ReturnsAsync(true);
+        _violationRepoMock.Setup(r => r.GetGuardDormIdAsync(1)).ReturnsAsync(1);
+        _violationRepoMock.Setup(r => r.GetRoomDormIdAsync(1)).ReturnsAsync(1);
         _fileStorageMock.Setup(f => f.UploadImagesAsync(It.IsAny<List<IFormFile>>(), "violations"))
             .ReturnsAsync(new List<string>()); // Empty list indicates upload failure
 
@@ -325,6 +329,60 @@ public class RecordViolationServiceTests
         // Assert
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*Không thể tải lên ảnh minh chứng*");
+        _violationRepoMock.Verify(r => r.AddViolationsAsync(It.IsAny<IEnumerable<Violation>>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RecordViolationsAsync_WhenRoomInDifferentDorm_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        var sut = CreateSut();
+        var request = new CreateViolationRequestDto
+        {
+            RoomId = 20,
+            StudentIds = new List<int> { 10 },
+            Description = "Vi phạm ở khu khác",
+            Evidences = new List<IFormFile> { CreateMockFormFile() }
+        };
+        _violationRepoMock.Setup(r => r.RoomExistsAsync(20)).ReturnsAsync(true);
+        _violationRepoMock.Setup(r => r.GetGuardDormIdAsync(5)).ReturnsAsync(1);
+        _violationRepoMock.Setup(r => r.GetRoomDormIdAsync(20)).ReturnsAsync(2);
+
+        // Act
+        var act = async () => await sut.RecordViolationsAsync(request, guardUserId: 5);
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        _fileStorageMock.Verify(
+            f => f.UploadImagesAsync(It.IsAny<IEnumerable<IFormFile>>(), It.IsAny<string>()),
+            Times.Never);
+        _violationRepoMock.Verify(r => r.AddViolationsAsync(It.IsAny<IEnumerable<Violation>>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RecordViolationsAsync_WhenGuardHasNoAssignedDorm_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        var sut = CreateSut();
+        var request = new CreateViolationRequestDto
+        {
+            RoomId = 20,
+            StudentIds = new List<int> { 10 },
+            Description = "Bảo vệ chưa gán khu",
+            Evidences = new List<IFormFile> { CreateMockFormFile() }
+        };
+        _violationRepoMock.Setup(r => r.RoomExistsAsync(20)).ReturnsAsync(true);
+        _violationRepoMock.Setup(r => r.GetGuardDormIdAsync(6)).ReturnsAsync((int?)null);
+        _violationRepoMock.Setup(r => r.GetRoomDormIdAsync(20)).ReturnsAsync(2);
+
+        // Act
+        var act = async () => await sut.RecordViolationsAsync(request, guardUserId: 6);
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        _fileStorageMock.Verify(
+            f => f.UploadImagesAsync(It.IsAny<IEnumerable<IFormFile>>(), It.IsAny<string>()),
+            Times.Never);
         _violationRepoMock.Verify(r => r.AddViolationsAsync(It.IsAny<IEnumerable<Violation>>()), Times.Never);
     }
 }

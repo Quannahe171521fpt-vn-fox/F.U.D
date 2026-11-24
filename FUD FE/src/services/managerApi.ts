@@ -1,5 +1,6 @@
 import { authFetch } from './apiClient';
 import type { UserInfo } from '../contexts/AuthContext';
+import { env } from '../config/env';
 
 export interface StudentLookupResult {
   id: number;
@@ -38,7 +39,7 @@ export interface ImpersonationResponse {
  * Tra cứu thông tin sinh viên theo Email hoặc Mã sinh viên (Code).
  */
 export async function lookupStudentApi(query: string): Promise<StudentLookupResult> {
-  const res = await authFetch(`/api/manager/lookup-student?q=${encodeURIComponent(query.trim())}`);
+  const res = await authFetch(`${env.apiBaseUrl}/manager/lookup-student?q=${encodeURIComponent(query.trim())}`);
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(json?.message || 'Không tìm thấy sinh viên nào với thông tin đã nhập.');
@@ -50,7 +51,7 @@ export async function lookupStudentApi(query: string): Promise<StudentLookupResu
  * Tạo token đăng nhập hộ (Impersonate) sinh viên.
  */
 export async function createImpersonationTokenApi(studentId: number): Promise<ImpersonationResponse> {
-  const res = await authFetch(`/api/manager/impersonate/${studentId}`, {
+  const res = await authFetch(`${env.apiBaseUrl}/manager/impersonate/${studentId}`, {
     method: 'POST',
   });
   const json = await res.json().catch(() => ({}));

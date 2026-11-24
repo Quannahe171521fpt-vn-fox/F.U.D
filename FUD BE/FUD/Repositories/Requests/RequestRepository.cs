@@ -270,13 +270,19 @@ namespace FUD.Repositories.Requests
 
         public async Task<List<Guard>> GetGuardsAsync(int? dormId = null)
         {
-            return await _context.Guards
+            var query = _context.Guards
                 .AsNoTracking()
                 .Include(g => g.User)
                 .Include(g => g.Dorm)
-                .Where(g => g.User.AccountStatus == "Active" && g.User.DeletedAt == null)
-                .OrderByDescending(g => dormId.HasValue && g.DormId == dormId.Value)
-                .ThenBy(g => g.Dorm.Name)
+                .Where(g => g.User.AccountStatus == "Active" && g.User.DeletedAt == null);
+
+            if (dormId.HasValue && dormId.Value > 0)
+            {
+                query = query.Where(g => g.DormId == dormId.Value);
+            }
+
+            return await query
+                .OrderBy(g => g.Dorm.Name)
                 .ThenBy(g => g.User.FullName)
                 .ToListAsync();
         }
@@ -537,7 +543,8 @@ namespace FUD.Repositories.Requests
             int managerId,
             string? managerNote,
             RequestLog log,
-            Notification studentNotification)
+            Notification studentNotification,
+            List<Notification>? invoiceNotifications = null)
         {
             await EnsureManagerExistsAsync(managerId);
             await using var transaction = await _context.Database.BeginTransactionAsync();
@@ -571,10 +578,19 @@ namespace FUD.Repositories.Requests
                 transferRequest.NewResidencyId = newResidency.Id;
                 MarkModifiedIfDetached(transferRequest);
 
-                // 3. Tạo hóa đơn (Unpaid) kèm chi tiết hạng mục
+                // 3. Tạo hóa đơn (Unpaid) kèm chi tiết hạng mục và thông báo Invoice gắn đúng Invoice.Id
                 if (invoices.Count > 0)
                 {
                     await _context.Invoices.AddRangeAsync(invoices);
+                    if (invoiceNotifications != null && invoiceNotifications.Count > 0)
+                    {
+                        await _context.SaveChangesAsync();
+                        for (var i = 0; i < invoices.Count && i < invoiceNotifications.Count; i++)
+                        {
+                            invoiceNotifications[i].ReferenceId = invoices[i].Id.ToString();
+                        }
+                        await _context.Notifications.AddRangeAsync(invoiceNotifications);
+                    }
                 }
 
                 // 4. Cập nhật thông tin review của Manager trên Handover

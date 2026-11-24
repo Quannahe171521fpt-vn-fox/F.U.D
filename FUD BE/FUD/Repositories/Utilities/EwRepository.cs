@@ -14,7 +14,7 @@ namespace FUD.Repositories.Utilities
             _ctx = ctx;
         }
 
-        public async Task<IEnumerable<object>> GetGroupedUsagesAsync(string? blockCode, string? meterType, int? month, int? year, int? termId = null, int? billingPeriodId = null)
+        public async Task<IEnumerable<object>> GetGroupedUsagesAsync(string? blockCode, string? meterType, int? month, int? year, int? termId = null, int? billingPeriodId = null, int? dormId = null)
         {
             var query = from mr in _ctx.MeterReadings
                         join r in _ctx.Rooms on mr.RoomId equals r.Id
@@ -35,6 +35,7 @@ namespace FUD.Repositories.Utilities
                             mr.Source,
                             mr.Status,
                             mr.Note,
+                            mr.EvidenceImageUrl,
                             mr.RecordedTime,
                             RecordedByName = u != null ? u.FullName : "Bảo vệ",
                             r.RoomNumber,
@@ -69,6 +70,9 @@ namespace FUD.Repositories.Utilities
 
             if (billingPeriodId.HasValue && billingPeriodId.Value > 0)
                 query = query.Where(x => x.BillingPeriodId == billingPeriodId.Value);
+
+            if (dormId.HasValue && dormId.Value > 0)
+                query = query.Where(x => x.DormId == dormId.Value);
 
             if (month.HasValue)
                 query = query.Where(x => x.TargetMonth == month.Value);
@@ -151,6 +155,7 @@ namespace FUD.Repositories.Utilities
                         Source = x.Source,
                         Status = x.Status,
                         Note = x.Note,
+                        EvidenceImageUrl = x.EvidenceImageUrl,
                         RecordedTime = x.RecordedTime,
                         RecordedByName = x.RecordedByName,
                         TargetMonth = x.TargetMonth,
@@ -355,10 +360,33 @@ namespace FUD.Repositories.Utilities
             return await _ctx.MeterReadings
                 .Include(mr => mr.Room)
                     .ThenInclude(r => r.Block)
+                        .ThenInclude(b => b.Dorm)
                 .FirstOrDefaultAsync(mr => mr.Id == id);
         }
 
         public async Task<MeterReading?> GetByIdAsync(int id) => await GetReadingByIdAsync(id);
+
+        public async Task<Guard?> GetGuardByUserIdAsync(int userId)
+        {
+            return await _ctx.Guards
+                .Include(g => g.Dorm)
+                .FirstOrDefaultAsync(g => g.UserId == userId);
+        }
+
+        public async Task<int?> GetGuardDormIdAsync(int userId)
+        {
+            var guard = await _ctx.Guards
+                .AsNoTracking()
+                .FirstOrDefaultAsync(g => g.UserId == userId);
+            return guard?.DormId;
+        }
+
+        public async Task<int?> GetValidManagerIdAsync(int userId)
+        {
+            var exists = await _ctx.Managers.AnyAsync(m => m.UserId == userId);
+            if (exists) return userId;
+            return await _ctx.Managers.Select(m => (int?)m.UserId).FirstOrDefaultAsync();
+        }
 
         public async Task UpdateReadingAsync(MeterReading reading)
         {
@@ -378,7 +406,7 @@ namespace FUD.Repositories.Utilities
             await _ctx.SaveChangesAsync();
         }
 
-        public async Task<List<ImportBatch>> GetImportBatchesAsync(int? billingPeriodId)
+        public async Task<List<ImportBatch>> GetImportBatchesAsync(int? billingPeriodId, int? dormId = null)
         {
             var query = _ctx.ImportBatches
                 .Include(b => b.BillingPeriod)
@@ -389,6 +417,9 @@ namespace FUD.Repositories.Utilities
 
             if (billingPeriodId.HasValue)
                 query = query.Where(b => b.BillingPeriodId == billingPeriodId.Value);
+
+            if (dormId.HasValue && dormId.Value > 0)
+                query = query.Where(b => b.Block != null && b.Block.DormId == dormId.Value);
 
             return await query.OrderByDescending(b => b.ImportTime).ToListAsync();
         }
@@ -403,7 +434,7 @@ namespace FUD.Repositories.Utilities
                 .FirstOrDefaultAsync(b => b.Id == id);
         }
 
-        // ── Anomalies & Recheck ─────────────────────────────────
+        // ── Anomalies & Manager Adjust/Confirm ──────────────────
         public async Task AddUsageAnomalyAsync(UsageAnomaly anomaly)
         {
             await _ctx.UsageAnomalies.AddAsync(anomaly);
@@ -421,10 +452,15 @@ namespace FUD.Repositories.Utilities
                 .Include(ua => ua.Reading)
                     .ThenInclude(r => r.Room)
                         .ThenInclude(rm => rm.Block)
+                            .ThenInclude(b => b.Dorm)
                 .Include(ua => ua.Reading)
                     .ThenInclude(r => r.BillingPeriod)
                         .ThenInclude(bp => bp!.Term)
-                .Include(ua => ua.InspectionRequests)
+                .Include(ua => ua.Reading)
+                    .ThenInclude(r => r.RecordedBy)
+                        .ThenInclude(g => g.User)
+                .Include(ua => ua.ResolvedBy)
+                    .ThenInclude(m => m!.User)
                 .AsQueryable();
 
             if (billingPeriodId.HasValue)
@@ -434,7 +470,8 @@ namespace FUD.Repositories.Utilities
                 query = query.Where(ua => ua.Status == status);
 
             return await query
-                .OrderByDescending(ua => ua.CreatedTime)
+                .OrderByDescending(ua => ua.Status == "Flagged" ? 1 : 0)
+                .ThenByDescending(ua => ua.CreatedTime)
                 .ToListAsync();
         }
 
@@ -444,62 +481,237 @@ namespace FUD.Repositories.Utilities
                 .Include(ua => ua.Reading)
                     .ThenInclude(r => r.Room)
                         .ThenInclude(rm => rm.Block)
+                            .ThenInclude(b => b.Dorm)
                 .Include(ua => ua.Reading)
                     .ThenInclude(r => r.BillingPeriod)
-                .Include(ua => ua.InspectionRequests)
+                        .ThenInclude(bp => bp!.Term)
+                .Include(ua => ua.Reading)
+                    .ThenInclude(r => r.RecordedBy)
+                        .ThenInclude(g => g.User)
+                .Include(ua => ua.ResolvedBy)
+                    .ThenInclude(m => m!.User)
                 .FirstOrDefaultAsync(ua => ua.Id == id);
         }
 
-        public async Task AddInspectionRequestAsync(InspectionRequest request)
+        public async Task<List<UsageAnomaly>> GetActiveAnomaliesByReadingIdAsync(int readingId)
         {
-            await _ctx.InspectionRequests.AddAsync(request);
-        }
-
-        public async Task<List<InspectionRequest>> GetRecheckRequestsAsync(int? guardId, string? status)
-        {
-            var query = _ctx.InspectionRequests
-                .Include(ir => ir.Anomaly)
-                    .ThenInclude(a => a.Reading)
-                        .ThenInclude(r => r.Room)
-                            .ThenInclude(rm => rm.Block)
-                .Include(ir => ir.Anomaly)
-                    .ThenInclude(a => a.Reading)
-                        .ThenInclude(r => r.BillingPeriod)
-                            .ThenInclude(bp => bp!.Term)
-                .Include(ir => ir.AssignedGuard)
-                    .ThenInclude(g => g.User)
-                .AsQueryable();
-
-            if (guardId.HasValue)
-                query = query.Where(ir => ir.AssignedGuardId == guardId.Value);
-
-            if (!string.IsNullOrWhiteSpace(status))
-                query = query.Where(ir => ir.Status == status);
-
-            return await query
-                .OrderByDescending(ir => ir.CreatedTime)
+            return await _ctx.UsageAnomalies
+                .Where(ua => ua.ReadingId == readingId && ua.Status != "Resolved")
                 .ToListAsync();
         }
 
-        public async Task<List<InspectionRequest>> GetInspectionRequestsByGuardAsync(int guardId, string? status)
-            => await GetRecheckRequestsAsync(guardId, status);
-
-        public async Task<InspectionRequest?> GetRecheckRequestByIdAsync(int id)
+        public async Task<decimal> GetRoomTermConsumptionBeforePeriodAsync(int roomId, string meterType, int termId, int currentBillingPeriodId)
         {
-            return await _ctx.InspectionRequests
-                .Include(ir => ir.Anomaly)
-                    .ThenInclude(a => a.Reading)
-                        .ThenInclude(r => r.Room)
-                .FirstOrDefaultAsync(ir => ir.Id == id);
+            var prevReadings = await _ctx.MeterReadings
+                .AsNoTracking()
+                .Include(m => m.BillingPeriod)
+                .Where(m => m.RoomId == roomId
+                         && m.MeterType == meterType
+                         && m.BillingPeriodId != null
+                         && m.BillingPeriodId != currentBillingPeriodId
+                         && m.BillingPeriod != null
+                         && m.BillingPeriod.TermId == termId
+                         && m.CheckoutRequestId == null
+                         && m.TransferRequestId == null)
+                .ToListAsync();
+
+            return prevReadings.Sum(m => m.Consumption ?? (m.CurrentValue - m.PreviousValue));
         }
 
-        public async Task<InspectionRequest?> GetInspectionRequestByIdAsync(int id)
-            => await GetRecheckRequestByIdAsync(id);
-
-        public async Task UpdateInspectionRequestAsync(InspectionRequest request)
+        public async Task<RoomSurchargeCalculationResult> CalculateAndPublishRoomSurchargeAsync(int billingPeriodId, int roomId)
         {
-            _ctx.InspectionRequests.Update(request);
+            var period = await _ctx.BillingPeriods.FirstOrDefaultAsync(bp => bp.Id == billingPeriodId);
+            var room = await _ctx.Rooms.Include(r => r.Block).FirstOrDefaultAsync(r => r.Id == roomId);
+
+            if (period == null || room == null)
+            {
+                return new RoomSurchargeCalculationResult
+                {
+                    RoomId = roomId,
+                    RoomNumber = room?.RoomNumber ?? string.Empty,
+                    Calculated = false
+                };
+            }
+
+            var readings = await _ctx.MeterReadings
+                .Where(m => m.BillingPeriodId == billingPeriodId
+                         && m.RoomId == roomId
+                         && m.CheckoutRequestId == null
+                         && m.TransferRequestId == null)
+                .ToListAsync();
+
+            if (!readings.Any())
+            {
+                return new RoomSurchargeCalculationResult
+                {
+                    RoomId = roomId,
+                    RoomNumber = room.RoomNumber,
+                    Calculated = false
+                };
+            }
+
+            if (readings.Any(m => m.Status == "Flagged"))
+            {
+                return new RoomSurchargeCalculationResult
+                {
+                    RoomId = roomId,
+                    RoomNumber = room.RoomNumber,
+                    Calculated = false,
+                    HasFlaggedReadings = true
+                };
+            }
+
+            var checkedInResidencies = await _ctx.Residencies
+                .Include(r => r.Bed)
+                .Where(r => r.TermId == period.TermId
+                         && r.Bed.RoomId == roomId
+                         && (r.Status == "Active" || r.Status == "Completed")
+                         && r.CheckInDate != null)
+                .ToListAsync();
+
+            if (checkedInResidencies.Count == 0 && room.BlockId > 0)
+            {
+                var clusterRoomIds = await _ctx.Rooms
+                    .Where(r => r.BlockId == room.BlockId)
+                    .Select(r => r.Id)
+                    .ToListAsync();
+
+                checkedInResidencies = await _ctx.Residencies
+                    .Include(r => r.Bed)
+                    .Where(r => r.TermId == period.TermId
+                             && clusterRoomIds.Contains(r.Bed.RoomId)
+                             && (r.Status == "Active" || r.Status == "Completed")
+                             && r.CheckInDate != null)
+                    .ToListAsync();
+            }
+
+            var studentIds = checkedInResidencies.Select(r => r.StudentId).Distinct().ToList();
+            int residentCount = studentIds.Count;
+            int divisionCount = residentCount > 0 ? residentCount : 1;
+
+            decimal totalKwh = readings
+                .Where(m => m.MeterType == "Electricity")
+                .Sum(m => m.Consumption ?? (m.CurrentValue - m.PreviousValue));
+
+            decimal totalM3 = readings
+                .Where(m => m.MeterType == "Water")
+                .Sum(m => m.Consumption ?? (m.CurrentValue - m.PreviousValue));
+
+            var prices = await _ctx.UtilityPrices.Where(p => p.TermId == period.TermId).ToListAsync();
+            decimal elecPrice = prices.FirstOrDefault(p => p.MeterType == "Electricity")?.UnitPrice ?? 2500m;
+            decimal waterPrice = prices.FirstOrDefault(p => p.MeterType == "Water")?.UnitPrice ?? 10000m;
+
+            decimal overKwh = Math.Max(0m, totalKwh - (50m * divisionCount));
+            decimal overM3 = Math.Max(0m, totalM3 - (3m * divisionCount));
+
+            decimal elecCost = Math.Round(overKwh * elecPrice, 0);
+            decimal waterCost = Math.Round(overM3 * waterPrice, 0);
+            decimal totalCost = elecCost + waterCost;
+
+            decimal sharePerStudent = (residentCount > 0 && totalCost > 0)
+                ? Math.Round(totalCost / residentCount / 1000m, MidpointRounding.AwayFromZero) * 1000m
+                : 0m;
+
+            var bill = await _ctx.UtilityBills
+                .FirstOrDefaultAsync(ub => ub.RoomId == roomId && ub.BillingPeriodId == billingPeriodId && ub.Status != "Corrected");
+
+            if (bill == null)
+            {
+                bill = new UtilityBill
+                {
+                    RoomId = roomId,
+                    BillingPeriodId = billingPeriodId
+                };
+                await _ctx.UtilityBills.AddAsync(bill);
+            }
+
+            bill.TotalKwh = totalKwh;
+            bill.TotalM3 = totalM3;
+            bill.ElectricityUnitPrice = elecPrice;
+            bill.WaterUnitPrice = waterPrice;
+            bill.ElectricityCost = elecCost;
+            bill.WaterCost = waterCost;
+            bill.TotalCost = totalCost;
+            bill.NumberOfResidents = residentCount;
+            bill.SharePerStudent = sharePerStudent;
+            bill.PublishedTime = DateTime.UtcNow;
+            bill.Status = "Published";
+
             await _ctx.SaveChangesAsync();
+
+            var notifiedStudents = new List<int>();
+            int invoicesCreated = 0;
+
+            if (sharePerStudent > 0 && residentCount > 0)
+            {
+                foreach (var studentId in studentIds)
+                {
+                    var existingInv = await _ctx.Invoices
+                        .Include(i => i.InvoiceItems)
+                        .FirstOrDefaultAsync(i => i.InvoiceType == "Utility"
+                                               && i.UtilityBillId == bill.Id
+                                               && i.StudentId == studentId
+                                               && i.Status != "Cancelled");
+
+                    var itemDesc = $"Phí phụ trội điện nước Tháng {period.TargetMonth}/{period.TargetYear} phòng {room.RoomNumber} (chia đều {residentCount} người)";
+
+                    if (existingInv == null)
+                    {
+                        var invNumber = $"INV-UTL-{bill.Id:000}-{studentId:000}-{DateTime.UtcNow:MMddHHmmss}";
+                        var newInv = new Invoice
+                        {
+                            StudentId = studentId,
+                            TermId = period.TermId,
+                            InvoiceNumber = invNumber,
+                            InvoiceType = "Utility",
+                            UtilityBillId = bill.Id,
+                            Amount = sharePerStudent,
+                            IssuedTime = DateTime.UtcNow,
+                            DueDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(14)),
+                            Status = "Unpaid"
+                        };
+                        await _ctx.Invoices.AddAsync(newInv);
+                        await _ctx.InvoiceItems.AddAsync(new InvoiceItem
+                        {
+                            Invoice = newInv,
+                            Description = itemDesc,
+                            Quantity = 1m,
+                            UnitPrice = sharePerStudent,
+                            Amount = sharePerStudent
+                        });
+                        invoicesCreated++;
+                        notifiedStudents.Add(studentId);
+                    }
+                    else if (existingInv.Status == "Unpaid" && existingInv.Amount != sharePerStudent)
+                    {
+                        existingInv.Amount = sharePerStudent;
+                        existingInv.IssuedTime = DateTime.UtcNow;
+                        var firstItem = existingInv.InvoiceItems.FirstOrDefault();
+                        if (firstItem != null)
+                        {
+                            firstItem.Description = itemDesc;
+                            firstItem.UnitPrice = sharePerStudent;
+                            firstItem.Amount = sharePerStudent;
+                        }
+                        notifiedStudents.Add(studentId);
+                    }
+                }
+
+                await _ctx.SaveChangesAsync();
+            }
+
+            return new RoomSurchargeCalculationResult
+            {
+                RoomId = roomId,
+                RoomNumber = room.RoomNumber,
+                Calculated = true,
+                HasFlaggedReadings = false,
+                TotalCost = totalCost,
+                NumberOfResidents = residentCount,
+                SharePerStudent = sharePerStudent,
+                InvoicesCreated = invoicesCreated,
+                NotifiedStudentIds = notifiedStudents
+            };
         }
 
         // ── Student EW Usage ────────────────────────────────────
@@ -610,13 +822,13 @@ namespace FUD.Repositories.Utilities
                 .Distinct()
                 .ToList();
 
-            // 2. Chỉ số công tơ thuộc các kỳ trong termId của chính phòng này
+            // 2. Chỉ số công tơ thuộc các kỳ trong termId của chính phòng này (chỉ lấy chỉ số hợp lệ Recorded hoặc đã được Manager xác nhận/điều chỉnh Resolved)
             var readings = await _ctx.MeterReadings
                 .AsNoTracking()
                 .Include(m => m.BillingPeriod)
                 .Where(m => m.BillingPeriod.TermId == targetTermId
                          && m.RoomId == studentRoomId
-                         && (m.Status == "Recorded" || m.Status == "Flagged"))
+                         && (m.Status == "Recorded" || m.Status == "Resolved"))
                 .ToListAsync();
 
             if (readings.Count == 0)
@@ -626,7 +838,7 @@ namespace FUD.Repositories.Utilities
                     .Include(m => m.BillingPeriod)
                     .Where(m => m.BillingPeriod.TermId == targetTermId
                              && clusterRoomIds.Contains(m.RoomId)
-                             && (m.Status == "Recorded" || m.Status == "Flagged"))
+                             && (m.Status == "Recorded" || m.Status == "Resolved"))
                     .ToListAsync();
             }
 

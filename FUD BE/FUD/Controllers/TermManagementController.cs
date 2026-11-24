@@ -148,9 +148,17 @@ namespace FUD.Controllers
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ApiResponse.Fail(ex.Message));
+            }
+            catch (ArgumentException ex)
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
     }

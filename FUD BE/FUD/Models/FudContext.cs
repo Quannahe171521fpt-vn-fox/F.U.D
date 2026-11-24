@@ -898,6 +898,9 @@ public partial class FudContext : DbContext
                 .HasMaxLength(20)
                 .IsUnicode(false);
             entity.Property(e => e.Note).HasMaxLength(500);
+            entity.Property(e => e.EvidenceImageUrl)
+                .HasMaxLength(500)
+                .IsUnicode(false);
             entity.Property(e => e.PreviousValue).HasColumnType("decimal(18, 2)");
             entity.Property(e => e.RecordedTime)
                 .HasDefaultValueSql("(getdate())")

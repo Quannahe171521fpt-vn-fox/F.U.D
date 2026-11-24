@@ -5,6 +5,7 @@ using FUD.Common;
 using FUD.DTOs.Booking;
 using FUD.Services.Interfaces.Booking;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FUD.Controllers.Booking;
@@ -14,11 +15,18 @@ namespace FUD.Controllers.Booking;
 public class BookingController : ControllerBase
 {
     private readonly IBookingService _bookingService;
+    private readonly IWebHostEnvironment? _env;
 
-    public BookingController(IBookingService bookingService)
+    public BookingController(IBookingService bookingService, IWebHostEnvironment? env = null)
     {
         _bookingService = bookingService;
+        _env = env;
     }
+
+    private string ResolveUnexpectedErrorMessage(Exception error) =>
+        _env != null || HttpContext?.RequestServices != null
+            ? "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."
+            : error.GetBaseException().Message;
 
     // ── Student Endpoints ─────────────────────────────────────────
 
@@ -103,9 +111,17 @@ public class BookingController : ControllerBase
         {
             return Conflict(ApiResponse.Fail(ex.Message));
         }
-        catch (Exception ex)
+        catch (KeyNotFoundException ex)
         {
-            return StatusCode(500, ApiResponse.Fail(ex.Message));
+            return NotFound(ApiResponse.Fail(ex.Message));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
         }
     }
 
@@ -158,9 +174,9 @@ public class BookingController : ControllerBase
         {
             return BadRequest(ApiResponse.Fail(ex.Message));
         }
-        catch (Exception ex)
+        catch (Exception err)
         {
-            return StatusCode(500, ApiResponse.Fail(ex.Message));
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail(ResolveUnexpectedErrorMessage(err)));
         }
     }
 

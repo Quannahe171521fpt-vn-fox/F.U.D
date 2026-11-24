@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { formatDateTime, formatDate } from '../../utils/dateUtils';
 import { useIdleAwarePolling } from '../../utils/useIdleAwarePolling';
+import { TransferDatePicker } from '../../components/TransferDatePicker';
 import '../../styles/violation.css';
 
 // ── Mapping chuẩn CHECK CONSTRAINT DB CSDL FUD ──────────────────
@@ -49,9 +50,19 @@ interface SubmitRequestPageProps {
   onSubmitted?: () => void;
 }
 
+function getLocalDateOffsetYmd(offsetDays: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitted }) => {
-  const { currentUser } = useAuth();
-  const isSuspended = currentUser?.accountStatus === 'Suspended';
+  const { currentUser, impersonation } = useAuth();
+  const activeUser = impersonation?.student || currentUser;
+  const isSuspended = activeUser?.accountStatus === 'Suspended';
   const [requestType, setRequestType] = useState<DBRequestType>(() => isSuspended ? 'Complaint' : 'BedTransfer');
   const [violations, setViolations] = useState<ViolationItem[]>([]);
   const [selectedViolationId, setSelectedViolationId] = useState<number | ''>('');
@@ -137,6 +148,12 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
     () => transferContext?.availableBeds.find(b => b.bedId === selectedToBedId),
     [transferContext, selectedToBedId]
   );
+
+  const minTransferDateStr = useMemo(() => getLocalDateOffsetYmd(7), []);
+  const termEndDateStr = transferContext?.currentResidency?.termEndDate
+    ? transferContext.currentResidency.termEndDate.slice(0, 10)
+    : '';
+  const isLessThan7DaysLeftInTerm = Boolean(termEndDateStr && minTransferDateStr > termEndDateStr);
 
   // Cập nhật tự động loại bỏ biên bản hết hạn mỗi giây
   useEffect(() => {
@@ -253,6 +270,26 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
         setErrorMsg('Vui lòng nhập lý do chuyển giường.');
         return;
       }
+      if (transferDate) {
+        if (isLessThan7DaysLeftInTerm) {
+          setErrorMsg(
+            `Thời gian còn lại của học kỳ ít hơn 1 tuần (kết thúc ngày ${formatDate(termEndDateStr)}), không thể chọn ngày dự kiến chuyển sau 7 ngày kể từ ngày tạo đơn.`
+          );
+          return;
+        }
+        if (transferDate < minTransferDateStr) {
+          setErrorMsg(
+            `Ngày dự kiến chuyển giường phải sau ít nhất 1 tuần kể từ ngày tạo đơn (từ ngày ${formatDate(minTransferDateStr)} trở đi).`
+          );
+          return;
+        }
+        if (termEndDateStr && transferDate > termEndDateStr) {
+          setErrorMsg(
+            `Ngày dự kiến chuyển phải nằm trong thời gian của học kỳ hiện tại (không vượt quá ngày ${formatDate(termEndDateStr)}).`
+          );
+          return;
+        }
+      }
 
       setSubmitting(true);
       try {
@@ -327,7 +364,7 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
             Tài khoản của bạn đã có kết luận chính thức <strong>Đình chỉ nội trú / Buộc rời ký túc xá</strong>. Toàn bộ tính năng đặt phòng, giữ phòng và gửi đơn yêu cầu (Request) đã bị tạm khóa.
           </p>
           <div style={{ display: 'inline-block', backgroundColor: '#FEF2F2', padding: '10px 18px', borderRadius: '8px', border: '1px solid #FECACA', fontSize: '13px', color: '#B91C1C' }}>
-            Lý do: {currentUser?.suspensionReason || 'Vi phạm quy chế kỷ luật nội trú KTX.'}
+            Lý do: {activeUser?.suspensionReason || 'Vi phạm quy chế kỷ luật nội trú KTX.'}
           </div>
           <div style={{ marginTop: 20, fontSize: '13px', color: '#64748B' }}>
             Vui lòng liên hệ trực tiếp Ban Quản lý ký túc xá để được xem xét mở lại tài khoản.
@@ -494,14 +531,45 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
                           <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, marginBottom: 6, color: '#1E293B' }}>
                             Ngày dự kiến chuyển (tùy chọn)
                           </label>
-                          <input
-                            type="date"
-                            value={transferDate}
-                            min={new Date().toISOString().split('T')[0]}
-                            max={transferContext.currentResidency?.termEndDate}
-                            onChange={e => setTransferDate(e.target.value)}
-                            style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#FFF' }}
-                          />
+                          {isLessThan7DaysLeftInTerm ? (
+                            <div
+                              style={{
+                                padding: '10px 12px',
+                                backgroundColor: '#FFFBEB',
+                                border: '1px solid #FDE68A',
+                                borderRadius: '8px',
+                                color: '#92400E',
+                                fontSize: '12.5px',
+                                lineHeight: 1.5,
+                              }}
+                            >
+                              <strong>Lưu ý:</strong> Học kỳ hiện tại kết thúc vào ngày{' '}
+                              <strong>{formatDate(termEndDateStr)}</strong> (còn ít hơn 1 tuần kể từ hôm nay), nên không thể chọn ngày dự kiến chuyển sau 7 ngày. Bạn có thể để trống trường này để Ban Quản lý xem xét.
+                            </div>
+                          ) : (
+                            <>
+                              <TransferDatePicker
+                                value={transferDate}
+                                minDate={minTransferDateStr}
+                                maxDate={termEndDateStr || undefined}
+                                onChange={setTransferDate}
+                              />
+                              <div style={{ fontSize: '12px', color: '#64748B', marginTop: 4 }}>
+                                Nếu chọn ngày, ngày dự kiến chuyển phải sau ít nhất <strong>1 tuần</strong> kể từ ngày tạo đơn (
+                                {termEndDateStr ? (
+                                  <>
+                                    từ <strong>{formatDate(minTransferDateStr)}</strong> đến{' '}
+                                    <strong>{formatDate(termEndDateStr)}</strong>
+                                  </>
+                                ) : (
+                                  <>
+                                    từ <strong>{formatDate(minTransferDateStr)}</strong> trở đi
+                                  </>
+                                )}
+                                ).
+                              </div>
+                            </>
+                          )}
                         </div>
                       </>
                     )}

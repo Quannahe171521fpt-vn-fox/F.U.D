@@ -9,10 +9,11 @@ import {
 import {
   DEFAULT_IDLE_TIMEOUT_MINUTES,
   LAST_ACTIVITY_KEY,
-  USER_KEY,
   type SessionExpirationReason,
   type SessionMeta,
   broadcastAuthEvent,
+  clearLegacyAuthKeys,
+  clearPaymentClientCaches,
   clearSessionStorage,
   getSessionExpirationReason,
   getSessionMeta,
@@ -69,36 +70,8 @@ function getExpirationMessage(reason: SessionExpirationReason): string {
   return 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
 }
 
-function persistCurrentUser(user: UserInfo | null): void {
-  try {
-    if (typeof localStorage === 'undefined') return;
-    if (user) {
-      localStorage.setItem(USER_KEY, JSON.stringify(user));
-    } else {
-      localStorage.removeItem(USER_KEY);
-    }
-  } catch {
-    // storage unavailable
-  }
-}
-
-function hasStoredUserKey(): boolean {
-  try {
-    return typeof localStorage !== 'undefined' && Boolean(localStorage.getItem(USER_KEY));
-  } catch {
-    return false;
-  }
-}
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<UserInfo | null>(() => {
-    try {
-      const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(USER_KEY) : null;
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [currentUser, setCurrentUser] = useState<UserInfo | null>(null);
   const [accessToken, setAccessTokenState] = useState<string | null>(() => getAccessToken());
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [sessionMessage, setSessionMessage] = useState<string | null>(null);
@@ -106,28 +79,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isImpersonating = impersonation !== null;
 
   const startImpersonation = useCallback((session: ImpersonationSession) => {
+    clearPaymentClientCaches();
     setImpersonation(session);
     setImpersonationToken(session.token);
   }, []);
 
   const stopImpersonation = useCallback(() => {
+    clearPaymentClientCaches();
     setImpersonation(null);
     setImpersonationToken(null);
   }, []);
 
   useEffect(() => {
     if (!impersonation) return;
-    const timeLeft = impersonation.expiresAt - Date.now();
-    if (timeLeft <= 0) {
-      stopImpersonation();
-      return;
-    }
+    const timeLeft = Math.max(0, impersonation.expiresAt - Date.now());
     const timer = setTimeout(() => {
       stopImpersonation();
-      alert('Phiên đăng nhập hộ sinh viên đã hết hạn (2 giờ). Đã trở lại tài khoản Quản lý.');
+      if (timeLeft > 0) {
+        alert('Phiên đăng nhập hộ sinh viên đã hết hạn (30 phút). Đã trở lại tài khoản Quản lý.');
+      }
     }, timeLeft);
     return () => clearTimeout(timer);
   }, [impersonation, stopImpersonation]);
+
+  useEffect(() => {
+    if (!currentUser && impersonation) {
+      const timer = setTimeout(() => {
+        stopImpersonation();
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [currentUser, impersonation, stopImpersonation]);
 
   const authSeqRef = useRef(0);
   const isLoggingOutRef = useRef(false);
@@ -168,10 +150,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     async function initAuth() {
       const seq = authSeqRef.current;
-      const hasStoredUser = hasStoredUserKey();
+      clearLegacyAuthKeys();
       let token = getAccessToken();
+      let hasLastActivityHint = false;
+      try {
+        if (typeof localStorage !== 'undefined' && localStorage.getItem(LAST_ACTIVITY_KEY)) {
+          hasLastActivityHint = true;
+        }
+      } catch {
+        // storage unavailable
+      }
+      const hasSessionHint = Boolean(token) || Boolean(getSessionMeta()) || hasLastActivityHint;
 
-      if (!hasStoredUser && !token) {
+      if (!hasSessionHint) {
         if (!cancelled && seq === authSeqRef.current) {
           setCurrentUser(null);
           setAccessTokenState(null);
@@ -190,7 +181,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       try {
-        if (!token && hasStoredUser) {
+        if (!token && hasSessionHint) {
           token = await refreshAccessToken();
           if (cancelled || seq !== authSeqRef.current) return;
 
@@ -209,7 +200,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (user) {
           setCurrentUser(user);
           setAccessTokenState(getAccessToken());
-          persistCurrentUser(user);
           try {
             if (typeof localStorage !== 'undefined' && !localStorage.getItem(LAST_ACTIVITY_KEY)) {
               recordUserActivity(true);
@@ -244,6 +234,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const reason =
         (event as CustomEvent<{ reason?: SessionExpirationReason }>).detail?.reason ?? 'server';
       authSeqRef.current += 1;
+      setImpersonationToken(null);
+      setImpersonation(null);
       setCurrentUser(null);
       setAccessTokenState(null);
       setSessionMessage(getExpirationMessage(reason));
@@ -256,6 +248,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (msg.type === 'EXPIRED') {
         authSeqRef.current += 1;
         setApiClientAccessToken(null);
+        setImpersonationToken(null);
+        setImpersonation(null);
         clearSessionStorage();
         setCurrentUser(null);
         setAccessTokenState(null);
@@ -264,12 +258,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else if (msg.type === 'LOGOUT') {
         authSeqRef.current += 1;
         setApiClientAccessToken(null);
+        setImpersonationToken(null);
+        setImpersonation(null);
         clearSessionStorage();
         setCurrentUser(null);
         setAccessTokenState(null);
         setSessionMessage(null);
         setIsLoading(false);
       } else if (msg.type === 'TOKEN_UPDATED') {
+        recordUserActivity(true);
         setAccessTokenState(getAccessToken());
       }
     });
@@ -342,7 +339,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     recordUserActivity(true);
     setAccessTokenState(token);
     setCurrentUser(user);
-    persistCurrentUser(user);
     setSessionMessage(null);
     setIsLoading(false);
   }, []);

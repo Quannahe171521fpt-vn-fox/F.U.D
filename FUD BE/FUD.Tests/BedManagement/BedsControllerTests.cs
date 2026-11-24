@@ -215,6 +215,27 @@ public class BedsControllerTests
         response.Message.Should().Contain("đã tồn tại trong phòng này");
     }
 
+    [Fact]
+    public async Task Create_WhenRoomCapacityFull_Returns409Conflict()
+    {
+        // Arrange
+        var dto = new CreateBedDto { RoomId = 10, BedCode = "101L-B5" };
+        _bedServiceMock.Setup(s => s.CreateAsync(dto))
+            .ThrowsAsync(new InvalidOperationException("Phòng 101L (Phòng tiêu chuẩn 4 giường) đã đủ 4/4 giường, không thể thêm giường mới."));
+        var sut = CreateSut();
+
+        // Act
+        var result = await sut.Create(dto);
+
+        // Assert
+        var conflictResult = result.Should().BeOfType<ConflictObjectResult>().Subject;
+        conflictResult.StatusCode.Should().Be(StatusCodes.Status409Conflict);
+
+        var response = conflictResult.Value.Should().BeOfType<ApiResponse>().Subject;
+        response.Success.Should().BeFalse();
+        response.Message.Should().Contain("đã đủ 4/4 giường");
+    }
+
     #endregion
 
     #region Update Tests

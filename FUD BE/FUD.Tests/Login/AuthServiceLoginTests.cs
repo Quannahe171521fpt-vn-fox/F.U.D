@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Threading.Tasks;
 using FluentAssertions;
 using FUD.DTOs.Auth;
@@ -332,5 +333,254 @@ public class AuthServiceLoginTests
         result.Response.User.PrimaryRole.Should().Be("Admin");
         result.Response.User.Roles.Should().BeEquivalentTo(new[] { "Student", "Admin" });
         _jwtGenMock.Verify(j => j.GenerateAccessToken(user, It.Is<IEnumerable<string>>(roles => roles.Contains("Admin") && roles.Contains("Student"))), Times.Once);
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_WhenUnsignedOrForgedJwtProvided_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        const string clientId = "test-google-client-id.apps.googleusercontent.com";
+        _configMock.Setup(c => c["Google:ClientId"]).Returns(clientId);
+
+        static string Base64UrlEncode(string input) =>
+            Convert.ToBase64String(Encoding.UTF8.GetBytes(input))
+                .TrimEnd('=')
+                .Replace('+', '-')
+                .Replace('/', '_');
+
+        var header = Base64UrlEncode("{\"alg\":\"RS256\",\"typ\":\"JWT\",\"kid\":\"forged\"}");
+        var payload = Base64UrlEncode(
+            $"{{\"iss\":\"https://accounts.google.com\",\"aud\":\"{clientId}\",\"sub\":\"forged-sub-123\",\"email\":\"admin@fpt.edu.vn\",\"email_verified\":true,\"exp\":4102444800}}");
+        var fakeSignature = Base64UrlEncode("forged-invalid-signature");
+        var forgedJwt = $"{header}.{payload}.{fakeSignature}";
+
+        var dto = new GoogleLoginRequestDto { IdToken = forgedJwt };
+
+        // Act
+        var act = () => _authService.LoginWithGoogleAsync(dto, "192.168.1.10");
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>()
+                 .WithMessage("Xác thực Google không hợp lệ hoặc đã hết hạn.");
+        _userRepoMock.Verify(r => r.GetByEmailAsync(It.IsAny<string>()), Times.Never);
+        _userRepoMock.Verify(r => r.GetByGoogleIdAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_WhenGoogleClientIdMissing_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        _configMock.Setup(c => c["Google:ClientId"]).Returns(string.Empty);
+        var dto = new GoogleLoginRequestDto { IdToken = "header.payload.signature" };
+
+        // Act
+        var act = () => _authService.LoginWithGoogleAsync(dto, "192.168.1.10");
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>()
+                 .WithMessage("Xác thực Google chưa được cấu hình hợp lệ.");
+        _userRepoMock.Verify(r => r.GetByEmailAsync(It.IsAny<string>()), Times.Never);
+        _userRepoMock.Verify(r => r.GetByGoogleIdAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_WhenTokenEmpty_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        _configMock.Setup(c => c["Google:ClientId"]).Returns("test-google-client-id.apps.googleusercontent.com");
+        var dto = new GoogleLoginRequestDto { IdToken = string.Empty };
+
+        // Act
+        var act = () => _authService.LoginWithGoogleAsync(dto, "192.168.1.10");
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>()
+                 .WithMessage("Xác thực Google không hợp lệ hoặc đã hết hạn.");
+        _userRepoMock.Verify(r => r.GetByEmailAsync(It.IsAny<string>()), Times.Never);
+        _userRepoMock.Verify(r => r.GetByGoogleIdAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetCurrentUserAsync_WhenAccountStatusSuspended_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        var user = new User
+        {
+            Id = 101,
+            Code = "HE170101",
+            FullName = "Suspended Student",
+            Email = "suspended@fpt.edu.vn",
+            AccountStatus = AccountConstants.Statuses.Suspended,
+            UserRoleUsers = new List<UserRole>
+            {
+                new UserRole
+                {
+                    UserId = 101,
+                    RoleId = 4,
+                    Role = new Role { Id = 4, RoleName = "Student" }
+                }
+            }
+        };
+
+        _userRepoMock.Setup(r => r.GetByIdAsync(101)).ReturnsAsync(user);
+
+        // Act
+        var act = () => _authService.GetCurrentUserAsync(101);
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>()
+                 .WithMessage("Người dùng không tồn tại hoặc đã bị khóa.");
+    }
+
+    [Fact]
+    public async Task GetCurrentUserAsync_WhenAccountStatusPending_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        var user = new User
+        {
+            Id = 102,
+            Code = "HE170102",
+            FullName = "Pending Student",
+            Email = "pending@fpt.edu.vn",
+            AccountStatus = AccountConstants.Statuses.Pending,
+            UserRoleUsers = new List<UserRole>
+            {
+                new UserRole
+                {
+                    UserId = 102,
+                    RoleId = 4,
+                    Role = new Role { Id = 4, RoleName = "Student" }
+                }
+            }
+        };
+
+        _userRepoMock.Setup(r => r.GetByIdAsync(102)).ReturnsAsync(user);
+
+        // Act
+        var act = () => _authService.GetCurrentUserAsync(102);
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>()
+                 .WithMessage("Người dùng không tồn tại hoặc đã bị khóa.");
+    }
+
+    [Fact]
+    public async Task LoginWithCredentialsAsync_WhenWrongPassword_IncrementsFailedLoginCount()
+    {
+        // Arrange
+        var dto = new LoginRequestDto { Account = "manager@fpt.edu.vn", Password = "WrongPassword" };
+        var user = new User
+        {
+            Id = 201,
+            Email = "manager@fpt.edu.vn",
+            PasswordHash = "valid_hash",
+            AccountStatus = "Active",
+            FailedLoginCount = 1
+        };
+
+        _userRepoMock.Setup(r => r.GetByAccountAsync(dto.Account)).ReturnsAsync(user);
+        _hasherMock.Setup(h => h.Verify(dto.Password, user.PasswordHash)).Returns(false);
+
+        // Act
+        var act = () => _authService.LoginWithCredentialsAsync(dto, "127.0.0.1");
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        _userRepoMock.Verify(r => r.AtomicIncrementFailedLoginAsync(201, null), Times.Once);
+    }
+
+    [Fact]
+    public async Task LoginWithCredentialsAsync_OnFifthFailedAttempt_SetsLockoutEnd()
+    {
+        // Arrange
+        var dto = new LoginRequestDto { Account = "manager@fpt.edu.vn", Password = "WrongPassword" };
+        var user = new User
+        {
+            Id = 202,
+            Email = "manager@fpt.edu.vn",
+            PasswordHash = "valid_hash",
+            AccountStatus = "Active",
+            FailedLoginCount = 4
+        };
+
+        _userRepoMock.Setup(r => r.GetByAccountAsync(dto.Account)).ReturnsAsync(user);
+        _hasherMock.Setup(h => h.Verify(dto.Password, user.PasswordHash)).Returns(false);
+
+        var before = DateTime.UtcNow;
+
+        // Act
+        var act = () => _authService.LoginWithCredentialsAsync(dto, "127.0.0.1");
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        _userRepoMock.Verify(
+            r => r.AtomicIncrementFailedLoginAsync(
+                202,
+                It.Is<DateTime?>(d => d.HasValue && d.Value >= before.AddMinutes(14) && d.Value <= before.AddMinutes(16))),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task LoginWithCredentialsAsync_WhenAccountLockedOut_ThrowsInvalidOperationExceptionWithoutVerifyingPassword()
+    {
+        // Arrange
+        var dto = new LoginRequestDto { Account = "manager@fpt.edu.vn", Password = "ValidPassword123" };
+        var user = new User
+        {
+            Id = 203,
+            Email = "manager@fpt.edu.vn",
+            PasswordHash = "valid_hash",
+            AccountStatus = "Active",
+            FailedLoginCount = 5,
+            LockoutEnd = DateTime.UtcNow.AddMinutes(10)
+        };
+
+        _userRepoMock.Setup(r => r.GetByAccountAsync(dto.Account)).ReturnsAsync(user);
+
+        // Act
+        var act = () => _authService.LoginWithCredentialsAsync(dto, "127.0.0.1");
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>()
+                 .WithMessage("*tạm thời bị khóa*");
+        _hasherMock.Verify(h => h.Verify(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task LoginWithCredentialsAsync_WhenValidPasswordAfterFailures_ResetsFailedLoginCount()
+    {
+        // Arrange
+        var dto = new LoginRequestDto { Account = "manager@fpt.edu.vn", Password = "ValidPassword123" };
+        var user = new User
+        {
+            Id = 204,
+            Code = "MGR204",
+            FullName = "Manager",
+            Email = "manager@fpt.edu.vn",
+            PasswordHash = "valid_hash",
+            AccountStatus = "Active",
+            FailedLoginCount = 3,
+            UserRoleUsers = new List<UserRole>
+            {
+                new UserRole
+                {
+                    UserId = 204,
+                    RoleId = 2,
+                    Role = new Role { Id = 2, RoleName = "Manager" }
+                }
+            }
+        };
+
+        _userRepoMock.Setup(r => r.GetByAccountAsync(dto.Account)).ReturnsAsync(user);
+        _hasherMock.Setup(h => h.Verify(dto.Password, user.PasswordHash)).Returns(true);
+        _jwtGenMock.Setup(j => j.GenerateAccessToken(user, It.IsAny<IEnumerable<string>>())).Returns("jwt_token");
+        _jwtGenMock.Setup(j => j.GenerateRefreshToken()).Returns(("raw_ref", "hash_ref"));
+        _refreshRepoMock.Setup(r => r.CreateAsync(It.IsAny<RefreshToken>())).Returns(Task.CompletedTask);
+
+        // Act
+        await _authService.LoginWithCredentialsAsync(dto, "127.0.0.1");
+
+        // Assert
+        _userRepoMock.Verify(r => r.AtomicResetFailedLoginAsync(204), Times.Once);
     }
 }

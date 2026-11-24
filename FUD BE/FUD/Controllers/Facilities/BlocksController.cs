@@ -49,6 +49,7 @@ namespace FUD.Controllers.Facilities
         }
 
         [HttpPost]
+        [Authorize(Roles = "Manager,Admin")]
         public async Task<IActionResult> Create([FromBody] CreateBlockDto dto)
         {
             if (!ModelState.IsValid)
@@ -67,6 +68,7 @@ namespace FUD.Controllers.Facilities
         }
 
         [HttpPut("{id:int}")]
+        [Authorize(Roles = "Manager,Admin")]
         public async Task<IActionResult> Update(int id, [FromBody] UpdateBlockDto dto)
         {
             if (!ModelState.IsValid)
@@ -81,6 +83,7 @@ namespace FUD.Controllers.Facilities
         }
 
         [HttpPatch("{id:int}/status")]
+        [Authorize(Roles = "Manager,Admin")]
         public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateBlockStatusDto dto)
         {
             if (!ModelState.IsValid)
@@ -95,6 +98,7 @@ namespace FUD.Controllers.Facilities
         }
 
         [HttpPatch("{id:int}/gender")]
+        [Authorize(Roles = "Manager,Admin")]
         public async Task<IActionResult> UpdateGender(int id, [FromBody] UpdateBlockGenderDto dto)
         {
             if (!ModelState.IsValid)

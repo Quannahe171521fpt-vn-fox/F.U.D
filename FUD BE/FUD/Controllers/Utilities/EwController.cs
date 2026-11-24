@@ -4,6 +4,7 @@ using FUD.DTOs.Utilities;
 using FUD.Services.Interfaces.Utilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace FUD.Controllers.Utilities
 {
@@ -18,17 +19,30 @@ namespace FUD.Controllers.Utilities
             _ewService = ewService;
         }
 
-        private int GetCurrentUserId()
+        private int? GetCurrentUserId()
         {
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (int.TryParse(userIdClaim, out var userId))
                 return userId;
 
-            return 3; // Default Guard/Manager trong seed data
+            return null;
+        }
+
+        private int GetRequiredUserId()
+        {
+            var userId = GetCurrentUserId();
+            if (!userId.HasValue)
+                throw new UnauthorizedAccessException("Không xác định được danh tính người dùng. Vui lòng đăng nhập lại.");
+            return userId.Value;
+        }
+
+        private bool IsManager()
+        {
+            return User.IsInRole("Manager") || User.IsInRole("Admin");
         }
 
         // ═════════════════════════════════════════════════════════════
-        // UC13: Usages View (Manager)
+        // UC13: Usages View (Manager, Guard)
         // ═════════════════════════════════════════════════════════════
         [HttpGet("usages")]
         [Authorize(Roles = "Manager, Guard")]
@@ -42,12 +56,22 @@ namespace FUD.Controllers.Utilities
         {
             try
             {
-                var result = await _ewService.GetUsagesAsync(blockCode, meterType, month, year, termId, billingPeriodId);
+                var userId = GetCurrentUserId();
+                var isManager = IsManager();
+                var result = await _ewService.GetUsagesAsync(blockCode, meterType, month, year, termId, billingPeriodId, dormId: null, userId: userId, isManager: isManager);
                 return Ok(ApiResponse<IEnumerable<object>>.Ok(result));
             }
-            catch (Exception ex)
+            catch (UnauthorizedAccessException ex)
             {
-                return BadRequest(ApiResponse.Fail($"Lỗi khi tải dữ liệu sử dụng: {ex.Message}"));
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or KeyNotFoundException)
+            {
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -71,8 +95,14 @@ namespace FUD.Controllers.Utilities
         {
             try
             {
-                var result = await _ewService.GetBlockProgressAsync(id);
+                var userId = GetCurrentUserId();
+                var isManager = IsManager();
+                var result = await _ewService.GetBlockProgressAsync(id, userId, isManager);
                 return Ok(ApiResponse<BlockProgressResponseDto>.Ok(result));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
             }
             catch (KeyNotFoundException ex)
             {
@@ -82,7 +112,6 @@ namespace FUD.Controllers.Utilities
 
         // ═════════════════════════════════════════════════════════════
         // M1: Lấy thông tin form nhập tay cho 1 Block (kèm OldReading)
-        // Hỗ trợ cả GET query và POST body (cho client gửi payload json)
         // ═════════════════════════════════════════════════════════════
         [HttpGet("readings/block-form")]
         [Authorize(Roles = "Guard,Manager")]
@@ -95,8 +124,14 @@ namespace FUD.Controllers.Utilities
 
             try
             {
-                var result = await _ewService.GetBlockFormDataAsync(blockCode, billingPeriodId);
+                var userId = GetCurrentUserId();
+                var isManager = IsManager();
+                var result = await _ewService.GetBlockFormDataAsync(blockCode, billingPeriodId, userId, isManager);
                 return Ok(ApiResponse<BlockFormDataResponseDto>.Ok(result));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
             }
             catch (KeyNotFoundException ex)
             {
@@ -113,8 +148,14 @@ namespace FUD.Controllers.Utilities
 
             try
             {
-                var result = await _ewService.GetBlockFormDataAsync(request.BlockCode, request.BillingPeriodId);
+                var userId = GetCurrentUserId();
+                var isManager = IsManager();
+                var result = await _ewService.GetBlockFormDataAsync(request.BlockCode, request.BillingPeriodId, userId, isManager);
                 return Ok(ApiResponse<BlockFormDataResponseDto>.Ok(result));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
             }
             catch (KeyNotFoundException ex)
             {
@@ -131,8 +172,14 @@ namespace FUD.Controllers.Utilities
         {
             try
             {
-                var result = await _ewService.PreviewManualReadingAsync(request);
+                var userId = GetCurrentUserId();
+                var isManager = IsManager();
+                var result = await _ewService.PreviewManualReadingAsync(request, userId, isManager);
                 return Ok(ApiResponse<ManualPreviewResponseDto>.Ok(result));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
             }
             catch (KeyNotFoundException ex)
             {
@@ -145,22 +192,68 @@ namespace FUD.Controllers.Utilities
         }
 
         // ═════════════════════════════════════════════════════════════
+        // OCR: Chụp/Tải ảnh công tơ điện nước & tự nhận diện bằng AI
+        // ═════════════════════════════════════════════════════════════
+        [HttpPost("readings/scan-photo")]
+        [Authorize(Roles = "Guard,Manager")]
+        [EnableRateLimiting("MeterOcrPolicy")]
+        [RequestSizeLimit(12_000_000)]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> ScanMeterPhoto(
+            IFormFile photo,
+            [FromForm] string? expectedMeterType,
+            [FromForm] decimal? previousValue,
+            [FromForm] bool saveEvidence = true,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var result = await _ewService.ScanMeterPhotoAsync(
+                    photo,
+                    expectedMeterType,
+                    previousValue,
+                    saveEvidence,
+                    cancellationToken);
+                return Ok(ApiResponse<MeterPhotoScanResponseDto>.Ok(result));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (TimeoutException ex)
+            {
+                return StatusCode(StatusCodes.Status504GatewayTimeout, ApiResponse.Fail(ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                var statusCode = ex.Message.Contains("429", StringComparison.OrdinalIgnoreCase)
+                    ? StatusCodes.Status429TooManyRequests
+                    : StatusCodes.Status503ServiceUnavailable;
+                return StatusCode(statusCode, ApiResponse.Fail(ex.Message));
+            }
+        }
+
+        // ═════════════════════════════════════════════════════════════
         // M3: Lưu xác nhận chỉ số nhập tay
         // ═════════════════════════════════════════════════════════════
         [HttpPost("readings/manual/confirm")]
         [Authorize(Roles = "Guard,Manager")]
         public async Task<IActionResult> ConfirmManualReading([FromBody] ManualConfirmRequestDto request)
         {
-            var guardUserId = GetCurrentUserId();
-
             try
             {
-                var result = await _ewService.ConfirmManualReadingAsync(guardUserId, request);
+                var guardUserId = GetRequiredUserId();
+                var isManager = IsManager();
+                var result = await _ewService.ConfirmManualReadingAsync(guardUserId, request, isManager);
                 var message = result.ManagerAlerted
                     ? $"Đã lưu {result.Saved} chỉ số ({result.Flagged} chỉ số bất thường đã gửi cảnh báo)"
                     : $"Đã ghi nhận thành công {result.Saved} chỉ số";
 
                 return Ok(ApiResponse<ManualConfirmResponseDto>.Ok(result, message));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
             }
             catch (KeyNotFoundException ex)
             {
@@ -187,8 +280,14 @@ namespace FUD.Controllers.Utilities
         {
             try
             {
-                await _ewService.UpdateReadingAsync(id, request.CurrentValue, request.Note);
+                var userId = GetRequiredUserId();
+                var isManager = IsManager();
+                await _ewService.UpdateReadingAsync(id, request.CurrentValue, request.Note, userId, isManager);
                 return Ok(ApiResponse.Ok("Đã cập nhật chỉ số thành công"));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
             }
             catch (KeyNotFoundException ex)
             {
@@ -209,8 +308,14 @@ namespace FUD.Controllers.Utilities
         {
             try
             {
-                await _ewService.DeleteReadingAsync(id);
+                var userId = GetRequiredUserId();
+                var isManager = IsManager();
+                await _ewService.DeleteReadingAsync(id, userId, isManager);
                 return Ok(ApiResponse.Ok("Đã xóa chỉ số thành công"));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
             }
             catch (KeyNotFoundException ex)
             {
@@ -218,11 +323,54 @@ namespace FUD.Controllers.Utilities
             }
         }
 
+        private const long MaxExcelBytes = 5 * 1024 * 1024;
+
+        private static async Task<(MemoryStream? Stream, string? Error)> TryReadAndValidateXlsxStreamAsync(IFormFile file)
+        {
+            if (file.Length > MaxExcelBytes)
+            {
+                return (null, "File Excel không được vượt quá 5MB");
+            }
+
+            using var source = file.OpenReadStream();
+            var ms = new MemoryStream();
+            var buffer = new byte[81920];
+            long totalRead = 0;
+            int read;
+            while ((read = await source.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            {
+                totalRead += read;
+                if (totalRead > MaxExcelBytes)
+                {
+                    ms.Dispose();
+                    return (null, "File Excel không được vượt quá 5MB");
+                }
+                ms.Write(buffer, 0, read);
+            }
+
+            if (totalRead < 4)
+            {
+                ms.Dispose();
+                return (null, "File tải lên không phải định dạng Excel (.xlsx) hợp lệ");
+            }
+
+            var bytes = ms.GetBuffer();
+            if (bytes[0] != 0x50 || bytes[1] != 0x4B || bytes[2] != 0x03 || bytes[3] != 0x04)
+            {
+                ms.Dispose();
+                return (null, "File tải lên không phải định dạng Excel (.xlsx) hợp lệ");
+            }
+
+            ms.Position = 0;
+            return (ms, null);
+        }
+
         // ═════════════════════════════════════════════════════════════
         // I1: Preview Import từ file Excel
         // ═════════════════════════════════════════════════════════════
         [HttpPost("import/preview")]
         [Authorize(Roles = "Guard,Manager")]
+        [RequestSizeLimit(5 * 1024 * 1024)]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> PreviewExcelImport(
             IFormFile file,
@@ -234,24 +382,40 @@ namespace FUD.Controllers.Utilities
             if (!file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
                 return BadRequest(ApiResponse.Fail("Chỉ chấp nhận file định dạng .xlsx"));
 
+            var (validatedStream, validationError) = await TryReadAndValidateXlsxStreamAsync(file);
+            if (validatedStream == null)
+                return BadRequest(ApiResponse.Fail(validationError!));
+
             try
             {
-                using var stream = file.OpenReadStream();
-                var result = await _ewService.PreviewExcelImportAsync(stream, billingPeriodId);
-                return Ok(ApiResponse<ExcelPreviewResponseDto>.Ok(result));
+                using (validatedStream)
+                {
+                    var userId = GetCurrentUserId();
+                    var isManager = IsManager();
+                    var result = await _ewService.PreviewExcelImportAsync(validatedStream, billingPeriodId, userId, isManager);
+                    return Ok(ApiResponse<ExcelPreviewResponseDto>.Ok(result));
+                }
             }
-            catch (Exception ex)
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or KeyNotFoundException)
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
         // ═════════════════════════════════════════════════════════════
         // I1-DIRECT: Upload file Excel và LƯU TRỰC TIẾP VÀO DB (1 bước)
-        // Rất tiện cho test Postman hoặc Guard import trực tiếp file
         // ═════════════════════════════════════════════════════════════
         [HttpPost("import/upload")]
         [Authorize(Roles = "Guard,Manager")]
+        [RequestSizeLimit(5 * 1024 * 1024)]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> UploadAndSaveExcel(
             IFormFile file,
@@ -263,11 +427,15 @@ namespace FUD.Controllers.Utilities
             if (!file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
                 return BadRequest(ApiResponse.Fail("Chỉ chấp nhận file định dạng .xlsx"));
 
-            var guardUserId = GetCurrentUserId();
+            var (validatedStream, validationError) = await TryReadAndValidateXlsxStreamAsync(file);
+            if (validatedStream == null)
+                return BadRequest(ApiResponse.Fail(validationError!));
 
             try
             {
-                // 1. Xác định kỳ thanh toán
+                var guardUserId = GetRequiredUserId();
+                var isManager = IsManager();
+
                 int targetPeriodId;
                 if (billingPeriodId.HasValue && billingPeriodId.Value > 0)
                 {
@@ -278,18 +446,19 @@ namespace FUD.Controllers.Utilities
                     var periods = await _ewService.GetBillingPeriodsAsync();
                     var activePeriod = periods.FirstOrDefault(p => p.Status == "Open") ?? periods.FirstOrDefault();
                     if (activePeriod == null)
+                    {
+                        validatedStream.Dispose();
                         return BadRequest(ApiResponse.Fail("Không tìm thấy kỳ thanh toán nào"));
+                    }
                     targetPeriodId = activePeriod.Id;
                 }
 
-                // 2. Đọc file & Preview dữ liệu
                 ExcelPreviewResponseDto preview;
-                using (var stream = file.OpenReadStream())
+                using (validatedStream)
                 {
-                    preview = await _ewService.PreviewExcelImportAsync(stream, targetPeriodId);
+                    preview = await _ewService.PreviewExcelImportAsync(validatedStream, targetPeriodId, guardUserId, isManager);
                 }
 
-                // 3. Tự động xác nhận lưu toàn bộ dữ liệu hợp lệ vào DB
                 var confirmReq = new ExcelConfirmImportRequestDto
                 {
                     BillingPeriodId = targetPeriodId,
@@ -299,12 +468,20 @@ namespace FUD.Controllers.Utilities
                     Rows = preview.Rows
                 };
 
-                var result = await _ewService.ConfirmExcelImportAsync(guardUserId, confirmReq);
+                var result = await _ewService.ConfirmExcelImportAsync(guardUserId, confirmReq, isManager);
                 return Ok(ApiResponse<ExcelConfirmImportResponseDto>.Ok(result, $"Đã import và lưu thành công {result.SavedReadings} chỉ số vào database!"));
             }
-            catch (Exception ex)
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or KeyNotFoundException)
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -315,12 +492,16 @@ namespace FUD.Controllers.Utilities
         [Authorize(Roles = "Guard,Manager")]
         public async Task<IActionResult> ConfirmExcelImport([FromBody] ExcelConfirmImportRequestDto request)
         {
-            var guardUserId = GetCurrentUserId();
-
             try
             {
-                var result = await _ewService.ConfirmExcelImportAsync(guardUserId, request);
+                var guardUserId = GetRequiredUserId();
+                var isManager = IsManager();
+                var result = await _ewService.ConfirmExcelImportAsync(guardUserId, request, isManager);
                 return Ok(ApiResponse<ExcelConfirmImportResponseDto>.Ok(result, result.Message));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
             }
             catch (KeyNotFoundException ex)
             {
@@ -330,9 +511,13 @@ namespace FUD.Controllers.Utilities
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
             }
-            catch (Exception ex)
+            catch (ArgumentException ex)
             {
                 return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -343,20 +528,124 @@ namespace FUD.Controllers.Utilities
         [Authorize(Roles = "Guard,Manager")]
         public async Task<IActionResult> GetImportBatches([FromQuery] int? billingPeriodId)
         {
-            var result = await _ewService.GetImportBatchesAsync(billingPeriodId);
-            return Ok(ApiResponse<List<ImportBatchItemDto>>.Ok(result));
+            try
+            {
+                var userId = GetCurrentUserId();
+                var isManager = IsManager();
+                var result = await _ewService.GetImportBatchesAsync(billingPeriodId, userId, isManager);
+                return Ok(ApiResponse<List<ImportBatchItemDto>>.Ok(result));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
+            }
         }
 
         // ═════════════════════════════════════════════════════════════
-        // I4: Tải file template Excel mẫu (1 nút bấm - Đầy đủ tất cả Block & Cả Điện + Nước)
+        // I4: Tải file template Excel mẫu (Guard chỉ lấy phòng thuộc Dorm mình quản lý, Manager lấy tất cả)
         // ═════════════════════════════════════════════════════════════
         [HttpGet("import/template")]
-        [AllowAnonymous]
-        public async Task<IActionResult> DownloadTemplate()
+        [Authorize(Roles = "Guard,Manager,Admin")]
+        public async Task<IActionResult> DownloadTemplate(
+            [FromQuery] int? billingPeriodId,
+            [FromQuery] string? dormCode,
+            [FromQuery] string? meterType)
         {
-            var bytes = await _ewService.GenerateExcelTemplateAsync(null, null, null);
-            var fileName = "Ew_Template.xlsx";
-            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+            try
+            {
+                var userId = GetCurrentUserId();
+                var isManager = IsManager();
+                var bytes = await _ewService.GenerateExcelTemplateAsync(billingPeriodId, dormCode, meterType, userId, isManager);
+                var fileName = "Ew_Template.xlsx";
+                return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
+            }
+        }
+
+        // ═════════════════════════════════════════════════════════════
+        // A1: Danh sách cảnh báo chỉ số bất thường (Manager)
+        // ═════════════════════════════════════════════════════════════
+        [HttpGet("anomalies")]
+        [Authorize(Roles = "Manager,Admin")]
+        public async Task<IActionResult> GetAnomalies(
+            [FromQuery] int? billingPeriodId,
+            [FromQuery] string? status)
+        {
+            try
+            {
+                var result = await _ewService.GetAnomaliesAsync(billingPeriodId, status);
+                return Ok(ApiResponse<List<UsageAnomalyItemDto>>.Ok(result));
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or KeyNotFoundException)
+            {
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
+            }
+        }
+
+        // ═════════════════════════════════════════════════════════════
+        // A2: Manager xác nhận (Confirm) hoặc điều chỉnh (Adjust) chỉ số bất thường
+        // ═════════════════════════════════════════════════════════════
+        [HttpPost("anomalies/{id:int}/resolve")]
+        [Authorize(Roles = "Manager,Admin")]
+        public async Task<IActionResult> ResolveAnomaly(
+            [FromRoute] int id,
+            [FromBody] ResolveAnomalyRequestDto request)
+        {
+            try
+            {
+                var managerUserId = GetRequiredUserId();
+                var result = await _ewService.ResolveAnomalyAsync(id, request, managerUserId);
+                return Ok(ApiResponse<ResolveAnomalyResponseDto>.Ok(result, result.Message));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ApiResponse.Fail(ex.Message));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
+            }
+        }
+
+        // ═════════════════════════════════════════════════════════════
+        // B1: Tính phụ trội, chia đều chi phí & gửi thông báo công nợ theo kỳ
+        // ═════════════════════════════════════════════════════════════
+        [HttpPost("billing-periods/{id:int}/calculate")]
+        [Authorize(Roles = "Manager,Admin")]
+        public async Task<IActionResult> CalculatePeriodSurcharges([FromRoute] int id)
+        {
+            try
+            {
+                var result = await _ewService.CalculatePeriodSurchargesAsync(id);
+                return Ok(ApiResponse<BillingCalculationResultDto>.Ok(result, result.Message));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+            {
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
+            }
         }
 
         // ═════════════════════════════════════════════════════════════
@@ -368,13 +657,17 @@ namespace FUD.Controllers.Utilities
         {
             try
             {
-                var studentUserId = GetCurrentUserId();
+                var studentUserId = GetRequiredUserId();
                 var terms = await _ewService.GetStudentTermsAsync(studentUserId);
                 return Ok(ApiResponse<List<StudentTermOptionDto>>.Ok(terms));
             }
-            catch (Exception ex)
+            catch (UnauthorizedAccessException ex)
             {
-                return BadRequest(ApiResponse.Fail($"Lỗi khi tải danh sách học kỳ: {ex.Message}"));
+                return Unauthorized(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
 
@@ -384,7 +677,7 @@ namespace FUD.Controllers.Utilities
         {
             try
             {
-                var studentUserId = GetCurrentUserId();
+                var studentUserId = GetRequiredUserId();
                 var report = await _ewService.GetStudentEwReportAsync(studentUserId, termId);
                 if (report == null)
                 {
@@ -392,9 +685,13 @@ namespace FUD.Controllers.Utilities
                 }
                 return Ok(ApiResponse<StudentEwReportDto>.Ok(report));
             }
-            catch (Exception ex)
+            catch (UnauthorizedAccessException ex)
             {
-                return BadRequest(ApiResponse.Fail($"Lỗi khi tải báo cáo điện nước cá nhân: {ex.Message}"));
+                return Unauthorized(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse.Fail("Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."));
             }
         }
     }

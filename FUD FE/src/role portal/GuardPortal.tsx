@@ -50,7 +50,7 @@ export const GuardPortal: React.FC<GuardPortalProps> = ({
     {
       label: 'ĐIỆN & NƯỚC',
       items: [
-        { id: 'ew', name: 'Nhập chỉ số điện – nước', counter: 'Import theo kỳ' },
+        { id: 'ew', name: 'Nhập chỉ số điện – nước', counter: 'Chụp ảnh AI & Import' },
       ],
     },
     {

@@ -1,19 +1,13 @@
 import {
-  TOKEN_KEY,
   type SessionExpirationReason,
   broadcastAuthEvent,
   clearSessionStorage,
   getSessionExpirationReason,
   saveSessionMeta,
 } from './sessionManager';
+import { env } from '../config/env';
 
-let memoryAccessToken: string | null = (() => {
-  try {
-    return typeof localStorage !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
-  } catch {
-    return null;
-  }
-})();
+let memoryAccessToken: string | null = null;
 
 let memoryImpersonationToken: string | null = null;
 
@@ -33,27 +27,9 @@ export const setAccessToken = (token: string | null) => {
   if (token) {
     refreshCooldownUntil = 0;
   }
-  try {
-    if (typeof localStorage !== 'undefined') {
-      if (token) {
-        localStorage.setItem(TOKEN_KEY, token);
-      } else {
-        localStorage.removeItem(TOKEN_KEY);
-      }
-    }
-  } catch {
-    // storage unavailable
-  }
 };
 
 export const getAccessToken = (): string | null => {
-  if (typeof localStorage !== 'undefined') {
-    try {
-      memoryAccessToken = localStorage.getItem(TOKEN_KEY);
-    } catch {
-      return memoryAccessToken;
-    }
-  }
   return memoryAccessToken;
 };
 
@@ -100,7 +76,7 @@ export async function refreshAccessToken(expectedOldToken?: string): Promise<str
         return null;
       }
 
-      const res = await fetch('/api/auth/refresh', {
+      const res = await fetch(`${env.apiBaseUrl}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
       });
@@ -127,7 +103,7 @@ export async function refreshAccessToken(expectedOldToken?: string): Promise<str
         idleTimeoutMinutes: json.data?.idleTimeoutMinutes,
         absoluteExpiresAt: json.data?.absoluteExpiresAt,
       });
-      broadcastAuthEvent({ type: 'TOKEN_UPDATED', token: newToken, at: Date.now() });
+      broadcastAuthEvent({ type: 'TOKEN_UPDATED', at: Date.now() });
       refreshCooldownUntil = 0;
       return newToken;
     } catch {

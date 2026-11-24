@@ -7,8 +7,10 @@ using FUD.Common;
 using FUD.Infrastructure.Auth;
 using FUD.Models;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace FUD.Controllers;
 
@@ -22,11 +24,16 @@ public class ManagerImpersonateController : ControllerBase
 {
     private readonly FudContext _db;
     private readonly IJwtTokenGenerator _jwtGen;
+    private readonly ILogger<ManagerImpersonateController>? _logger;
 
-    public ManagerImpersonateController(FudContext db, IJwtTokenGenerator jwtGen)
+    public ManagerImpersonateController(
+        FudContext db,
+        IJwtTokenGenerator jwtGen,
+        ILogger<ManagerImpersonateController>? logger = null)
     {
         _db = db;
         _jwtGen = jwtGen;
+        _logger = logger;
     }
 
     /// <summary>
@@ -107,6 +114,12 @@ public class ManagerImpersonateController : ControllerBase
     [HttpPost("impersonate/{studentId:int}")]
     public async Task<IActionResult> Impersonate(int studentId)
     {
+        if (string.Equals(User.FindFirstValue("imp"), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden,
+                ApiResponse.Fail("Không thể thực hiện đăng nhập hộ từ một phiên đang đăng nhập hộ."));
+        }
+
         var managerIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier)
             ?? User.FindFirstValue("sub")
             ?? User.FindFirstValue("nameid");
@@ -134,12 +147,59 @@ public class ManagerImpersonateController : ControllerBase
         if (student == null)
             return NotFound(ApiResponse.Fail("Sinh viên không tồn tại hoặc không còn hoạt động trên hệ thống."));
 
-        if (student.AccountStatus == "Banned" || student.AccountStatus == "Locked")
+        if (!string.Equals(student.AccountStatus, AccountConstants.Statuses.Active, StringComparison.OrdinalIgnoreCase))
         {
             return BadRequest(ApiResponse.Fail($"Tài khoản sinh viên đang ở trạng thái {student.AccountStatus}, không thể đăng nhập hộ."));
         }
 
-        var roles = student.UserRoleUsers.Select(ur => ur.Role.RoleName).ToList();
+        var targetRoles = student.UserRoleUsers.Select(ur => ur.Role.RoleName).ToList();
+        if (targetRoles.Count != 1 || !targetRoles.Contains("Student"))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden,
+                ApiResponse.Fail("Chỉ được đăng nhập hộ tài khoản có duy nhất vai trò Sinh viên."));
+        }
+
+        // Ghi Audit Log vào hệ thống (Fail-closed: phải lưu thành công trước khi cấp token)
+        try
+        {
+            var rawIp = HttpContext?.Connection?.RemoteIpAddress?.ToString();
+            var rawUserAgent = Request?.Headers.UserAgent.ToString();
+            var ipAddress = string.IsNullOrWhiteSpace(rawIp)
+                ? null
+                : (rawIp.Length > 50 ? rawIp[..50] : rawIp);
+            var userAgent = string.IsNullOrWhiteSpace(rawUserAgent)
+                ? null
+                : (rawUserAgent.Length > 255 ? rawUserAgent[..255] : rawUserAgent);
+
+            var auditLog = new AuditLog
+            {
+                UserId = managerId,
+                ImpersonatedStudentId = student.Student != null ? student.Id : null,
+                ActionType = "IMPERSONATE_STUDENT",
+                TargetEntity = "User",
+                TargetId = student.Id.ToString(),
+                NewValue = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    ManagerId = managerId,
+                    StudentId = student.Id,
+                    StudentCode = student.Code,
+                    Timestamp = DateTime.UtcNow
+                }),
+                CreatedAt = DateTime.UtcNow,
+                IpAddress = ipAddress,
+                UserAgent = userAgent
+            };
+            _db.AuditLogs.Add(auditLog);
+            await _db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Không thể ghi nhận AuditLog khi Manager {ManagerId} đăng nhập hộ sinh viên {StudentId}.", managerId, student.Id);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse.Fail("Không thể ghi nhận nhật ký kiểm toán cho phiên đăng nhập hộ."));
+        }
+
+        var roles = new List<string> { "Student" };
         var token = _jwtGen.GenerateImpersonationToken(student, roles, managerId);
 
         var activeResidency = student.Student?.Residencies?
@@ -175,38 +235,10 @@ public class ManagerImpersonateController : ControllerBase
             }
         };
 
-        // Ghi Audit Log vào hệ thống
-        try
-        {
-            var auditLog = new AuditLog
-            {
-                UserId = managerId,
-                ImpersonatedStudentId = student.Id,
-                ActionType = "IMPERSONATE_STUDENT",
-                TargetEntity = "User",
-                TargetId = student.Id.ToString(),
-                NewValue = System.Text.Json.JsonSerializer.Serialize(new {
-                    ManagerId = managerId,
-                    StudentId = student.Id,
-                    StudentCode = student.Code,
-                    Timestamp = DateTime.UtcNow
-                }),
-                CreatedAt = DateTime.UtcNow,
-                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
-                UserAgent = Request.Headers.UserAgent.ToString()
-            };
-            _db.AuditLogs.Add(auditLog);
-            await _db.SaveChangesAsync();
-        }
-        catch
-        {
-            // Best effort logging, don't fail impersonation if audit log table has specific constraints
-        }
-
         return Ok(ApiResponse<object>.Ok(new
         {
             impersonationToken = token,
-            expiresIn = 7200, // 2 giờ
+            expiresIn = 1800, // 30 phút
             student = studentInfo
         }, "Tạo phiên đăng nhập hộ sinh viên thành công"));
     }

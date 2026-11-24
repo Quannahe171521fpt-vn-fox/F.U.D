@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { requestApi, navigateToStudentPayment, type RequestItemDto } from '../../services/api';
 import { REQUEST_STATUS_LABELS, REQUEST_STATUS_COLORS, REQUEST_TYPE_LABELS, type DBRequestStatus } from './SubmitRequestPage';
 import { Pagination } from '../../components/Pagination';
+import { INVOICE_STATUS_META, INVOICE_TYPE_META } from '../Payment/ChoosePaidItemPage';
 import { removeVietnameseTones } from '../../utils/textUtils';
+import { toSafeHref } from '../../utils/urlUtils';
 import { useIdleAwarePolling } from '../../utils/useIdleAwarePolling';
 import '../../styles/violation.css';
 
@@ -517,41 +519,100 @@ export const StudentRequestListPage: React.FC<StudentRequestListPageProps> = ({ 
                     </div>
                   )}
 
-                  {bt.invoices && bt.invoices.length > 0 && (
-                    <div style={{ backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '10px 12px', fontSize: 12 }}>
-                      <strong style={{ display: 'block', marginBottom: 6, color: '#0F172A' }}>Hóa đơn phát sinh:</strong>
-                      {bt.invoices.map((inv) => {
-                        const canPay = inv.status === 'Unpaid' || inv.status === 'Overdue' || inv.status === 'Processing';
-                        return (
-                          <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: '1px dashed #E2E8F0' }}>
-                            <span><strong>{inv.invoiceNumber}</strong> ({inv.invoiceType}) — Hạn: {inv.dueDate || '—'}</span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span><strong>{inv.totalAmount.toLocaleString('vi-VN')} đ</strong> ({inv.status})</span>
-                              {canPay && (
-                                <button
-                                  type="button"
-                                  onClick={() => navigateToStudentPayment({ invoiceId: inv.id })}
+                  {bt.invoices && bt.invoices.length > 0 && (() => {
+                    const payableInvoices = bt.invoices.filter(
+                      (inv) => inv.status === 'Unpaid' || inv.status === 'Overdue' || inv.status === 'Processing'
+                    );
+                    return (
+                      <div style={{ backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '10px 12px', fontSize: 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                          <div>
+                            <strong style={{ color: '#0F172A' }}>Hóa đơn phát sinh ({bt.invoices.length}):</strong>
+                            {payableInvoices.length > 0 && (
+                              <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
+                                Hóa đơn đã được đẩy sang mục <strong>Thanh toán hóa đơn</strong> của bạn.
+                              </div>
+                            )}
+                          </div>
+                          {payableInvoices.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                navigateToStudentPayment({
+                                  sourceType: 'BedTransfer',
+                                  sourceId: selectedRequest.id,
+                                })
+                              }
+                              style={{
+                                padding: '5px 12px',
+                                backgroundColor: '#C2410C',
+                                color: '#FFFFFF',
+                                border: 'none',
+                                borderRadius: '6px',
+                                fontSize: '11.5px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              💳 Thanh toán tất cả ({payableInvoices.length})
+                            </button>
+                          )}
+                        </div>
+                        {bt.invoices.map((inv) => {
+                          const canPay = inv.status === 'Unpaid' || inv.status === 'Overdue' || inv.status === 'Processing';
+                          const typeMeta = INVOICE_TYPE_META[inv.invoiceType];
+                          const statusMeta = INVOICE_STATUS_META[inv.status] || {
+                            label: inv.status,
+                            bg: '#F1F5F9',
+                            color: '#475569',
+                          };
+                          return (
+                            <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 0', borderBottom: '1px dashed #E2E8F0' }}>
+                              <span>
+                                <strong>{inv.invoiceNumber}</strong> ({typeMeta?.label || inv.invoiceType}) — Hạn: {inv.dueDate || '—'}
+                              </span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <strong>{inv.totalAmount.toLocaleString('vi-VN')} đ</strong>
+                                <span
                                   style={{
-                                    padding: '4px 10px',
-                                    backgroundColor: '#EA580C',
-                                    color: '#FFFFFF',
-                                    border: 'none',
-                                    borderRadius: '6px',
+                                    padding: '2px 8px',
+                                    borderRadius: '9999px',
                                     fontSize: '11px',
                                     fontWeight: 700,
-                                    cursor: 'pointer',
+                                    backgroundColor: statusMeta.bg,
+                                    color: statusMeta.color,
                                     whiteSpace: 'nowrap',
                                   }}
                                 >
-                                  Thanh toán ngay
-                                </button>
-                              )}
+                                  {statusMeta.label}
+                                </span>
+                                {canPay && (
+                                  <button
+                                    type="button"
+                                    onClick={() => navigateToStudentPayment({ invoiceId: inv.id })}
+                                    style={{
+                                      padding: '4px 10px',
+                                      backgroundColor: '#EA580C',
+                                      color: '#FFFFFF',
+                                      border: 'none',
+                                      borderRadius: '6px',
+                                      fontSize: '11px',
+                                      fontWeight: 700,
+                                      cursor: 'pointer',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    Thanh toán ngay
+                                  </button>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })()}
@@ -569,11 +630,15 @@ export const StudentRequestListPage: React.FC<StudentRequestListPageProps> = ({ 
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: 6 }}>Minh chứng đính kèm:</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: '8px' }}>
-                  {selectedRequest.complaint.evidences.map((url: string, i: number) => (
-                    <a key={i} href={url} target="_blank" rel="noreferrer">
-                      <img src={url} alt="evidence" style={{ width: '100%', height: '65px', objectFit: 'cover', borderRadius: '6px' }} />
-                    </a>
-                  ))}
+                  {selectedRequest.complaint.evidences.map((url: string, i: number) => {
+                    const safeUrl = toSafeHref(url);
+                    if (!safeUrl) return null;
+                    return (
+                      <a key={i} href={safeUrl} target="_blank" rel="noopener noreferrer">
+                        <img src={safeUrl} alt="evidence" style={{ width: '100%', height: '65px', objectFit: 'cover', borderRadius: '6px' }} />
+                      </a>
+                    );
+                  })}
                 </div>
               </div>
             )}

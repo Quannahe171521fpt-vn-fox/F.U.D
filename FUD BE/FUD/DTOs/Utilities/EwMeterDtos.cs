@@ -69,6 +69,8 @@ namespace FUD.DTOs.Utilities
         public decimal OldReading { get; set; }       // PreviousValue để hiển thị read-only
         public bool AlreadyRecorded { get; set; }     // đã có chỉ số kỳ này chưa
         public decimal? ExistingCurrentValue { get; set; }
+        public string? ExistingEvidenceImageUrl { get; set; }
+        public string? ExistingSource { get; set; }
     }
 
     public class BlockFormDataQueryDto
@@ -121,9 +123,37 @@ namespace FUD.DTOs.Utilities
         public decimal? ElectricityRightNewValue { get; set; }
         public decimal? WaterLeftNewValue { get; set; }
         public decimal? WaterRightNewValue { get; set; }
+        public string? ElectricityLeftEvidenceUrl { get; set; }
+        public string? ElectricityRightEvidenceUrl { get; set; }
+        public string? WaterLeftEvidenceUrl { get; set; }
+        public string? WaterRightEvidenceUrl { get; set; }
+        public string? ElectricityLeftSource { get; set; }
+        public string? ElectricityRightSource { get; set; }
+        public string? WaterLeftSource { get; set; }
+        public string? WaterRightSource { get; set; }
         public string? Note { get; set; }
         /// <summary>true = bỏ qua error rows; false = reject nếu có error</summary>
         public bool ImportOnlyValid { get; set; } = false;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // OCR — AI Vision Meter Photo Scan Result
+    // ═══════════════════════════════════════════════════════════
+    public class MeterPhotoScanResponseDto
+    {
+        public bool IsMeterImage { get; set; }
+        public decimal? ReadingValue { get; set; }
+        public string? RawDigits { get; set; }
+        public string DetectedMeterType { get; set; } = "Unknown"; // Electricity | Water | Unknown
+        public bool MeterTypeMismatch { get; set; }
+        public double Confidence { get; set; }
+        public string ConfidenceLevel { get; set; } = "Low"; // High (>=0.85) | Medium (>=0.60) | Low
+        public string? AiNotes { get; set; }
+        public string? EvidenceImageUrl { get; set; }
+        public decimal? PreviousValue { get; set; }
+        public decimal? EstimatedConsumption { get; set; }
+        public string ValidationStatus { get; set; } = "Valid"; // Valid | Warning | Error
+        public List<string> Warnings { get; set; } = new();
     }
 
     public class ManualConfirmResponseDto
@@ -226,5 +256,83 @@ namespace FUD.DTOs.Utilities
         public decimal? L { get; set; }
         public decimal? R { get; set; }
         public int Term { get; set; } = 1;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // A1, A2 — Usage Anomalies (Manager Inspect / Adjust / Confirm)
+    // ═══════════════════════════════════════════════════════════
+    public class UsageAnomalyItemDto
+    {
+        public int AnomalyId { get; set; }
+        public int ReadingId { get; set; }
+        public int? BillingPeriodId { get; set; }
+        public string BillingPeriodDisplay { get; set; } = string.Empty;
+        public int RoomId { get; set; }
+        public string RoomNumber { get; set; } = string.Empty;
+        public string BlockCode { get; set; } = string.Empty;
+        public string BlockName { get; set; } = string.Empty;
+        public string DormName { get; set; } = string.Empty;
+        public string MeterType { get; set; } = string.Empty;
+        public decimal PreviousValue { get; set; }
+        public decimal CurrentValue { get; set; }
+        public decimal Consumption { get; set; }
+        public decimal Quota { get; set; }
+        public decimal OverUsage { get; set; }
+        public string FlagReason { get; set; } = string.Empty;
+        public string Status { get; set; } = "Flagged";          // Flagged | Resolved
+        public string? Resolution { get; set; }                  // Accepted | Corrected
+        public string? ManagerNote { get; set; }
+        public string GuardName { get; set; } = string.Empty;
+        public string? GuardPhone { get; set; }
+        public DateTime CreatedTime { get; set; }
+        public DateTime? ResolvedTime { get; set; }
+        public string? ResolvedByName { get; set; }
+    }
+
+    public class ResolveAnomalyRequestDto
+    {
+        public string Action { get; set; } = "Confirm";
+        public decimal? AdjustedValue { get; set; }
+        public string? ManagerNote { get; set; }
+    }
+
+    public class ResolveAnomalyResponseDto
+    {
+        public int AnomalyId { get; set; }
+        public int ReadingId { get; set; }
+        public string Status { get; set; } = "Resolved";
+        public string Resolution { get; set; } = string.Empty;   // Accepted | Corrected
+        public decimal FinalReadingValue { get; set; }
+        public decimal FinalConsumption { get; set; }
+        public bool SurchargeCalculated { get; set; }
+        public int DebtNotificationsSent { get; set; }
+        public decimal? SharePerStudent { get; set; }
+        public string Message { get; set; } = string.Empty;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // B1 — Calculate Surcharge & Split Costs Equally
+    // ═══════════════════════════════════════════════════════════
+    public class RoomSurchargeCalculationResult
+    {
+        public int RoomId { get; set; }
+        public string RoomNumber { get; set; } = string.Empty;
+        public bool Calculated { get; set; }
+        public bool HasFlaggedReadings { get; set; }
+        public decimal TotalCost { get; set; }
+        public int NumberOfResidents { get; set; }
+        public decimal SharePerStudent { get; set; }
+        public int InvoicesCreated { get; set; }
+        public List<int> NotifiedStudentIds { get; set; } = new();
+    }
+
+    public class BillingCalculationResultDto
+    {
+        public int BillingPeriodId { get; set; }
+        public int RoomsCalculated { get; set; }
+        public int RoomsSkippedFlagged { get; set; }
+        public int InvoicesCreated { get; set; }
+        public int NotificationsSent { get; set; }
+        public string Message { get; set; } = string.Empty;
     }
 }
