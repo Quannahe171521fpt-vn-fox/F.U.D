@@ -394,6 +394,8 @@ builder.Services.AddScoped<IInAppNotificationService, InAppNotificationService>(
 builder.Services.AddScoped<IAccountRepository, AccountRepository>();
 builder.Services.AddScoped<IAccountHistoryRepository, AccountHistoryRepository>();
 builder.Services.AddScoped<IAccountService, AccountService>();
+builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddAccountValidators();
 
 // Facilities DI

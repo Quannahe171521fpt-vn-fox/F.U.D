@@ -2280,6 +2280,69 @@ export const accountApi = {
     adminAccountRequest<AccountItem>(`${BASE_URL}/admin/users/${id}/restore`, jsonInit('POST', payload), 'Lỗi khi khôi phục tài khoản'),
 };
 
+// ── Audit Log API (Admin) ───────────────────────────────────
+export interface AuditLogItem {
+  id: number;
+  logType: 'Impersonation' | 'RoleChange' | 'AccountStatus' | 'System';
+  actorId?: number;
+  actorName?: string;
+  actorCode?: string;
+  targetUserId?: number;
+  targetUserName?: string;
+  targetUserCode?: string;
+  actionType?: string;
+  targetEntity?: string;
+  targetId?: string;
+  oldValue?: string;
+  newValue?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  createdAt: string;
+  notes?: string;
+}
+
+export interface AuditLogDetail extends AuditLogItem {
+  rawPayload?: string;
+}
+
+export interface AuditLogQuery {
+  page?: number;
+  pageSize?: number;
+  logType?: string;
+  actorId?: number;
+  fromDate?: string;
+  toDate?: string;
+  search?: string;
+}
+
+export const auditApi = {
+  getAll: (params?: AuditLogQuery) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.append('page', params.page.toString());
+    if (params?.pageSize) query.append('pageSize', params.pageSize.toString());
+    if (params?.logType && params.logType !== 'All') query.append('logType', params.logType);
+    if (params?.actorId) query.append('actorId', params.actorId.toString());
+    if (params?.fromDate) query.append('fromDate', params.fromDate);
+    if (params?.toDate) query.append('toDate', params.toDate);
+    if (params?.search) query.append('search', params.search);
+    return adminAccountRequest<PagedResult<AuditLogItem>>(
+      `${BASE_URL}/admin/audit-logs?${query.toString()}`,
+      undefined,
+      'Không thể tải nhật ký kiểm toán'
+    );
+  },
+
+  getDetail: (id: number, logType?: string) => {
+    const query = new URLSearchParams();
+    if (logType) query.append('logType', logType);
+    return adminAccountRequest<AuditLogDetail>(
+      `${BASE_URL}/admin/audit-logs/${id}?${query.toString()}`,
+      undefined,
+      'Không thể tải chi tiết nhật ký kiểm toán'
+    );
+  },
+};
+
 
 // ── Keeping API (UC02 – Giữ phòng, Student) ────────────────
 export interface KeepingCurrentStay {

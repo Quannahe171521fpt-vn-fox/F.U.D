@@ -1,7 +1,8 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
 import { AccountManagement } from '../pages/Admin/AccountManagement';
+import { AuditLogPage } from '../pages/Admin/AuditLogPage';
 
 interface AdminPortalProps {
   onLogout: () => void;
@@ -9,7 +10,7 @@ interface AdminPortalProps {
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
   const { currentUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'accounts'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'accounts' | 'audit'>('overview');
 
   const adminSections: SidebarSection[] = [
     {
@@ -17,6 +18,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
       items: [
         { id: 'overview', name: 'Tổng quan hệ thống', counter: 'Dashboard' },
         { id: 'accounts', name: 'Quản lý Tài khoản', counter: 'Tạo, phân quyền, tạm ngưng' },
+        { id: 'audit', name: 'Nhật ký Kiểm toán', counter: 'Đăng nhập hộ, quyền, trạng thái' },
       ],
     },
   ];
@@ -39,6 +41,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
       <main className="manager-main-content">
         {activeTab === 'accounts' ? (
           <AccountManagement />
+        ) : activeTab === 'audit' ? (
+          <AuditLogPage />
         ) : (
         <div style={{ padding: '24px 32px' }}>
           <div style={{ marginBottom: '24px' }}>
