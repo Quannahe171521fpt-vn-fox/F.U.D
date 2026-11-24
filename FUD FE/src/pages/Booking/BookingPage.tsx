@@ -18,7 +18,8 @@ interface BookingPageProps {
 }
 
 export const BookingPage: React.FC<BookingPageProps> = ({ onGoToRequests }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, impersonation } = useAuth();
+  const activeUser = impersonation?.student || currentUser;
   const { showAlert, popup } = usePopup();
 
   const [loading, setLoading] = useState<boolean>(true);
@@ -601,7 +602,7 @@ export const BookingPage: React.FC<BookingPageProps> = ({ onGoToRequests }) => {
           <h3 className="summary-title">Tóm tắt thông tin</h3>
           <div className="summary-row">
             <span>Sinh viên:</span>
-            <strong>{currentUser?.fullName} ({currentUser?.code})</strong>
+            <strong>{activeUser?.fullName} ({activeUser?.code})</strong>
           </div>
           <div className="summary-row">
             <span>Giới tính:</span>

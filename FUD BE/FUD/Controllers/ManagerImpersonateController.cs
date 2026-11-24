@@ -162,10 +162,19 @@ public class ManagerImpersonateController : ControllerBase
         // Ghi Audit Log vào hệ thống (Fail-closed: phải lưu thành công trước khi cấp token)
         try
         {
+            var rawIp = HttpContext?.Connection?.RemoteIpAddress?.ToString();
+            var rawUserAgent = Request?.Headers.UserAgent.ToString();
+            var ipAddress = string.IsNullOrWhiteSpace(rawIp)
+                ? null
+                : (rawIp.Length > 50 ? rawIp[..50] : rawIp);
+            var userAgent = string.IsNullOrWhiteSpace(rawUserAgent)
+                ? null
+                : (rawUserAgent.Length > 255 ? rawUserAgent[..255] : rawUserAgent);
+
             var auditLog = new AuditLog
             {
                 UserId = managerId,
-                ImpersonatedStudentId = student.Id,
+                ImpersonatedStudentId = student.Student != null ? student.Id : null,
                 ActionType = "IMPERSONATE_STUDENT",
                 TargetEntity = "User",
                 TargetId = student.Id.ToString(),
@@ -177,8 +186,8 @@ public class ManagerImpersonateController : ControllerBase
                     Timestamp = DateTime.UtcNow
                 }),
                 CreatedAt = DateTime.UtcNow,
-                IpAddress = HttpContext?.Connection?.RemoteIpAddress?.ToString(),
-                UserAgent = Request?.Headers.UserAgent.ToString()
+                IpAddress = ipAddress,
+                UserAgent = userAgent
             };
             _db.AuditLogs.Add(auditLog);
             await _db.SaveChangesAsync();
