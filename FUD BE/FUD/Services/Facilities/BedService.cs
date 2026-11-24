@@ -35,8 +35,21 @@ namespace FUD.Services.Facilities
 
         public async Task<BedDto> CreateAsync(CreateBedDto dto)
         {
-            if (!await _bedRepo.RoomExistsAsync(dto.RoomId))
-                throw new KeyNotFoundException($"Phòng {dto.RoomId} không tồn tại.");
+            var room = await _bedRepo.GetRoomWithTypeAndBedsAsync(dto.RoomId)
+                ?? throw new KeyNotFoundException($"Phòng {dto.RoomId} không tồn tại.");
+
+            if (room.RoomType is { BedCapacity: > 0 } roomType)
+            {
+                var currentBedCount = room.Beds?.Count ?? 0;
+                if (currentBedCount >= roomType.BedCapacity)
+                {
+                    var roomTypeName = !string.IsNullOrWhiteSpace(roomType.Name)
+                        ? roomType.Name
+                        : $"loại {roomType.BedCapacity} giường";
+                    throw new InvalidOperationException(
+                        $"Phòng {room.RoomNumber} ({roomTypeName}) đã đủ {currentBedCount}/{roomType.BedCapacity} giường, không thể thêm giường mới.");
+                }
+            }
 
             if (!await _bedRepo.IsBedCodeUniqueAsync(dto.RoomId, dto.BedCode))
                 throw new InvalidOperationException($"Mã giường '{dto.BedCode}' đã tồn tại trong phòng này.");

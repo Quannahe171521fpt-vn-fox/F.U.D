@@ -55,6 +55,15 @@ namespace FUD.Repositories.Facilities
             return await _context.Rooms.AnyAsync(r => r.Id == roomId);
         }
 
+        public async Task<Room?> GetRoomWithTypeAndBedsAsync(int roomId)
+        {
+            return await _context.Rooms
+                .AsNoTracking()
+                .Include(r => r.RoomType)
+                .Include(r => r.Beds)
+                .FirstOrDefaultAsync(r => r.Id == roomId);
+        }
+
         public async Task<bool> IsBedCodeUniqueAsync(int roomId, string bedCode, int? excludeId = null)
         {
             return !await _context.Beds.AnyAsync(b =>

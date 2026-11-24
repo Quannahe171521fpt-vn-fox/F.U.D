@@ -221,6 +221,45 @@ public class BedRepositoryTests
 
     #endregion
 
+    #region GetRoomWithTypeAndBedsAsync Tests
+
+    [Fact]
+    public async Task GetRoomWithTypeAndBedsAsync_WhenRoomExists_ReturnsRoomWithRoomTypeAndBeds()
+    {
+        // Arrange
+        using var context = CreateInMemoryContext();
+        await SeedBasicFacilitiesAsync(context);
+        var sut = new BedRepository(context);
+
+        // Act
+        var room = await sut.GetRoomWithTypeAndBedsAsync(10);
+
+        // Assert
+        room.Should().NotBeNull();
+        room!.Id.Should().Be(10);
+        room.RoomNumber.Should().Be("101L");
+        room.RoomType.Should().NotBeNull();
+        room.RoomType.BedCapacity.Should().Be(4);
+        room.Beds.Should().HaveCount(3);
+    }
+
+    [Fact]
+    public async Task GetRoomWithTypeAndBedsAsync_WhenRoomDoesNotExist_ReturnsNull()
+    {
+        // Arrange
+        using var context = CreateInMemoryContext();
+        await SeedBasicFacilitiesAsync(context);
+        var sut = new BedRepository(context);
+
+        // Act
+        var room = await sut.GetRoomWithTypeAndBedsAsync(999);
+
+        // Assert
+        room.Should().BeNull();
+    }
+
+    #endregion
+
     #region IsBedCodeUniqueAsync Tests
 
     [Fact]

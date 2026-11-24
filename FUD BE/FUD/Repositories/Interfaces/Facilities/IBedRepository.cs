@@ -8,6 +8,7 @@ namespace FUD.Repositories.Interfaces.Facilities
         Task<(IEnumerable<Bed> Items, int TotalCount)> GetAllAsync(BedQueryDto query);
         Task<Bed?> GetByIdAsync(int id);
         Task<bool> RoomExistsAsync(int roomId);
+        Task<Room?> GetRoomWithTypeAndBedsAsync(int roomId);
         Task<bool> IsBedCodeUniqueAsync(int roomId, string bedCode, int? excludeId = null);
 
         /// <summary>Trả true nếu bed đang Occupied/Holding/Pending Transfer</summary>
