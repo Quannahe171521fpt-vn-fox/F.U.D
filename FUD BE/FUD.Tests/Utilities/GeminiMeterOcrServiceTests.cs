@@ -118,7 +118,10 @@ public class GeminiMeterOcrServiceTests
         apiKeyValues!.Single().Should().Be("test-secret-api-key");
 
         capturedBody.Should().NotBeNull();
-        capturedBody.Should().Contain("\"thinkingLevel\":\"low\"");
+        capturedBody.Should().Contain("\"thinkingLevel\":\"medium\"");
+        capturedBody.Should().Contain("\"mediaResolution\":\"MEDIA_RESOLUTION_HIGH\"");
+        capturedBody.Should().Contain("\"integerDigits\"");
+        capturedBody.Should().Contain("\"decimalDigits\"");
         capturedBody.Should().Contain("\"responseMimeType\":\"application/json\"");
 
         result.IsMeterImage.Should().BeTrue();
@@ -347,5 +350,99 @@ public class GeminiMeterOcrServiceTests
         result.IsMeterImage.Should().BeTrue();
         result.DetectedMeterType.Should().Be("Water");
         result.ReadingValue.Should().Be(42.5m);
+    }
+
+    [Fact]
+    public async Task ExtractMeterReadingAsync_ReconstructsElectricityValueFromIntegerAndDecimalDigits()
+    {
+        var handlerMock = CreateHandlerMock((_, _) =>
+        {
+            var ocrJson = JsonSerializer.Serialize(new
+            {
+                isMeterImage = true,
+                detectedMeterType = "Electricity",
+                integerDigits = "03626",
+                decimalDigits = "8",
+                readingValue = 362.5m, // Even if model misplaces decimal in float field
+                rawDigits = "362.5",
+                confidence = 0.94,
+                notes = "Công tơ điện cơ EMIC CV140"
+            });
+
+            return Task.FromResult(BuildGeminiJsonResponse(new[] { new { text = ocrJson } }));
+        });
+
+        var sut = CreateSut(handlerMock.Object);
+
+        var result = await sut.ExtractMeterReadingAsync(SampleImageBytes, "image/jpeg", "Electricity");
+
+        result.IsMeterImage.Should().BeTrue();
+        result.DetectedMeterType.Should().Be("Electricity");
+        result.IntegerDigits.Should().Be("03626");
+        result.DecimalDigits.Should().Be("8");
+        result.RawDigits.Should().Be("03626.8");
+        result.ReadingValue.Should().Be(3626.8m);
+    }
+
+    [Fact]
+    public async Task ExtractMeterReadingAsync_ReconstructsWaterThreeRedDigitsWithoutShiftingLeadingZero()
+    {
+        var handlerMock = CreateHandlerMock((_, _) =>
+        {
+            var ocrJson = JsonSerializer.Serialize(new
+            {
+                isMeterImage = true,
+                detectedMeterType = "Water",
+                integerDigits = "00001",
+                decimalDigits = "056",
+                readingValue = 10.58m, // Even if model shifts leading red zero
+                rawDigits = "000010.56",
+                confidence = 0.92,
+                notes = "Đồng hồ nước ZR có 3 ô đỏ"
+            });
+
+            return Task.FromResult(BuildGeminiJsonResponse(new[] { new { text = ocrJson } }));
+        });
+
+        var sut = CreateSut(handlerMock.Object);
+
+        var result = await sut.ExtractMeterReadingAsync(SampleImageBytes, "image/jpeg", "Water");
+
+        result.IsMeterImage.Should().BeTrue();
+        result.DetectedMeterType.Should().Be("Water");
+        result.IntegerDigits.Should().Be("00001");
+        result.DecimalDigits.Should().Be("056");
+        result.RawDigits.Should().Be("00001.056");
+        result.ReadingValue.Should().Be(1.06m);
+    }
+
+    [Fact]
+    public async Task ExtractMeterReadingAsync_WhenDecimalDigitsOmitted_FallsBackToRawDigitsFraction()
+    {
+        var handlerMock = CreateHandlerMock((_, _) =>
+        {
+            var ocrJson = JsonSerializer.Serialize(new
+            {
+                isMeterImage = true,
+                detectedMeterType = "Water",
+                integerDigits = "00001",
+                decimalDigits = (string?)null,
+                readingValue = 1.056m,
+                rawDigits = "00001.056",
+                confidence = 0.99,
+                notes = (string?)null
+            });
+
+            return Task.FromResult(BuildGeminiJsonResponse(new[] { new { text = ocrJson } }));
+        });
+
+        var sut = CreateSut(handlerMock.Object);
+
+        var result = await sut.ExtractMeterReadingAsync(SampleImageBytes, "image/jpeg", "Water");
+
+        result.IntegerDigits.Should().Be("00001");
+        result.DecimalDigits.Should().Be("056");
+        result.RawDigits.Should().Be("00001.056");
+        result.ReadingValue.Should().Be(1.06m);
     }
 }

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -160,6 +161,7 @@ namespace FUD.Infrastructure.AI
             var generationConfig = new Dictionary<string, object>
             {
                 ["temperature"] = 0,
+                ["mediaResolution"] = "MEDIA_RESOLUTION_HIGH",
                 ["responseMimeType"] = "application/json",
                 ["responseSchema"] = new
                 {
@@ -172,22 +174,24 @@ namespace FUD.Infrastructure.AI
                             type = "STRING",
                             @enum = new[] { "Electricity", "Water", "Unknown" }
                         },
-                        readingValue = new { type = "NUMBER", nullable = true },
+                        integerDigits = new { type = "STRING", nullable = true },
+                        decimalDigits = new { type = "STRING", nullable = true },
                         rawDigits = new { type = "STRING", nullable = true },
+                        readingValue = new { type = "NUMBER", nullable = true },
                         confidence = new { type = "NUMBER" },
                         notes = new { type = "STRING", nullable = true }
                     },
-                    required = new[] { "isMeterImage", "detectedMeterType", "confidence" }
+                    required = new[] { "isMeterImage", "detectedMeterType", "integerDigits", "decimalDigits", "confidence" }
                 }
             };
 
             if (model.StartsWith("gemini-3", StringComparison.OrdinalIgnoreCase))
             {
-                generationConfig["thinkingConfig"] = new { thinkingLevel = "low" };
+                generationConfig["thinkingConfig"] = new { thinkingLevel = "medium" };
             }
             else if (model.StartsWith("gemini-2.5", StringComparison.OrdinalIgnoreCase))
             {
-                generationConfig["thinkingConfig"] = new { thinkingBudget = 0 };
+                generationConfig["thinkingConfig"] = new { thinkingBudget = 1024 };
             }
 
             return new
@@ -247,11 +251,17 @@ namespace FUD.Infrastructure.AI
         private static string BuildPrompt(string? expectedMeterType)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("Bạn là hệ thống đọc chỉ số công tơ điện và đồng hồ nước tại ký túc xá Việt Nam.");
-            sb.AppendLine("Hãy phân tích ảnh và trả về duy nhất JSON theo đúng schema:");
-            sb.AppendLine("- Đồng hồ điện (Electricity, đơn vị kWh): Với công tơ cơ, dãy bánh số đen là phần nguyên kWh, ô khung đỏ cuối cùng (nếu có) là phần thập phân 0.1 kWh. Với công tơ điện tử LCD, chỉ lấy chỉ số điện năng tổng kWh, bỏ qua điện áp (V), dòng điện (A), tần số (Hz), mã seri và ngày giờ.");
-            sb.AppendLine("- Đồng hồ nước (Water, đơn vị m³): Dãy chữ số đen là phần nguyên m³; chỉ lấy phần thập phân màu đỏ trên dãy số chính (tối đa 2 chữ số sau dấu phẩy) nếu nhìn rõ, bỏ qua số seri in trên vỏ và các đồng hồ kim tròn phụ.");
-            sb.AppendLine("- Nếu ảnh KHÔNG phải công tơ điện/nước hoặc quá mờ không đọc được chữ số: đặt isMeterImage = false (hoặc readingValue = null), confidence <= 0.3 và giải thích ngắn gọn bằng tiếng Việt trong notes.");
+            sb.AppendLine("Bạn là hệ thống OCR chuyên đọc chỉ số công tơ điện và đồng hồ nước tại ký túc xá Việt Nam.");
+            sb.AppendLine("Hãy quan sát thật kỹ từng ô bánh số từ TRÁI sang PHẢI và trả về duy nhất JSON theo đúng schema:");
+            sb.AppendLine("1. Quy tắc tách phần nguyên (integerDigits) và phần thập phân (decimalDigits) theo MÀU NỀN BÁNH SỐ:");
+            sb.AppendLine("   - Đồng hồ điện cơ (Electricity, đơn vị kWh, VD: EMIC CV140): Các bánh số nền ĐEN (thường 5 ô, bên dưới ghi nhãn 10000 | 1000 | 100 | 10 | 1) là PHẦN NGUYÊN -> đọc ĐỦ TỪNG Ô từ trái sang phải (giữ nguyên số 0 ở đầu) vào integerDigits (VD: \"01482\"). Ô cuối cùng nền ĐỎ hoặc viền khung ĐỎ (nhãn 1/10) là phần thập phân -> ghi vào decimalDigits (VD: \"4\"). Tuyệt đối KHÔNG bỏ sót ô hàng đơn vị (nhãn 1) và KHÔNG dịch dấu phẩy sang trái.");
+            sb.AppendLine("   - Công tơ điện tử LCD (Electricity, kWh): Chỉ đọc chỉ số điện năng tổng kWh, tách phần trước dấu chấm vào integerDigits và sau dấu chấm vào decimalDigits. Bỏ qua điện áp (V), dòng (A), tần số (Hz), Số SX/seri, năm sản xuất, tem kiểm định.");
+            sb.AppendLine("   - Đồng hồ nước cơ (Water, đơn vị m³, VD: ZR, Zenner, Asahi, Sensus): Các bánh số nền ĐEN (thường 4 hoặc 5 ô trước dấu tam giác/dấu phẩy) là PHẦN NGUYÊN m³ -> ghi ĐỦ TỪNG Ô (giữ số 0 ở đầu) vào integerDigits (VD: \"00127\"). TOÀN BỘ các bánh số nền ĐỎ hoặc chữ ĐỎ đứng sau phần đen (có thể có 1, 2 hoặc 3 ô đỏ) là PHẦN THẬP PHÂN -> ghi ĐỦ TẤT CẢ các chữ số đỏ từ trái sang phải (giữ nguyên số 0 đầu) vào decimalDigits (VD: 3 ô đỏ 0, 4, 3 -> decimalDigits = \"043\"). TUYỆT ĐỐI KHÔNG đẩy chữ số 0 màu đỏ sang integerDigits và KHÔNG cắt bớt số chữ số đỏ. Bỏ qua đồng hồ kim tròn phụ (x0.0001, x0.001...), số seri trên vành và ký hiệu CE/Q3/MAP.");
+            sb.AppendLine("2. Quy tắc nhận dạng chữ số chính xác:");
+            sb.AppendLine("   - Soi kỹ nét kín/hở để phân biệt 5 vs 6 vs 8 vs 9 vs 0 trên mặt kính cong/lóa sáng.");
+            sb.AppendLine("   - Nếu bánh số đang quay dở giữa 2 chữ số, ưu tiên chữ số nhỏ hơn đã đi qua vạch ngang giữa (trừ khi chữ số tiếp theo đã vào gần trọn khung).");
+            sb.AppendLine("   - Ghép rawDigits = integerDigits + \".\" + decimalDigits (nếu có decimalDigits, VD: \"01482.4\" hoặc \"00127.043\") và tính readingValue chính xác bằng số thập phân tương ứng (VD: 1482.4 hoặc 127.043).");
+            sb.AppendLine("3. Nếu ảnh KHÔNG phải công tơ điện/nước hoặc quá mờ không thể đọc chữ số: đặt isMeterImage = false, integerDigits = null, decimalDigits = null, readingValue = null, confidence <= 0.3 và giải thích ngắn gọn bằng tiếng Việt trong notes.");
 
             if (string.Equals(expectedMeterType, "Electricity", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(expectedMeterType, "Water", StringComparison.OrdinalIgnoreCase))
@@ -259,7 +269,7 @@ namespace FUD.Infrastructure.AI
                 var label = string.Equals(expectedMeterType, "Electricity", StringComparison.OrdinalIgnoreCase)
                     ? "Điện (Electricity)"
                     : "Nước (Water)";
-                sb.AppendLine($"- Ngữ cảnh: Người dùng đang mở ô nhập cho đồng hồ {label}. Tuy nhiên vẫn PHẢI nhận diện trung thực đúng loại thực tế trong ảnh vào detectedMeterType (nếu ảnh chụp nhầm loại công tơ còn lại thì báo đúng loại thực tế).");
+                sb.AppendLine($"4. Ngữ cảnh: Người dùng đang mở ô nhập cho đồng hồ {label}. Tuy nhiên vẫn PHẢI nhận diện trung thực đúng loại thực tế trong ảnh vào detectedMeterType (nếu ảnh chụp nhầm loại công tơ còn lại thì báo đúng loại thực tế).");
             }
 
             return sb.ToString();
@@ -346,6 +356,20 @@ namespace FUD.Infrastructure.AI
             return trimmed.Trim();
         }
 
+        private static string ExtractDigitsOnly(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            var sb = new StringBuilder(value.Length);
+            foreach (var ch in value)
+            {
+                if (ch is >= '0' and <= '9')
+                    sb.Append(ch);
+            }
+            return sb.ToString();
+        }
+
         private static MeterOcrRawResult SanitizeResult(MeterOcrRawResult raw)
         {
             var detectedType = raw.DetectedMeterType?.Trim() switch
@@ -361,17 +385,55 @@ namespace FUD.Infrastructure.AI
 
             var notes = string.IsNullOrWhiteSpace(raw.Notes) ? null : raw.Notes.Trim();
             var rawDigits = string.IsNullOrWhiteSpace(raw.RawDigits) ? null : raw.RawDigits.Trim();
+            var intDigits = ExtractDigitsOnly(raw.IntegerDigits);
+            var decDigits = ExtractDigitsOnly(raw.DecimalDigits);
             decimal? readingValue = raw.ReadingValue;
 
             if (!raw.IsMeterImage)
             {
                 readingValue = null;
+                intDigits = string.Empty;
+                decDigits = string.Empty;
             }
-            else if (readingValue.HasValue && (readingValue.Value < 0m || readingValue.Value > MaxValidReading))
+            else
             {
-                readingValue = null;
-                const string outOfRangeNote = "Chỉ số AI đọc nằm ngoài phạm vi hợp lệ.";
-                notes = string.IsNullOrWhiteSpace(notes) ? outOfRangeNote : $"{notes} {outOfRangeNote}";
+                // Ghép quyết định từ integerDigits (ô đen) + decimalDigits (ô đỏ) để tránh AI đặt nhầm dấu thập phân.
+                if (intDigits.Length > 0)
+                {
+                    // Fallback: nếu model bỏ trống decimalDigits nhưng rawDigits có dạng "<intDigits>.<dec>"
+                    if (decDigits.Length == 0 && !string.IsNullOrWhiteSpace(rawDigits))
+                    {
+                        var normalizedRaw = rawDigits.Replace(',', '.');
+                        var dotIdx = normalizedRaw.IndexOf('.');
+                        if (dotIdx > 0 && dotIdx < normalizedRaw.Length - 1)
+                        {
+                            var rawIntPart = ExtractDigitsOnly(normalizedRaw[..dotIdx]);
+                            var rawDecPart = ExtractDigitsOnly(normalizedRaw[(dotIdx + 1)..]);
+                            if (rawIntPart == intDigits && rawDecPart.Length > 0)
+                            {
+                                decDigits = rawDecPart;
+                            }
+                        }
+                    }
+
+                    var combined = decDigits.Length > 0 ? $"{intDigits}.{decDigits}" : intDigits;
+                    if (decimal.TryParse(combined, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var parsedFromParts))
+                    {
+                        readingValue = Math.Round(parsedFromParts, 2, MidpointRounding.AwayFromZero);
+                        rawDigits = combined;
+                    }
+                }
+                else if (readingValue.HasValue)
+                {
+                    readingValue = Math.Round(readingValue.Value, 2, MidpointRounding.AwayFromZero);
+                }
+
+                if (readingValue.HasValue && (readingValue.Value < 0m || readingValue.Value > MaxValidReading))
+                {
+                    readingValue = null;
+                    const string outOfRangeNote = "Chỉ số AI đọc nằm ngoài phạm vi hợp lệ.";
+                    notes = string.IsNullOrWhiteSpace(notes) ? outOfRangeNote : $"{notes} {outOfRangeNote}";
+                }
             }
 
             if (rawDigits != null && rawDigits.Length > 50)
@@ -384,6 +446,8 @@ namespace FUD.Infrastructure.AI
             {
                 IsMeterImage = raw.IsMeterImage,
                 DetectedMeterType = detectedType,
+                IntegerDigits = intDigits.Length > 0 ? intDigits : null,
+                DecimalDigits = decDigits.Length > 0 ? decDigits : null,
                 ReadingValue = readingValue,
                 RawDigits = rawDigits,
                 Confidence = confidence,
