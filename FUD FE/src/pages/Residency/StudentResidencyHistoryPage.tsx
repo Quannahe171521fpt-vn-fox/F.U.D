@@ -1012,7 +1012,7 @@ export const StudentResidencyHistoryPage: React.FC<StudentResidencyHistoryPagePr
                             ? ` · Chênh lệch phí: ${formatCurrency(tr.priceDifference)}`
                             : ''}
                         </span>
-                        {tr.priceDifference != null && tr.priceDifference > 0 && tr.status !== 'Completed' && tr.status !== 'Rejected' && tr.status !== 'Cancelled' && (
+                        {Boolean(tr.hasUnpaidInvoice) && (
                           <button
                             type="button"
                             onClick={() => {

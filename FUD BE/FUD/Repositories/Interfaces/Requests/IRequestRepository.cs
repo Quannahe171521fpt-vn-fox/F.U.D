@@ -36,7 +36,7 @@ namespace FUD.Repositories.Interfaces.Requests
         Task RejectBedTransferAsync(Request request, RequestLog log, Notification notification);
         Task<List<Request>> GetTransferInspectionTasksForGuardAsync(int guardUserId);
         Task SubmitTransferInspectionAsync(Request request, Handover handover, List<HandoverItem> items, List<MeterReading> meterReadings, List<(int EquipmentId, string Condition, string? Note)> equipmentUpdates, RequestLog log, List<Notification> notifications);
-        Task CompleteBedTransferAsync(Request request, BedTransferRequest transferRequest, int fromResidencyId, int fromBedId, int toBedId, DateOnly checkOutDate, Residency newResidency, List<Invoice> invoices, int? handoverId, int managerId, string? managerNote, RequestLog log, Notification studentNotification);
+        Task CompleteBedTransferAsync(Request request, BedTransferRequest transferRequest, int fromResidencyId, int fromBedId, int toBedId, DateOnly checkOutDate, Residency newResidency, List<Invoice> invoices, int? handoverId, int managerId, string? managerNote, RequestLog log, Notification studentNotification, List<Notification>? invoiceNotifications = null);
     }
 }
 

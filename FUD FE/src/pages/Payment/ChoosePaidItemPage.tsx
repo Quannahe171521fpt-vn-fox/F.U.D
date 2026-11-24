@@ -143,24 +143,33 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
   }, []);
 
   // Đọc tham số từ URL (?invoiceId=... hoặc ?sourceType=...&sourceId=...) kết hợp với navigationParams
-  const resolveTargetFromUrlOrProps = useCallback((): PaymentNavigationParams => {
-    const search = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
-    const urlInvoiceId = Number(search.get('invoiceId') || 0);
-    const urlSourceType = search.get('sourceType') || undefined;
-    const urlSourceId = Number(search.get('sourceId') || 0);
-    const urlInvoiceType = search.get('invoiceType') || undefined;
+  const resolveTargetFromUrlOrProps = useCallback(
+    (overrideParams?: PaymentNavigationParams | null): PaymentNavigationParams => {
+      const search = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+      const urlInvoiceId = Number(search.get('invoiceId') || 0);
+      const urlSourceType = search.get('sourceType') || undefined;
+      const urlSourceId = Number(search.get('sourceId') || 0);
+      const urlInvoiceType = search.get('invoiceType') || undefined;
 
-    return {
-      invoiceId: navigationParams?.invoiceId || (urlInvoiceId > 0 ? urlInvoiceId : undefined),
-      sourceType: navigationParams?.sourceType || urlSourceType,
-      sourceId: navigationParams?.sourceId || (urlSourceId > 0 ? urlSourceId : undefined),
-      tabFilter: navigationParams?.tabFilter || urlInvoiceType,
-    };
-  }, [navigationParams]);
+      return {
+        invoiceId:
+          overrideParams?.invoiceId ||
+          navigationParams?.invoiceId ||
+          (urlInvoiceId > 0 ? urlInvoiceId : undefined),
+        sourceType: overrideParams?.sourceType || navigationParams?.sourceType || urlSourceType,
+        sourceId:
+          overrideParams?.sourceId ||
+          navigationParams?.sourceId ||
+          (urlSourceId > 0 ? urlSourceId : undefined),
+        tabFilter: overrideParams?.tabFilter || navigationParams?.tabFilter || urlInvoiceType,
+      };
+    },
+    [navigationParams]
+  );
 
   // Nạp danh sách hóa đơn và xử lý pre-select
   const loadInvoices = useCallback(
-    async (applyPreselect = false) => {
+    async (applyPreselect = false, overrideParams?: PaymentNavigationParams | null) => {
       setLoading(true);
       setErrorMsg('');
       try {
@@ -178,39 +187,33 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
         setOverdueCount(data.overdueCount || 0);
 
         if (applyPreselect) {
-          const target = resolveTargetFromUrlOrProps();
+          const target = resolveTargetFromUrlOrProps(overrideParams);
 
-          if (
-            target.tabFilter &&
-            ['RoomFee', 'Utility', 'BedTransfer', 'Compensation'].includes(target.tabFilter)
-          ) {
-            setActiveTab(target.tabFilter as FilterTab);
-          }
-
-          let matchedInvoice: StudentInvoiceDto | undefined;
+          let matchedInvoices: StudentInvoiceDto[] = [];
 
           // TH1: Có truyền invoiceId
           if (target.invoiceId) {
-            matchedInvoice = sorted.find((inv) => inv.id === target.invoiceId);
+            const matched = sorted.find((inv) => inv.id === target.invoiceId);
+            if (matched) matchedInvoices = [matched];
           }
-          // TH2: Có truyền sourceType + sourceId
+          // TH2: Có truyền sourceType + sourceId (hỗ trợ nhiều hóa đơn cùng nguồn, VD: BedTransfer gồm INV-TRF + INV-CMP)
           else if (target.sourceType && target.sourceId) {
             const normSource = target.sourceType.trim().toLowerCase();
-            matchedInvoice = sorted.find(
+            matchedInvoices = sorted.filter(
               (inv) =>
                 inv.sourceId === target.sourceId &&
                 (inv.sourceType || '').toLowerCase() === normSource
             );
 
             // Nếu chưa khớp trực tiếp trên list, gọi thêm API by-source để tra cứu chính xác
-            if (!matchedInvoice) {
+            if (matchedInvoices.length === 0) {
               try {
                 const bySource = await paymentApi.getInvoiceBySource(
                   target.sourceType,
                   target.sourceId
                 );
                 if (bySource) {
-                  matchedInvoice = sorted.find((inv) => inv.id === bySource.id) || bySource;
+                  matchedInvoices = [sorted.find((inv) => inv.id === bySource.id) || bySource];
                 }
               } catch {
                 // Nếu không có hóa đơn tương ứng thì không tick sẵn
@@ -218,23 +221,62 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
             }
           }
 
-          if (matchedInvoice) {
-            if (matchedInvoice.status === 'Unpaid' || matchedInvoice.status === 'Overdue') {
-              setSelectedIds([matchedInvoice.id]);
+          if (
+            target.tabFilter &&
+            ['RoomFee', 'Utility', 'BedTransfer', 'Compensation'].includes(target.tabFilter)
+          ) {
+            setActiveTab(target.tabFilter as FilterTab);
+          } else if (matchedInvoices.length > 0) {
+            // Đưa về tab "Tất cả" để đảm bảo mọi hóa đơn được chọn sẵn đều hiển thị
+            setActiveTab('All');
+          }
+
+          if (matchedInvoices.length > 0) {
+            const payableMatched = matchedInvoices.filter(
+              (inv) => inv.status === 'Unpaid' || inv.status === 'Overdue'
+            );
+            const processingMatched = matchedInvoices.filter((inv) => inv.status === 'Processing');
+
+            if (payableMatched.length === 1) {
+              const single = payableMatched[0];
+              setSelectedIds([single.id]);
               setInfoBanner(
-                `Đã tự động chọn hóa đơn ${matchedInvoice.invoiceNumber} (${formatVnd(
-                  matchedInvoice.amount
+                `Đã tự động chọn hóa đơn ${single.invoiceNumber} (${formatVnd(
+                  single.amount
                 )}). Bạn có thể chọn thêm các hóa đơn khác để thanh toán gộp.`
               );
-            } else if (matchedInvoice.status === 'Processing') {
+            } else if (payableMatched.length > 1) {
+              const total = payableMatched.reduce((sum, inv) => sum + Number(inv.amount || 0), 0);
+              setSelectedIds(payableMatched.map((inv) => inv.id));
+              setInfoBanner(
+                `Đã tự động chọn ${payableMatched.length} hóa đơn (${payableMatched
+                  .map((inv) => inv.invoiceNumber)
+                  .join(', ')}, tổng ${formatVnd(
+                  total
+                )}). Bạn có thể bỏ chọn bớt hoặc thanh toán gộp trong một lần quét QR.`
+              );
+            } else if (processingMatched.length > 0) {
               setSelectedIds([]);
               setInfoBanner(
-                `Hóa đơn ${matchedInvoice.invoiceNumber} đang có phiên mã QR chờ thanh toán. Bạn có thể bấm "Tiếp tục thanh toán" hoặc "Hủy phiên cũ" bên dưới.`
+                `Hóa đơn ${processingMatched[0].invoiceNumber} đang có phiên mã QR chờ thanh toán. Bạn có thể bấm "Tiếp tục thanh toán" hoặc "Hủy phiên cũ" bên dưới.`
               );
             }
           } else if (!target.invoiceId && !target.sourceType) {
             // Nếu URL không có query param: Không tick sẵn ô nào
             setSelectedIds([]);
+          }
+
+          // Dọn query params thanh toán khỏi URL sau khi đã tiêu thụ để tránh dính lại khi reload
+          if (typeof window !== 'undefined' && window.location.search) {
+            const currentSearch = new URLSearchParams(window.location.search);
+            if (
+              currentSearch.has('invoiceId') ||
+              currentSearch.has('sourceType') ||
+              currentSearch.has('sourceId') ||
+              currentSearch.has('invoiceType')
+            ) {
+              window.history.replaceState({}, '', window.location.pathname);
+            }
           }
 
           onClearNavigationParams?.();
@@ -264,10 +306,11 @@ export const ChoosePaidItemPage: React.FC<ChoosePaidItemPageProps> = ({
 
   // Lắng nghe sự kiện điều hướng từ các trang khác khi đang ở trong StudentPortal
   useEffect(() => {
-    const onNavigatePayment = () => {
+    const onNavigatePayment = (e: Event) => {
+      const custom = e as CustomEvent<PaymentNavigationParams | undefined>;
       setActiveTx(null);
       setPaymentReceipt(null);
-      loadInvoices(true);
+      void loadInvoices(true, custom.detail || null);
     };
     window.addEventListener('fud:navigate-payment', onNavigatePayment);
     return () => window.removeEventListener('fud:navigate-payment', onNavigatePayment);

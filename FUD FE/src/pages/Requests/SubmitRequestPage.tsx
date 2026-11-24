@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { formatDateTime, formatDate } from '../../utils/dateUtils';
 import { useIdleAwarePolling } from '../../utils/useIdleAwarePolling';
+import { TransferDatePicker } from '../../components/TransferDatePicker';
 import '../../styles/violation.css';
 
 // ── Mapping chuẩn CHECK CONSTRAINT DB CSDL FUD ──────────────────
@@ -47,6 +48,15 @@ export const REQUEST_STATUS_COLORS: Record<string, { bg: string; color: string }
 
 interface SubmitRequestPageProps {
   onSubmitted?: () => void;
+}
+
+function getLocalDateOffsetYmd(offsetDays: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitted }) => {
@@ -138,6 +148,12 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
     () => transferContext?.availableBeds.find(b => b.bedId === selectedToBedId),
     [transferContext, selectedToBedId]
   );
+
+  const minTransferDateStr = useMemo(() => getLocalDateOffsetYmd(7), []);
+  const termEndDateStr = transferContext?.currentResidency?.termEndDate
+    ? transferContext.currentResidency.termEndDate.slice(0, 10)
+    : '';
+  const isLessThan7DaysLeftInTerm = Boolean(termEndDateStr && minTransferDateStr > termEndDateStr);
 
   // Cập nhật tự động loại bỏ biên bản hết hạn mỗi giây
   useEffect(() => {
@@ -253,6 +269,26 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
       if (!content.trim()) {
         setErrorMsg('Vui lòng nhập lý do chuyển giường.');
         return;
+      }
+      if (transferDate) {
+        if (isLessThan7DaysLeftInTerm) {
+          setErrorMsg(
+            `Thời gian còn lại của học kỳ ít hơn 1 tuần (kết thúc ngày ${formatDate(termEndDateStr)}), không thể chọn ngày dự kiến chuyển sau 7 ngày kể từ ngày tạo đơn.`
+          );
+          return;
+        }
+        if (transferDate < minTransferDateStr) {
+          setErrorMsg(
+            `Ngày dự kiến chuyển giường phải sau ít nhất 1 tuần kể từ ngày tạo đơn (từ ngày ${formatDate(minTransferDateStr)} trở đi).`
+          );
+          return;
+        }
+        if (termEndDateStr && transferDate > termEndDateStr) {
+          setErrorMsg(
+            `Ngày dự kiến chuyển phải nằm trong thời gian của học kỳ hiện tại (không vượt quá ngày ${formatDate(termEndDateStr)}).`
+          );
+          return;
+        }
       }
 
       setSubmitting(true);
@@ -495,14 +531,45 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
                           <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, marginBottom: 6, color: '#1E293B' }}>
                             Ngày dự kiến chuyển (tùy chọn)
                           </label>
-                          <input
-                            type="date"
-                            value={transferDate}
-                            min={new Date().toISOString().split('T')[0]}
-                            max={transferContext.currentResidency?.termEndDate}
-                            onChange={e => setTransferDate(e.target.value)}
-                            style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#FFF' }}
-                          />
+                          {isLessThan7DaysLeftInTerm ? (
+                            <div
+                              style={{
+                                padding: '10px 12px',
+                                backgroundColor: '#FFFBEB',
+                                border: '1px solid #FDE68A',
+                                borderRadius: '8px',
+                                color: '#92400E',
+                                fontSize: '12.5px',
+                                lineHeight: 1.5,
+                              }}
+                            >
+                              <strong>Lưu ý:</strong> Học kỳ hiện tại kết thúc vào ngày{' '}
+                              <strong>{formatDate(termEndDateStr)}</strong> (còn ít hơn 1 tuần kể từ hôm nay), nên không thể chọn ngày dự kiến chuyển sau 7 ngày. Bạn có thể để trống trường này để Ban Quản lý xem xét.
+                            </div>
+                          ) : (
+                            <>
+                              <TransferDatePicker
+                                value={transferDate}
+                                minDate={minTransferDateStr}
+                                maxDate={termEndDateStr || undefined}
+                                onChange={setTransferDate}
+                              />
+                              <div style={{ fontSize: '12px', color: '#64748B', marginTop: 4 }}>
+                                Nếu chọn ngày, ngày dự kiến chuyển phải sau ít nhất <strong>1 tuần</strong> kể từ ngày tạo đơn (
+                                {termEndDateStr ? (
+                                  <>
+                                    từ <strong>{formatDate(minTransferDateStr)}</strong> đến{' '}
+                                    <strong>{formatDate(termEndDateStr)}</strong>
+                                  </>
+                                ) : (
+                                  <>
+                                    từ <strong>{formatDate(minTransferDateStr)}</strong> trở đi
+                                  </>
+                                )}
+                                ).
+                              </div>
+                            </>
+                          )}
                         </div>
                       </>
                     )}

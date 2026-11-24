@@ -250,7 +250,9 @@ public class BedTransferRequestServiceTests
             .ReturnsAsync(() => capturedRequest);
 
         var sut = CreateSut();
-        var validTransferDate = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+        var todayVn = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+        residency.Term.EndDate = todayVn.AddDays(30);
+        var validTransferDate = todayVn.AddDays(7);
         var result = await sut.CreateRequestAsync(student.Id, new CreateRequestDto
         {
             RequestType = "BedTransfer",
@@ -275,6 +277,111 @@ public class BedTransferRequestServiceTests
         result.BedTransfer.ToBedCode.Should().Be("201L-1");
         result.BedTransfer.TransferDate.Should().Be(validTransferDate);
         targetBed.Status.Should().Be("Pending Transfer");
+    }
+
+    [Fact]
+    public async Task CreateRequestAsync_BedTransfer_WhenTransferDateLessThan7Days_ThrowsInvalidOperationException()
+    {
+        var student = CreateStudentUser(gender: "Male");
+        var residency = CreateActiveResidency(student.Id, bedId: 1, gender: "Male");
+        var todayVn = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+        residency.Term.EndDate = todayVn.AddDays(30);
+        var targetBed = CreateTargetBed(bedId: 2, gender: "Male", bedStatus: "Free");
+
+        _requestRepoMock.Setup(r => r.GetUserByIdAsync(student.Id)).ReturnsAsync(student);
+        _requestRepoMock.Setup(r => r.GetStudentActiveResidencyAsync(student.Id)).ReturnsAsync(residency);
+        _requestRepoMock.Setup(r => r.HasOverdueInvoicesAsync(student.Id)).ReturnsAsync(false);
+        _requestRepoMock.Setup(r => r.HasPendingBedTransferAsync(student.Id, residency.TermId)).ReturnsAsync(false);
+        _requestRepoMock.Setup(r => r.GetBedWithLocationByIdAsync(2)).ReturnsAsync(targetBed);
+        _requestRepoMock.Setup(r => r.IsBedAvailableForTransferAsync(2, residency.TermId)).ReturnsAsync(true);
+
+        var sut = CreateSut();
+        var act = async () => await sut.CreateRequestAsync(student.Id, new CreateRequestDto
+        {
+            RequestType = "BedTransfer",
+            ToBedId = 2,
+            TransferDate = todayVn.AddDays(6),
+            Reason = "Chuyển sớm hơn 7 ngày"
+        });
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*ít nhất 1 tuần*");
+    }
+
+    [Fact]
+    public async Task CreateRequestAsync_BedTransfer_WhenLessThan7DaysLeftInTermAndDateProvided_ThrowsInvalidOperationException()
+    {
+        var student = CreateStudentUser(gender: "Male");
+        var residency = CreateActiveResidency(student.Id, bedId: 1, gender: "Male");
+        var todayVn = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+        residency.Term.EndDate = todayVn.AddDays(5);
+        var targetBed = CreateTargetBed(bedId: 2, gender: "Male", bedStatus: "Free");
+
+        _requestRepoMock.Setup(r => r.GetUserByIdAsync(student.Id)).ReturnsAsync(student);
+        _requestRepoMock.Setup(r => r.GetStudentActiveResidencyAsync(student.Id)).ReturnsAsync(residency);
+        _requestRepoMock.Setup(r => r.HasOverdueInvoicesAsync(student.Id)).ReturnsAsync(false);
+        _requestRepoMock.Setup(r => r.HasPendingBedTransferAsync(student.Id, residency.TermId)).ReturnsAsync(false);
+        _requestRepoMock.Setup(r => r.GetBedWithLocationByIdAsync(2)).ReturnsAsync(targetBed);
+        _requestRepoMock.Setup(r => r.IsBedAvailableForTransferAsync(2, residency.TermId)).ReturnsAsync(true);
+
+        var sut = CreateSut();
+        var act = async () => await sut.CreateRequestAsync(student.Id, new CreateRequestDto
+        {
+            RequestType = "BedTransfer",
+            ToBedId = 2,
+            TransferDate = todayVn.AddDays(7),
+            Reason = "Cuối học kỳ còn dưới 7 ngày"
+        });
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*ít hơn 1 tuần*");
+    }
+
+    [Fact]
+    public async Task CreateRequestAsync_BedTransfer_WhenTransferDateOmitted_Succeeds()
+    {
+        var student = CreateStudentUser(gender: "Male");
+        var residency = CreateActiveResidency(student.Id, bedId: 1, gender: "Male");
+        var targetBed = CreateTargetBed(bedId: 2, gender: "Male", bedStatus: "Free");
+
+        _requestRepoMock.Setup(r => r.GetUserByIdAsync(student.Id)).ReturnsAsync(student);
+        _requestRepoMock.Setup(r => r.GetStudentActiveResidencyAsync(student.Id)).ReturnsAsync(residency);
+        _requestRepoMock.Setup(r => r.HasOverdueInvoicesAsync(student.Id)).ReturnsAsync(false);
+        _requestRepoMock.Setup(r => r.HasPendingBedTransferAsync(student.Id, residency.TermId)).ReturnsAsync(false);
+        _requestRepoMock.Setup(r => r.GetBedWithLocationByIdAsync(2)).ReturnsAsync(targetBed);
+        _requestRepoMock.Setup(r => r.IsBedAvailableForTransferAsync(2, residency.TermId)).ReturnsAsync(true);
+
+        Request? capturedRequest = null;
+        _requestRepoMock.Setup(r => r.CreateBedTransferRequestAsync(
+                It.IsAny<Request>(),
+                It.IsAny<BedTransferRequest>(),
+                It.IsAny<RequestLog>()))
+            .Callback<Request, BedTransferRequest, RequestLog>((req, tr, _) =>
+            {
+                req.Id = 56;
+                tr.RequestId = 56;
+                tr.FromBed = residency.Bed;
+                tr.ToBed = targetBed;
+                req.Student = new Student { UserId = student.Id, User = student };
+                req.BedTransferRequest = tr;
+                capturedRequest = req;
+            })
+            .ReturnsAsync((Request req, BedTransferRequest _, RequestLog _) => req);
+
+        _requestRepoMock.Setup(r => r.GetRequestByIdAsync(56))
+            .ReturnsAsync(() => capturedRequest);
+
+        var sut = CreateSut();
+        var result = await sut.CreateRequestAsync(student.Id, new CreateRequestDto
+        {
+            RequestType = "BedTransfer",
+            ToBedId = 2,
+            TransferDate = null,
+            Reason = "Không nhập ngày dự kiến (tùy chọn)"
+        });
+
+        result.Id.Should().Be(56);
+        result.BedTransfer!.TransferDate.Should().BeNull();
     }
 
     private static Request CreateBedTransferRequestGraph(string status = "Pending")
@@ -373,6 +480,7 @@ public class BedTransferRequestServiceTests
     {
         var req = CreateBedTransferRequestGraph("Pending");
         _requestRepoMock.Setup(r => r.GetRequestByIdAsync(77)).ReturnsAsync(req);
+        _requestRepoMock.Setup(r => r.GetGuardsAsync(1)).ReturnsAsync(new List<Guard>());
 
         var sut = CreateSut();
         var act = async () => await sut.ProcessRequestAsync(77, 99, new ProcessRequestDto
@@ -383,6 +491,68 @@ public class BedTransferRequestServiceTests
 
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*Bảo vệ*");
+    }
+
+    [Fact]
+    public async Task ProcessRequestAsync_BedTransfer_ApproveStep1_WhenGuardFromDifferentDorm_ThrowsInvalidOperationException()
+    {
+        var req = CreateBedTransferRequestGraph("Pending");
+        var otherDormGuard = new Guard
+        {
+            UserId = 202,
+            DormId = 2,
+            User = new User { Id = 202, Code = "GRD02", FullName = "Guard Dom B", Gender = "Male", AccountStatus = "Active" }
+        };
+        _requestRepoMock.Setup(r => r.GetRequestByIdAsync(77)).ReturnsAsync(req);
+        _requestRepoMock.Setup(r => r.GetGuardByUserIdAsync(202)).ReturnsAsync(otherDormGuard);
+
+        var sut = CreateSut();
+        var act = async () => await sut.ProcessRequestAsync(77, 99, new ProcessRequestDto
+        {
+            Decision = "Approved",
+            AssignedGuardId = 202
+        });
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*tòa KTX phòng cũ*");
+    }
+
+    [Fact]
+    public async Task ProcessRequestAsync_BedTransfer_ApproveStep1_WhenGuardIdOmitted_AutoAssignsOldDormGuard()
+    {
+        var req = CreateBedTransferRequestGraph("Pending");
+        var guardUser = new User { Id = 201, Code = "GRD01", FullName = "Tran Bao Ve", Email = "grd01@fpt.edu.vn", Phone = "0901234567", Gender = "Male", AccountStatus = "Active" };
+        var oldDormGuard = new Guard { UserId = 201, DormId = 1, User = guardUser };
+
+        _requestRepoMock.Setup(r => r.GetRequestByIdAsync(77)).ReturnsAsync(req);
+        _requestRepoMock.Setup(r => r.GetGuardsAsync(1)).ReturnsAsync(new List<Guard> { oldDormGuard });
+        _requestRepoMock.Setup(r => r.GetPublishedRoomPricesAsync(1))
+            .ReturnsAsync(new Dictionary<(int, int), decimal>
+            {
+                { (1, 1), 4000000m },
+                { (1, 2), 5210000m }
+            });
+        _requestRepoMock.Setup(r => r.GetStudentPaidRoomAmountAsync(10, 1)).ReturnsAsync(4000000m);
+        _requestRepoMock.Setup(r => r.ApproveBedTransferStep1Async(
+                It.IsAny<Request>(),
+                It.IsAny<BedTransferRequest>(),
+                It.IsAny<RequestLog>(),
+                It.IsAny<List<Notification>>()))
+            .Callback<Request, BedTransferRequest, RequestLog, List<Notification>>((_, bt, _, _) =>
+            {
+                bt.AssignedGuard = oldDormGuard;
+            })
+            .Returns(Task.CompletedTask);
+
+        var sut = CreateSut();
+        var result = await sut.ProcessRequestAsync(77, 99, new ProcessRequestDto
+        {
+            Decision = "Approved",
+            AssignedGuardId = null
+        });
+
+        result.Status.Should().Be("Approved");
+        result.BedTransfer!.AssignedGuardId.Should().Be(201);
     }
 
     [Fact]
@@ -588,6 +758,7 @@ public class BedTransferRequestServiceTests
         Residency? capturedNewResidency = null;
         List<Invoice>? capturedInvoices = null;
         Notification? capturedNoti = null;
+        List<Notification>? capturedInvoiceNotis = null;
         _requestRepoMock.Setup(r => r.CompleteBedTransferAsync(
                 It.IsAny<Request>(),
                 It.IsAny<BedTransferRequest>(),
@@ -601,13 +772,15 @@ public class BedTransferRequestServiceTests
                 99,
                 It.IsAny<string?>(),
                 It.IsAny<RequestLog>(),
-                It.IsAny<Notification>()))
-            .Callback<Request, BedTransferRequest, int, int, int, DateOnly, Residency, List<Invoice>, int?, int, string?, RequestLog, Notification>(
-                (_, _, _, _, _, _, newRes, invoices, _, _, _, _, noti) =>
+                It.IsAny<Notification>(),
+                It.IsAny<List<Notification>?>()))
+            .Callback<Request, BedTransferRequest, int, int, int, DateOnly, Residency, List<Invoice>, int?, int, string?, RequestLog, Notification, List<Notification>?>(
+                (_, _, _, _, _, _, newRes, invoices, _, _, _, _, noti, invNotis) =>
                 {
                     capturedNewResidency = newRes;
                     capturedInvoices = invoices;
                     capturedNoti = noti;
+                    capturedInvoiceNotis = invNotis;
                 })
             .Returns(Task.CompletedTask);
 
@@ -629,7 +802,69 @@ public class BedTransferRequestServiceTests
         capturedInvoices!.Should().Contain(i => i.InvoiceType == "BedTransfer" && i.TransferRequestId == 77 && i.HandoverId == null && i.Amount == 660000m);
         capturedInvoices.Should().Contain(i => i.InvoiceType == "Compensation" && i.HandoverId == 300 && i.TransferRequestId == null && i.Amount == 120000m);
         capturedNoti.Should().NotBeNull();
+        capturedInvoiceNotis.Should().NotBeNull();
+        capturedInvoiceNotis.Should().HaveCount(2);
+        capturedInvoiceNotis!.Should().OnlyContain(n => n.UserId == req.StudentId && n.ReferenceType == "Invoice" && n.Content != null && n.Content.Contains("Thanh toán hóa đơn"));
         _emailSenderMock.Verify(e => e.SendEmailAsync(req.Student.User.Email, It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessRequestAsync_BedTransfer_CompleteStep2_WhenNoDebt_CreatesNoInvoiceNotifications()
+    {
+        var req = CreateBedTransferRequestGraph("Approved");
+        var bt = req.BedTransferRequest!;
+        bt.OldBedDailyRate = 40000m;
+        bt.NewBedDailyRate = 30000m;
+        bt.DaysStayed = 61;
+        bt.DaysRemaining = 60;
+        bt.AmountAlreadyPaid = 4840000m; // Prorate âm (hoàn/cấn trừ), không phát sinh hóa đơn
+        req.Handover = new Handover
+        {
+            Id = 305,
+            HandoverType = "BedTransfer",
+            RequestId = 77,
+            RoomId = 1,
+            GuardId = 201,
+            HasDamageOrMissingFlag = false,
+            TotalCompensation = 0m,
+            Status = "Completed",
+            StudentAcceptedFlag = true,
+            StudentAcceptedTime = DateTime.UtcNow
+        };
+
+        _requestRepoMock.Setup(r => r.GetRequestByIdAsync(77)).ReturnsAsync(req);
+
+        List<Invoice>? capturedInvoices = null;
+        List<Notification>? capturedInvoiceNotis = null;
+        _requestRepoMock.Setup(r => r.CompleteBedTransferAsync(
+                It.IsAny<Request>(),
+                It.IsAny<BedTransferRequest>(),
+                100,
+                1,
+                2,
+                It.IsAny<DateOnly>(),
+                It.IsAny<Residency>(),
+                It.IsAny<List<Invoice>>(),
+                305,
+                99,
+                It.IsAny<string?>(),
+                It.IsAny<RequestLog>(),
+                It.IsAny<Notification>(),
+                It.IsAny<List<Notification>?>()))
+            .Callback<Request, BedTransferRequest, int, int, int, DateOnly, Residency, List<Invoice>, int?, int, string?, RequestLog, Notification, List<Notification>?>(
+                (_, _, _, _, _, _, _, invoices, _, _, _, _, _, invNotis) =>
+                {
+                    capturedInvoices = invoices;
+                    capturedInvoiceNotis = invNotis;
+                })
+            .Returns(Task.CompletedTask);
+
+        var sut = CreateSut();
+        var result = await sut.ProcessRequestAsync(77, 99, new ProcessRequestDto { Decision = "Completed" });
+
+        result.Status.Should().Be("Completed");
+        capturedInvoices.Should().BeEmpty();
+        capturedInvoiceNotis.Should().BeEmpty();
     }
 
     [Fact]
