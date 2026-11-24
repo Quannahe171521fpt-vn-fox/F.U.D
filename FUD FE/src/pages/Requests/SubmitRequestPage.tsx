@@ -50,8 +50,9 @@ interface SubmitRequestPageProps {
 }
 
 export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitted }) => {
-  const { currentUser } = useAuth();
-  const isSuspended = currentUser?.accountStatus === 'Suspended';
+  const { currentUser, impersonation } = useAuth();
+  const activeUser = impersonation?.student || currentUser;
+  const isSuspended = activeUser?.accountStatus === 'Suspended';
   const [requestType, setRequestType] = useState<DBRequestType>(() => isSuspended ? 'Complaint' : 'BedTransfer');
   const [violations, setViolations] = useState<ViolationItem[]>([]);
   const [selectedViolationId, setSelectedViolationId] = useState<number | ''>('');
@@ -327,7 +328,7 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
             Tài khoản của bạn đã có kết luận chính thức <strong>Đình chỉ nội trú / Buộc rời ký túc xá</strong>. Toàn bộ tính năng đặt phòng, giữ phòng và gửi đơn yêu cầu (Request) đã bị tạm khóa.
           </p>
           <div style={{ display: 'inline-block', backgroundColor: '#FEF2F2', padding: '10px 18px', borderRadius: '8px', border: '1px solid #FECACA', fontSize: '13px', color: '#B91C1C' }}>
-            Lý do: {currentUser?.suspensionReason || 'Vi phạm quy chế kỷ luật nội trú KTX.'}
+            Lý do: {activeUser?.suspensionReason || 'Vi phạm quy chế kỷ luật nội trú KTX.'}
           </div>
           <div style={{ marginTop: 20, fontSize: '13px', color: '#64748B' }}>
             Vui lòng liên hệ trực tiếp Ban Quản lý ký túc xá để được xem xét mở lại tài khoản.

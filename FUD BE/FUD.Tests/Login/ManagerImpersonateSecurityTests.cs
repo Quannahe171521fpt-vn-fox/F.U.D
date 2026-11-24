@@ -209,4 +209,135 @@ public class ManagerImpersonateSecurityTests
         parsed.Claims.First(c => c.Type == "imp").Value.Should().Be("true");
         parsed.Claims.First(c => c.Type == "impersonated_by").Value.Should().Be("7");
     }
+
+    [Fact]
+    public async Task Impersonate_WhenStudentHasNoStudentProfile_SetsImpersonatedStudentIdNullAndReturnsToken()
+    {
+        // Arrange
+        await using var db = CreateInMemoryContext();
+        var studentRole = new Role { Id = 1, RoleName = "Student" };
+        var studentUser = new User
+        {
+            Id = 52,
+            Code = "HE170052",
+            FullName = "Student Without Profile",
+            Email = "student52@fpt.edu.vn",
+            Gender = "Male",
+            AccountStatus = AccountConstants.Statuses.Active,
+            UserRoleUsers = new List<UserRole>
+            {
+                new() { UserId = 52, RoleId = 1, Role = studentRole }
+            }
+        };
+        db.Roles.Add(studentRole);
+        db.Users.Add(studentUser);
+        await db.SaveChangesAsync();
+
+        var jwtGenMock = new Mock<IJwtTokenGenerator>();
+        jwtGenMock
+            .Setup(j => j.GenerateImpersonationToken(It.IsAny<User>(), It.IsAny<IEnumerable<string>>(), 10))
+            .Returns("imp-token-52");
+
+        var controller = new ManagerImpersonateController(db, jwtGenMock.Object);
+        SetCallerClaims(controller, managerId: 10);
+
+        // Act
+        var result = await controller.Impersonate(52);
+
+        // Assert
+        result.Should().BeOfType<OkObjectResult>();
+        var auditLog = await db.AuditLogs.SingleAsync();
+        auditLog.ActionType.Should().Be("IMPERSONATE_STUDENT");
+        auditLog.UserId.Should().Be(10);
+        auditLog.ImpersonatedStudentId.Should().BeNull();
+        auditLog.TargetEntity.Should().Be("User");
+        auditLog.TargetId.Should().Be("52");
+        jwtGenMock.Verify(
+            j => j.GenerateImpersonationToken(It.Is<User>(u => u.Id == 52), It.IsAny<IEnumerable<string>>(), 10),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Impersonate_WhenStudentHasStudentProfile_SetsImpersonatedStudentId()
+    {
+        // Arrange
+        await using var db = CreateInMemoryContext();
+        var studentRole = new Role { Id = 1, RoleName = "Student" };
+        var studentUser = new User
+        {
+            Id = 53,
+            Code = "HE170053",
+            FullName = "Student With Profile",
+            Email = "student53@fpt.edu.vn",
+            Gender = "Female",
+            AccountStatus = AccountConstants.Statuses.Active,
+            Student = new Student { UserId = 53, Major = "SE", Cohort = "K17" },
+            UserRoleUsers = new List<UserRole>
+            {
+                new() { UserId = 53, RoleId = 1, Role = studentRole }
+            }
+        };
+        db.Roles.Add(studentRole);
+        db.Users.Add(studentUser);
+        await db.SaveChangesAsync();
+
+        var jwtGenMock = new Mock<IJwtTokenGenerator>();
+        jwtGenMock
+            .Setup(j => j.GenerateImpersonationToken(It.IsAny<User>(), It.IsAny<IEnumerable<string>>(), 10))
+            .Returns("imp-token-53");
+
+        var controller = new ManagerImpersonateController(db, jwtGenMock.Object);
+        SetCallerClaims(controller, managerId: 10);
+
+        // Act
+        var result = await controller.Impersonate(53);
+
+        // Assert
+        result.Should().BeOfType<OkObjectResult>();
+        var auditLog = await db.AuditLogs.SingleAsync();
+        auditLog.ImpersonatedStudentId.Should().Be(53);
+        auditLog.TargetId.Should().Be("53");
+    }
+
+    [Fact]
+    public async Task Impersonate_WhenUserAgentExceeds255Chars_TruncatesUserAgentInAuditLog()
+    {
+        // Arrange
+        await using var db = CreateInMemoryContext();
+        var studentRole = new Role { Id = 1, RoleName = "Student" };
+        var studentUser = new User
+        {
+            Id = 54,
+            Code = "HE170054",
+            FullName = "Student Long UA",
+            Email = "student54@fpt.edu.vn",
+            Gender = "Male",
+            AccountStatus = AccountConstants.Statuses.Active,
+            UserRoleUsers = new List<UserRole>
+            {
+                new() { UserId = 54, RoleId = 1, Role = studentRole }
+            }
+        };
+        db.Roles.Add(studentRole);
+        db.Users.Add(studentUser);
+        await db.SaveChangesAsync();
+
+        var jwtGenMock = new Mock<IJwtTokenGenerator>();
+        jwtGenMock
+            .Setup(j => j.GenerateImpersonationToken(It.IsAny<User>(), It.IsAny<IEnumerable<string>>(), 10))
+            .Returns("imp-token-54");
+
+        var controller = new ManagerImpersonateController(db, jwtGenMock.Object);
+        SetCallerClaims(controller, managerId: 10);
+        controller.HttpContext.Request.Headers.UserAgent = new string('A', 300);
+
+        // Act
+        var result = await controller.Impersonate(54);
+
+        // Assert
+        result.Should().BeOfType<OkObjectResult>();
+        var auditLog = await db.AuditLogs.SingleAsync();
+        auditLog.UserAgent.Should().NotBeNull();
+        auditLog.UserAgent!.Length.Should().Be(255);
+    }
 }

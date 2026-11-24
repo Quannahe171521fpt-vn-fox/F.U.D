@@ -355,7 +355,9 @@ export function App() {
       )}
 
       {/* VIEW 1.5: Student Portal (Cổng Sinh viên: Normal hoặc Impersonation) */}
-      {!isRestoringSession && (effectiveView === 'student' || isImpersonating) && (
+      {!isRestoringSession &&
+        (effectiveView === 'student' ||
+          (isImpersonating && effectiveView !== 'notifications' && effectiveView !== 'announcements')) && (
         <StudentPortal
           onLogout={isImpersonating ? handleExitImpersonation : handleLogout}
           impersonatedUser={isImpersonating ? impersonation?.student : null}
