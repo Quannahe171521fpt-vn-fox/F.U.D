@@ -1416,6 +1416,21 @@ namespace FUD.Services.Payments
                                 sideEffectNotes.Add(
                                     $"Yêu cầu trả phòng #{checkoutRequest.Id} đã hoàn tất (Completed) sau khi trả đủ công nợ.");
                             }
+                            else if (checkoutRequest != null)
+                            {
+                                _context.RequestLogs.Add(new RequestLog
+                                {
+                                    RequestId = checkoutRequest.Id,
+                                    FromStatus = checkoutRequest.Status,
+                                    ToStatus = checkoutRequest.Status,
+                                    Note = "Sinh viên đã hoàn tất thanh toán hóa đơn bàn giao/trả phòng.",
+                                    ChangeTime = now,
+                                    ChangedById = studentId
+                                });
+
+                                sideEffectNotes.Add(
+                                    $"Yêu cầu trả phòng #{checkoutRequest.Id} đã ghi nhận thanh toán đủ hóa đơn công nợ.");
+                            }
                         }
                     }
                 }

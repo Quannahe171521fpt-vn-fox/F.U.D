@@ -37,6 +37,15 @@ namespace FUD.Repositories.Interfaces.Requests
         Task<List<Request>> GetTransferInspectionTasksForGuardAsync(int guardUserId);
         Task SubmitTransferInspectionAsync(Request request, Handover handover, List<HandoverItem> items, List<MeterReading> meterReadings, List<(int EquipmentId, string Condition, string? Note)> equipmentUpdates, RequestLog log, List<Notification> notifications);
         Task CompleteBedTransferAsync(Request request, BedTransferRequest transferRequest, int fromResidencyId, int fromBedId, int toBedId, DateOnly checkOutDate, Residency newResidency, List<Invoice> invoices, int? handoverId, int managerId, string? managerNote, RequestLog log, Notification studentNotification, List<Notification>? invoiceNotifications = null);
+
+        // Checkout
+        Task<bool> HasPendingCheckoutAsync(int studentId, int termId);
+        Task<Request> CreateCheckoutRequestAsync(Request request, CheckoutRequest checkoutRequest, RequestLog log);
+        Task ApproveCheckoutStep1Async(Request request, CheckoutRequest checkoutRequest, RequestLog log, List<Notification> notifications);
+        Task RejectCheckoutAsync(Request request, RequestLog log, Notification notification);
+        Task<List<Request>> GetCheckoutInspectionTasksForGuardAsync(int guardUserId);
+        Task SubmitCheckoutInspectionAsync(Request request, Handover handover, List<HandoverItem> items, List<MeterReading> meterReadings, List<(int EquipmentId, string Condition, string? Note)> equipmentUpdates, RequestLog log, List<Notification> notifications);
+        Task CompleteCheckoutAsync(Request request, CheckoutRequest checkoutRequest, int residencyId, int bedId, DateOnly actualCheckOutDate, List<Invoice> invoices, int? handoverId, int managerId, string? managerNote, RequestLog log, Notification studentNotification, List<Notification>? invoiceNotifications = null);
     }
 }
 

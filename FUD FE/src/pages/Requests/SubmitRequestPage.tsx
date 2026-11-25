@@ -4,6 +4,7 @@ import {
   requestApi,
   type ViolationItem,
   type BedTransferContextDto,
+  type CheckoutContextDto,
 } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatDateTime, formatDate } from '../../utils/dateUtils';
@@ -59,6 +60,14 @@ function getLocalDateOffsetYmd(offsetDays: number): string {
   return `${y}-${m}-${day}`;
 }
 
+function offsetYmd(ymd: string, offsetDays: number): string {
+  const [y, m, d] = ymd.slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return '';
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + offsetDays);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
 export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitted }) => {
   const { currentUser, impersonation } = useAuth();
   const activeUser = impersonation?.student || currentUser;
@@ -68,6 +77,9 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
   const [selectedViolationId, setSelectedViolationId] = useState<number | ''>('');
   const [transferContext, setTransferContext] = useState<BedTransferContextDto | null>(null);
   const [loadingTransferContext, setLoadingTransferContext] = useState(false);
+  const [checkoutContext, setCheckoutContext] = useState<CheckoutContextDto | null>(null);
+  const [loadingCheckoutContext, setLoadingCheckoutContext] = useState(false);
+  const [expectedCheckOutDate, setExpectedCheckOutDate] = useState<string>('');
   const [selectedDormFilter, setSelectedDormFilter] = useState<string>('');
   const [selectedBlockFilter, setSelectedBlockFilter] = useState<string>('');
   const [selectedToBedId, setSelectedToBedId] = useState<number | ''>('');
@@ -81,8 +93,33 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
   useEffect(() => {
     if (requestType === 'BedTransfer' && !isSuspended) {
       loadBedTransferContext();
+    } else if (requestType === 'Checkout' && !isSuspended) {
+      loadCheckoutContext();
     }
   }, [requestType, isSuspended]);
+
+  const loadCheckoutContext = async () => {
+    setLoadingCheckoutContext(true);
+    try {
+      const ctx = await requestApi.getCheckoutContext();
+      setCheckoutContext(ctx);
+      if (ctx.eligible && ctx.currentResidency?.termEndDate) {
+        const minStr = getLocalDateOffsetYmd(7);
+        const maxStr = offsetYmd(ctx.currentResidency.termEndDate, -14);
+        setExpectedCheckOutDate(minStr <= maxStr ? minStr : '');
+      } else {
+        setExpectedCheckOutDate('');
+      }
+    } catch (err: any) {
+      setCheckoutContext({
+        eligible: false,
+        ineligibleReason: err.message || 'Không thể tải thông tin trả phòng.',
+      });
+      setExpectedCheckOutDate('');
+    } finally {
+      setLoadingCheckoutContext(false);
+    }
+  };
 
   const loadBedTransferContext = async () => {
     setLoadingTransferContext(true);
@@ -154,6 +191,15 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
     ? transferContext.currentResidency.termEndDate.slice(0, 10)
     : '';
   const isLessThan7DaysLeftInTerm = Boolean(termEndDateStr && minTransferDateStr > termEndDateStr);
+
+  const checkoutTermEndStr = checkoutContext?.currentResidency?.termEndDate
+    ? checkoutContext.currentResidency.termEndDate.slice(0, 10)
+    : '';
+  const maxCheckOutDateStr = useMemo(
+    () => (checkoutTermEndStr ? offsetYmd(checkoutTermEndStr, -14) : ''),
+    [checkoutTermEndStr]
+  );
+  const isCheckoutWindowInvalid = Boolean(maxCheckOutDateStr && minTransferDateStr > maxCheckOutDateStr);
 
   // Cập nhật tự động loại bỏ biên bản hết hạn mỗi giây
   useEffect(() => {
@@ -312,6 +358,59 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
         }
       } catch (err: any) {
         setErrorMsg(err.message || 'Lỗi khi gửi đơn chuyển giường');
+      } finally {
+        setSubmitting(false);
+      }
+    } else if (requestType === 'Checkout') {
+      if (!checkoutContext?.eligible) {
+        setErrorMsg(checkoutContext?.ineligibleReason || 'Bạn chưa đủ điều kiện gửi đơn trả phòng.');
+        return;
+      }
+      if (isCheckoutWindowInvalid) {
+        setErrorMsg(
+          `Thời gian còn lại của học kỳ không đủ để đăng ký trả phòng (phải sau ít nhất 1 tuần kể từ hôm nay và trước ngày kết thúc học kỳ ${formatDate(checkoutTermEndStr)} ít nhất 2 tuần).`
+        );
+        return;
+      }
+      if (!expectedCheckOutDate) {
+        setErrorMsg('Vui lòng chọn ngày dự kiến trả phòng.');
+        return;
+      }
+      if (expectedCheckOutDate < minTransferDateStr) {
+        setErrorMsg(
+          `Ngày dự kiến trả phòng phải sau ít nhất 1 tuần kể từ ngày tạo đơn (từ ngày ${formatDate(minTransferDateStr)} trở đi).`
+        );
+        return;
+      }
+      if (maxCheckOutDateStr && expectedCheckOutDate > maxCheckOutDateStr) {
+        setErrorMsg(
+          `Ngày dự kiến trả phòng phải trước ngày kết thúc học kỳ ít nhất 2 tuần (chậm nhất ngày ${formatDate(maxCheckOutDateStr)}).`
+        );
+        return;
+      }
+      if (!content.trim()) {
+        setErrorMsg('Vui lòng nhập lý do trả phòng.');
+        return;
+      }
+
+      setSubmitting(true);
+      try {
+        const formData = new FormData();
+        formData.append('requestType', 'Checkout');
+        formData.append('expectedCheckOutDate', expectedCheckOutDate);
+        formData.append('reason', content.trim());
+
+        await requestApi.create(formData);
+        setSuccessMsg(`Đã gửi đơn trả phòng thành công với trạng thái: ${REQUEST_STATUS_LABELS['Pending']}!`);
+        setContent('');
+        setExpectedCheckOutDate('');
+        setFiles([]);
+        loadCheckoutContext();
+        if (onSubmitted) {
+          setTimeout(() => onSubmitted(), 1200);
+        }
+      } catch (err: any) {
+        setErrorMsg(err.message || 'Lỗi khi gửi đơn trả phòng');
       } finally {
         setSubmitting(false);
       }
@@ -578,6 +677,70 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
               </div>
             )}
 
+            {/* Nếu chọn loại Checkout: Hiển thị phòng hiện tại & chọn ngày dự kiến trả phòng */}
+            {requestType === 'Checkout' && (
+              <div style={{ marginBottom: 18 }}>
+                {loadingCheckoutContext ? (
+                  <div style={{ padding: '14px', backgroundColor: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0', fontSize: '13px', color: '#64748B' }}>
+                    Đang kiểm tra thông tin lưu trú và điều kiện trả phòng...
+                  </div>
+                ) : (
+                  <>
+                    {checkoutContext?.currentResidency && (
+                      <div style={{ padding: '12px 14px', backgroundColor: '#F8FAFC', borderRadius: '8px', border: '1px solid #CBD5E1', marginBottom: 12, fontSize: '13px', lineHeight: 1.6 }}>
+                        <div style={{ fontWeight: 700, color: '#0F172A', marginBottom: 4 }}>Chỗ ở hiện tại cần trả phòng:</div>
+                        <div>
+                          <strong>{checkoutContext.currentResidency.dormName}</strong> · Block {checkoutContext.currentResidency.blockName} · Phòng{' '}
+                          <strong>{checkoutContext.currentResidency.roomNumber}</strong> · Giường <strong>{checkoutContext.currentResidency.bedCode}</strong>
+                        </div>
+                        <div style={{ color: '#475569', fontSize: '12px' }}>
+                          Học kỳ: {checkoutContext.currentResidency.termName} ({checkoutContext.currentResidency.academicYear}) · Kết thúc kỳ:{' '}
+                          <strong>{formatDate(checkoutContext.currentResidency.termEndDate)}</strong>
+                        </div>
+                      </div>
+                    )}
+
+                    {checkoutContext?.hasOverdueInvoices && (
+                      <div style={{ padding: '10px 14px', backgroundColor: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: '8px', color: '#92400E', fontSize: '12.5px', marginBottom: 12 }}>
+                        <strong>Lưu ý:</strong> Bạn đang có hóa đơn quá hạn chưa thanh toán. Bạn vẫn có thể gửi đơn trả phòng và thanh toán các khoản công nợ tại mục <strong>Thanh toán hóa đơn</strong>.
+                      </div>
+                    )}
+
+                    {!checkoutContext?.eligible ? (
+                      <div style={{ padding: '12px 14px', backgroundColor: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', color: '#991B1B', fontSize: '13px' }}>
+                        {checkoutContext?.ineligibleReason || 'Bạn hiện chưa đủ điều kiện gửi yêu cầu trả phòng.'}
+                      </div>
+                    ) : (
+                      <div>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, marginBottom: 6, color: '#1E293B' }}>
+                          Ngày dự kiến trả phòng <span style={{ color: '#DC2626' }}>*</span>
+                        </label>
+                        {isCheckoutWindowInvalid ? (
+                          <div style={{ padding: '10px 12px', backgroundColor: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', color: '#991B1B', fontSize: '12.5px' }}>
+                            Thời gian còn lại của học kỳ không đủ để chọn ngày trả phòng (phải sau ít nhất 1 tuần kể từ hôm nay và trước ngày kết thúc học kỳ {formatDate(checkoutTermEndStr)} ít nhất 2 tuần).
+                          </div>
+                        ) : (
+                          <>
+                            <TransferDatePicker
+                              value={expectedCheckOutDate}
+                              minDate={minTransferDateStr}
+                              maxDate={maxCheckOutDateStr || undefined}
+                              fullWidth
+                              onChange={setExpectedCheckOutDate}
+                            />
+                            <div style={{ fontSize: '12px', color: '#64748B', marginTop: 4 }}>
+                              Khoảng ngày hợp lệ: từ <strong>{formatDate(minTransferDateStr)}</strong> (sau 1 tuần kể từ hôm nay) đến chậm nhất{' '}
+                              <strong>{formatDate(maxCheckOutDateStr)}</strong> (trước ngày kết thúc học kỳ 2 tuần).
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
             {/* Nếu chọn loại Complaint: Chọn biên bản vi phạm hoặc khiếu nại riêng */}
             {requestType === 'Complaint' && (
               <div style={{ marginBottom: 18 }}>
@@ -701,6 +864,7 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
                   submitting
                   || (requestType === 'Complaint' && violations.length === 0)
                   || (requestType === 'BedTransfer' && (loadingTransferContext || !transferContext?.eligible || !selectedToBedId))
+                  || (requestType === 'Checkout' && (loadingCheckoutContext || !checkoutContext?.eligible || isCheckoutWindowInvalid || !expectedCheckOutDate))
                 }
                 style={{
                   padding: '10px 24px',
@@ -714,11 +878,13 @@ export const SubmitRequestPage: React.FC<SubmitRequestPageProps> = ({ onSubmitte
                     submitting
                     || (requestType === 'Complaint' && violations.length === 0)
                     || (requestType === 'BedTransfer' && (loadingTransferContext || !transferContext?.eligible || !selectedToBedId))
+                    || (requestType === 'Checkout' && (loadingCheckoutContext || !checkoutContext?.eligible || isCheckoutWindowInvalid || !expectedCheckOutDate))
                   ) ? 'not-allowed' : 'pointer',
                   opacity: (
                     submitting
                     || (requestType === 'Complaint' && violations.length === 0)
                     || (requestType === 'BedTransfer' && (loadingTransferContext || !transferContext?.eligible || !selectedToBedId))
+                    || (requestType === 'Checkout' && (loadingCheckoutContext || !checkoutContext?.eligible || isCheckoutWindowInvalid || !expectedCheckOutDate))
                   ) ? 0.6 : 1,
                 }}
               >

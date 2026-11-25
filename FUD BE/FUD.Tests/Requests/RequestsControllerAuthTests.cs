@@ -16,8 +16,11 @@ public class RequestsControllerAuthTests
     [InlineData(nameof(RequestsController.Process), "Manager,Admin")]
     [InlineData(nameof(RequestsController.GetGuardTransferTasks), "Guard")]
     [InlineData(nameof(RequestsController.SubmitTransferInspection), "Guard")]
+    [InlineData(nameof(RequestsController.GetGuardCheckoutTasks), "Guard")]
+    [InlineData(nameof(RequestsController.SubmitCheckoutInspection), "Guard")]
     [InlineData(nameof(RequestsController.GetMyRequests), "Student")]
     [InlineData(nameof(RequestsController.GetBedTransferContext), "Student")]
+    [InlineData(nameof(RequestsController.GetCheckoutContext), "Student")]
     [InlineData(nameof(RequestsController.Create), "Student")]
     public void Action_HasExpectedAuthorizeRoles(string actionName, string expectedRoles)
     {
@@ -41,7 +44,7 @@ public class RequestsControllerAuthTests
             .Where(m => !m.IsSpecialName && m.GetCustomAttributes<NonActionAttribute>().Any() == false)
             .ToList();
 
-        publicActions.Should().HaveCount(8);
+        publicActions.Should().HaveCount(11);
 
         foreach (var action in publicActions)
         {

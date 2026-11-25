@@ -1371,6 +1371,84 @@ export interface BedTransferContextDto {
   availableBeds: AvailableTransferBedDto[];
 }
 
+export interface CheckoutContextDto {
+  eligible: boolean;
+  ineligibleReason?: string;
+  hasOverdueInvoices?: boolean;
+  currentResidency?: CurrentResidencyTransferDto;
+}
+
+export interface CheckoutDetailDto {
+  residencyId: number;
+  bedId: number;
+  roomId: number;
+  dormId: number;
+  bedCode: string;
+  roomNumber: string;
+  blockCode: string;
+  blockName: string;
+  dormName: string;
+  expectedCheckOutDate: string;
+  actualCheckOutDate?: string;
+  isExceptionalCase?: boolean;
+  exceptionNote?: string;
+  assignedGuardId?: number;
+  assignedGuardName?: string;
+  assignedGuardCode?: string;
+  reviewedById?: number;
+  reviewedTime?: string;
+  handover?: BedTransferHandoverInfoDto;
+  meterReadings?: BedTransferMeterReadingDto[];
+  utilityShareAmount?: number;
+  equipmentCompensationAmount?: number;
+  totalOutstandingAmount?: number;
+  invoices?: BedTransferInvoiceSummaryDto[];
+}
+
+export interface CheckoutInspectionTaskDto {
+  requestId: number;
+  requestCode: string;
+  status: string;
+  studentId: number;
+  studentName: string;
+  studentCode: string;
+  studentPhone?: string;
+  residencyId: number;
+  dormName: string;
+  blockName: string;
+  roomId: number;
+  roomNumber: string;
+  bedId: number;
+  bedCode: string;
+  expectedCheckOutDate: string;
+  reason: string;
+  assignedGuardId?: number;
+  assignedGuardName?: string;
+  previousElectricityReading: number;
+  previousWaterReading: number;
+  electricityUnitPrice: number;
+  waterUnitPrice: number;
+  activeResidentCount: number;
+  handoverCompleted: boolean;
+  handover?: BedTransferHandoverInfoDto;
+  meterReadings: BedTransferMeterReadingDto[];
+}
+
+export interface SubmitCheckoutInspectionPayload {
+  belongingsCleared: boolean;
+  currentElectricityReading: number;
+  currentWaterReading: number;
+  electricityEvidenceImageUrl?: string;
+  waterEvidenceImageUrl?: string;
+  note?: string;
+  items: {
+    equipmentId: number;
+    itemCondition: 'Good' | 'Damaged' | 'Missing';
+    description?: string;
+    compensationAmount: number;
+  }[];
+}
+
 export interface RequestItemDto {
   id: number;
   requestCode: string;
@@ -1400,6 +1478,7 @@ export interface RequestItemDto {
     evidences: string[];
   };
   bedTransfer?: BedTransferDetailDto;
+  checkout?: CheckoutDetailDto;
 }
 
 export const requestApi = {
@@ -1424,6 +1503,13 @@ export const requestApi = {
     const res = await authFetch(`${BASE_URL}/requests/bed-transfer/context`);
     const json = await parseJsonSafe(res);
     if (!res.ok) throw new Error(json?.message || 'Không thể tải thông tin chuyển giường');
+    return json?.data || json;
+  },
+
+  getCheckoutContext: async (): Promise<CheckoutContextDto> => {
+    const res = await authFetch(`${BASE_URL}/requests/checkout/context`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(json?.message || 'Không thể tải thông tin trả phòng');
     return json?.data || json;
   },
 
@@ -1466,6 +1552,27 @@ export const requestApi = {
     return json?.data || json;
   },
 
+  getGuardCheckoutTasks: async (): Promise<CheckoutInspectionTaskDto[]> => {
+    const res = await authFetch(`${BASE_URL}/requests/checkout/guard-tasks`);
+    const json = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(json?.message || 'Không thể tải nhiệm vụ kiểm tra trả phòng');
+    return Array.isArray(json) ? json : json?.data || [];
+  },
+
+  submitCheckoutInspection: async (
+    requestId: number,
+    payload: SubmitCheckoutInspectionPayload
+  ): Promise<CheckoutInspectionTaskDto> => {
+    const res = await authFetch(`${BASE_URL}/requests/${requestId}/checkout-inspection`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await parseJsonSafe(res);
+    if (!res.ok) throw new Error(json?.message || 'Không thể gửi biên bản kiểm tra trả phòng');
+    return json?.data || json;
+  },
+
   process: async (
     id: number,
     payload: {
@@ -1474,6 +1581,7 @@ export const requestApi = {
       adjustedLevel?: string;
       assignedGuardId?: number;
       transferDate?: string;
+      expectedCheckOutDate?: string;
     }
   ): Promise<RequestItemDto> => {
     const res = await authFetch(`${BASE_URL}/requests/${id}/process`, {
