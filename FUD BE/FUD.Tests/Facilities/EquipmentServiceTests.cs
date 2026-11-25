@@ -370,12 +370,13 @@ namespace FUD.Tests.Facilities
             await _service.LiquidateAsync(10, userId: 3);
 
             // [Assert]
-            equip.Condition.Should().Be("Liquidated");
+            equip.Condition.Should().Be("Good");
+            equip.Note.Should().Contain("[HIDDEN]");
             _repoMock.Verify(r => r.UpdateAsync(equip), Times.Once);
 
-            var audit = await _context.AuditLogs.FirstOrDefaultAsync(a => a.TargetId == "10" && a.ActionType == "LIQUIDATE");
+            var audit = await _context.AuditLogs.FirstOrDefaultAsync(a => a.TargetId == "10" && a.ActionType == "TOGGLE_VISIBILITY");
             audit.Should().NotBeNull();
-            audit!.NewValue.Should().Be("Liquidated");
+            audit!.NewValue.Should().Be("Hidden");
         }
 
         #endregion
