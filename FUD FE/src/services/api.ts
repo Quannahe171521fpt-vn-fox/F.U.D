@@ -893,7 +893,79 @@ export interface RoomDto {
   totalBeds: number;
   freeBeds: number;
   occupiedBeds: number;      // số giường có sinh viên ở thực tế
+  checkedInStudentsCount?: number; // số sinh viên đã check-in vào ở thực tế
   isEditable: boolean;       // = occupiedBeds === 0 (do backend tính)
+}
+
+export interface RoomCheckedInStudentDto {
+  residencyId: number;
+  studentId: number;
+  studentCode: string;
+  fullName: string;
+  gender?: string;
+  email?: string;
+  phone?: string;
+  major?: string;
+  cohort?: string;
+  bedId: number;
+  bedCode: string;
+  positionInRoom?: string;
+  termId: number;
+  termName: string;
+  registrationType?: string;
+  checkInDate?: string;
+  plannedCheckOutDate?: string;
+  handoverId?: number;
+  handoverCompletedTime?: string;
+}
+
+export interface RoomBedOccupancyDto {
+  bedId: number;
+  bedCode: string;
+  positionInRoom?: string;
+  status: string;
+  checkedInStudentCode?: string;
+  checkedInStudentName?: string;
+}
+
+export interface RoomDetailDto {
+  id: number;
+  dormId: number;
+  dormName: string;
+  blockId: number;
+  blockCode: string;
+  blockName: string;
+  blockGenderType: string;
+  roomTypeId: number;
+  roomTypeName: string;
+  bedCapacity: number;
+  roomNumber: string;
+  floorLevel?: number;
+  status: string;
+  totalBeds: number;
+  freeBeds: number;
+  occupiedBeds: number;
+  checkedInCount: number;
+  checkedInStudents: RoomCheckedInStudentDto[];
+  beds: RoomBedOccupancyDto[];
+}
+
+export interface GuardRoomLookupItemDto {
+  id: number;
+  roomNumber: string;
+  floorLevel?: number;
+}
+
+export interface GuardAssignedBlockDto {
+  id: number;
+  dormId: number;
+  dormName: string;
+  code: string;
+  name: string;
+  genderType: string;
+  numberOfFloors?: number;
+  status: string;
+  rooms: GuardRoomLookupItemDto[];
 }
 
 export interface RoomTypeLookup {
@@ -903,8 +975,11 @@ export interface RoomTypeLookup {
 }
 
 export interface RoomQuery {
+  blockId?: number;
   blockName?: string;
   roomNumber?: string;
+  exactRoomNumber?: string;
+  floorLevel?: number;
   roomTypeId?: number;
   genderType?: string;
   status?: string;
@@ -928,8 +1003,15 @@ export interface UpdateRoomPayload {
 export const roomApi = {
   getAll: async (params?: RoomQuery): Promise<PagedResult<RoomDto>> => {
     const query = new URLSearchParams();
+    if (params?.blockId) query.append('blockId', params.blockId.toString());
     if (params?.blockName) query.append('blockName', params.blockName);
     if (params?.roomNumber) query.append('roomNumber', params.roomNumber);
+    if (params?.exactRoomNumber && params.exactRoomNumber !== 'All') {
+      query.append('exactRoomNumber', params.exactRoomNumber);
+    }
+    if (params?.floorLevel !== undefined && params?.floorLevel !== null) {
+      query.append('floorLevel', params.floorLevel.toString());
+    }
     if (params?.roomTypeId) query.append('roomTypeId', params.roomTypeId.toString());
     if (params?.genderType && params.genderType !== 'All') query.append('genderType', params.genderType);
     if (params?.status && params.status !== 'All') query.append('status', params.status);
@@ -940,6 +1022,20 @@ export const roomApi = {
     const json = await safeParseResponse<PagedResult<RoomDto>>(res, 'Không thể tải danh sách phòng');
     if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải danh sách phòng');
     return json.data;
+  },
+
+  getDetail: async (id: number): Promise<RoomDetailDto> => {
+    const res = await authFetch(`${BASE_URL}/rooms/${id}/detail`);
+    const json = await safeParseResponse<RoomDetailDto>(res, 'Không thể tải chi tiết phòng');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải chi tiết phòng');
+    return json.data;
+  },
+
+  getAssignedBlocks: async (): Promise<GuardAssignedBlockDto[]> => {
+    const res = await authFetch(`${BASE_URL}/rooms/guard-blocks`);
+    const json = await safeParseResponse<GuardAssignedBlockDto[]>(res, 'Không thể tải danh sách Block được phân công');
+    if (!res.ok || !json.success) throw new Error(json.message || 'Không thể tải danh sách Block được phân công');
+    return json.data || [];
   },
 
   getById: async (id: number): Promise<RoomDto> => {

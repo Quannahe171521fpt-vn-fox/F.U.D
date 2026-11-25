@@ -637,4 +637,184 @@ public class RoomServiceTests
     }
 
     #endregion
+
+    #region Guard Room Management & Detail Tests
+
+    [Fact]
+    public async Task GetAllForGuardAsync_WhenGuardAssignedToDorm_ForcesDormIdScope()
+    {
+        // Arrange
+        const int guardUserId = 100;
+        var (room1, _, _) = CreateSampleRoomEntity(10, 1, 1, "101L");
+        _roomRepoMock.Setup(r => r.GetGuardDormIdAsync(guardUserId)).ReturnsAsync(1);
+        _roomRepoMock
+            .Setup(r => r.GetAllAsync(It.Is<RoomQueryDto>(q => q.DormId == 1 && q.FloorLevel == 1 && q.GenderType == "Male")))
+            .ReturnsAsync((new List<Room> { room1 }, 1));
+
+        var sut = CreateSut();
+        var query = new RoomQueryDto { DormId = 999, FloorLevel = 1, GenderType = "Male", Page = 1, PageSize = 10 };
+
+        // Act
+        var result = await sut.GetAllForGuardAsync(query, guardUserId);
+
+        // Assert
+        result.TotalCount.Should().Be(1);
+        result.Items.Single().RoomNumber.Should().Be("101L");
+        _roomRepoMock.Verify(r => r.GetAllAsync(It.Is<RoomQueryDto>(q => q.DormId == 1)), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetAllForGuardAsync_WhenGuardNotAssignedToAnyDorm_ThrowsUnauthorizedAccessException()
+    {
+        // Arrange
+        _roomRepoMock.Setup(r => r.GetGuardDormIdAsync(404)).ReturnsAsync((int?)null);
+        var sut = CreateSut();
+
+        // Act
+        Func<Task> act = async () => await sut.GetAllForGuardAsync(new RoomQueryDto(), 404);
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+    }
+
+    [Fact]
+    public async Task GetDetailByIdAsync_WhenRoomBelongsToAnotherDorm_ThrowsUnauthorizedAccessExceptionForGuard()
+    {
+        // Arrange
+        var (roomOtherDorm, _, _) = CreateSampleRoomEntity(10, 1, 1, "101L");
+        roomOtherDorm.Block.DormId = 2;
+
+        _roomRepoMock.Setup(r => r.GetGuardDormIdAsync(100)).ReturnsAsync(1);
+        _roomRepoMock.Setup(r => r.GetRoomDetailWithResidentsAsync(10)).ReturnsAsync(roomOtherDorm);
+        var sut = CreateSut();
+
+        // Act
+        Func<Task> act = async () => await sut.GetDetailByIdAsync(10, guardUserId: 100);
+
+        // Assert
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+    }
+
+    [Fact]
+    public async Task GetDetailByIdAsync_WhenRoomHasMixedResidencies_ReturnsOnlyCheckedInStudents()
+    {
+        // Arrange
+        var (room, _, _) = CreateSampleRoomEntity(10, 1, 1, "101L", freeBeds: 1, occupiedBeds: 3);
+        var beds = room.Beds.OrderBy(b => b.Id).ToList();
+
+        // Bed 1 (Free): no residency
+        // Bed 2 (Occupied): Active + Completed Checkin Handover -> MUST be included
+        var checkedInStudent = new Student
+        {
+            UserId = 501,
+            Major = "Kỹ thuật phần mềm",
+            Cohort = "K18",
+            User = new User { Id = 501, Code = "SE180001", FullName = "Nguyễn Văn A", Gender = "Male", Phone = "0901234567", Email = "anv@fpt.edu.vn" }
+        };
+        beds[1].Status = "Occupied";
+        beds[1].Residencies = new List<Residency>
+        {
+            new()
+            {
+                Id = 1001,
+                StudentId = 501,
+                BedId = beds[1].Id,
+                TermId = 1,
+                Status = "Active",
+                CheckInDate = new DateOnly(2026, 9, 1),
+                Student = checkedInStudent,
+                Term = new Term { Id = 1, Name = "Fall", AcademicYear = "2026-2027" },
+                Handover = new Handover { Id = 2001, HandoverType = "Checkin", Status = "Completed" }
+            }
+        };
+
+        // Bed 3: Reserved (paid booking, NOT checked in yet) -> MUST NOT be included
+        beds[2].Status = "Holding";
+        beds[2].Residencies = new List<Residency>
+        {
+            new()
+            {
+                Id = 1002,
+                StudentId = 502,
+                BedId = beds[2].Id,
+                TermId = 1,
+                Status = "Reserved",
+                Student = new Student { UserId = 502, User = new User { Id = 502, Code = "SE180002", FullName = "Trần Văn B" } }
+            }
+        };
+
+        // Bed 4: Handover still Pending Acceptance (not confirmed check-in) -> MUST NOT be included
+        beds[3].Status = "Holding";
+        beds[3].Residencies = new List<Residency>
+        {
+            new()
+            {
+                Id = 1003,
+                StudentId = 503,
+                BedId = beds[3].Id,
+                TermId = 1,
+                Status = "Active",
+                CheckInDate = new DateOnly(2026, 9, 2),
+                Student = new Student { UserId = 503, User = new User { Id = 503, Code = "SE180003", FullName = "Lê Văn C" } },
+                Handover = new Handover { Id = 2003, HandoverType = "Checkin", Status = "Pending Acceptance" }
+            }
+        };
+
+        _roomRepoMock.Setup(r => r.GetGuardDormIdAsync(100)).ReturnsAsync(1);
+        _roomRepoMock.Setup(r => r.GetRoomDetailWithResidentsAsync(10)).ReturnsAsync(room);
+        var sut = CreateSut();
+
+        // Act
+        var detail = await sut.GetDetailByIdAsync(10, guardUserId: 100);
+
+        // Assert
+        detail.Should().NotBeNull();
+        detail!.CheckedInCount.Should().Be(1);
+        detail.CheckedInStudents.Should().ContainSingle();
+        detail.CheckedInStudents[0].StudentCode.Should().Be("SE180001");
+        detail.CheckedInStudents[0].FullName.Should().Be("Nguyễn Văn A");
+    }
+
+    [Fact]
+    public async Task GetDetailByIdAsync_WhenBedReleasedToNextTermPoolWhileStudentStillCheckedIn_ReportsBedAsOccupied()
+    {
+        // Arrange — KeepingPeriodCloseJob trả Bed.Status = "Free" cho kỳ sau nhưng SV kỳ hiện tại vẫn đang ở (Active + Handover Completed)
+        var (room, _, _) = CreateSampleRoomEntity(10, 1, 1, "101L", freeBeds: 2, occupiedBeds: 0);
+        var bed = room.Beds.First();
+        bed.Status = "Free";
+        bed.Residencies = new List<Residency>
+        {
+            new()
+            {
+                Id = 3001,
+                StudentId = 601,
+                BedId = bed.Id,
+                TermId = 1,
+                Status = "Active",
+                CheckInDate = new DateOnly(2026, 9, 1),
+                Student = new Student
+                {
+                    UserId = 601,
+                    User = new User { Id = 601, Code = "SE170001", FullName = "Phạm Nam Sinh", Gender = "Male" }
+                },
+                Handover = new Handover { Id = 4001, HandoverType = "Checkin", Status = "Completed" }
+            }
+        };
+
+        _roomRepoMock.Setup(r => r.GetGuardDormIdAsync(100)).ReturnsAsync(1);
+        _roomRepoMock.Setup(r => r.GetRoomDetailWithResidentsAsync(10)).ReturnsAsync(room);
+        var sut = CreateSut();
+
+        // Act
+        var detail = await sut.GetDetailByIdAsync(10, guardUserId: 100);
+
+        // Assert
+        detail.Should().NotBeNull();
+        detail!.CheckedInCount.Should().Be(1);
+        detail.FreeBeds.Should().Be(1);
+        detail.OccupiedBeds.Should().Be(1);
+        detail.Beds.Single(b => b.BedId == bed.Id).Status.Should().Be("Occupied");
+    }
+
+    #endregion
 }

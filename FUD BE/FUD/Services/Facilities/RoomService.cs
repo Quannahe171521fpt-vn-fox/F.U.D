@@ -27,10 +27,214 @@ namespace FUD.Services.Facilities
             };
         }
 
+        public async Task<PagedResult<RoomDto>> GetAllForGuardAsync(RoomQueryDto query, int guardUserId)
+        {
+            var guardDormId = await ResolveGuardDormIdOrThrowAsync(guardUserId);
+            var scopedQuery = new RoomQueryDto
+            {
+                DormId = guardDormId,
+                BlockId = query.BlockId,
+                BlockName = query.BlockName,
+                RoomNumber = query.RoomNumber,
+                ExactRoomNumber = query.ExactRoomNumber,
+                FloorLevel = query.FloorLevel,
+                RoomTypeId = query.RoomTypeId,
+                GenderType = query.GenderType,
+                Status = query.Status,
+                Page = query.Page,
+                PageSize = query.PageSize
+            };
+
+            return await GetAllAsync(scopedQuery);
+        }
+
         public async Task<RoomDto?> GetByIdAsync(int id)
         {
             var room = await _roomRepo.GetByIdAsync(id);
             return room == null ? null : MapToDto(room);
+        }
+
+        public async Task<RoomDto?> GetByIdForGuardAsync(int id, int guardUserId)
+        {
+            var guardDormId = await ResolveGuardDormIdOrThrowAsync(guardUserId);
+            var room = await _roomRepo.GetByIdAsync(id);
+            if (room == null)
+                return null;
+
+            if (room.Block?.DormId != guardDormId)
+                throw new UnauthorizedAccessException("Bạn chỉ được xem thông tin phòng thuộc Block đang được phân công quản lý.");
+
+            return MapToDto(room);
+        }
+
+        public async Task<RoomDetailDto?> GetDetailByIdAsync(int id, int? guardUserId = null)
+        {
+            int? guardDormId = null;
+            if (guardUserId.HasValue)
+            {
+                guardDormId = await ResolveGuardDormIdOrThrowAsync(guardUserId.Value);
+            }
+
+            var room = await _roomRepo.GetRoomDetailWithResidentsAsync(id);
+            if (room == null)
+                return null;
+
+            if (guardDormId.HasValue && room.Block?.DormId != guardDormId.Value)
+            {
+                throw new UnauthorizedAccessException("Bạn chỉ được xem chi tiết phòng thuộc Block đang được phân công quản lý.");
+            }
+
+            var orderedBeds = (room.Beds ?? Enumerable.Empty<Bed>())
+                .OrderBy(b => b.BedCode)
+                .ToList();
+
+            var checkedInStudents = new List<RoomCheckedInStudentDto>();
+            var bedDtos = new List<RoomBedOccupancyDto>();
+
+            foreach (var bed in orderedBeds)
+            {
+                var checkedInResidency = (bed.Residencies ?? Enumerable.Empty<Residency>())
+                    .Where(res => IsCheckedInResidency(res, bed))
+                    .OrderByDescending(res => res.CheckInDate ?? DateOnly.MinValue)
+                    .ThenByDescending(res => res.Id)
+                    .FirstOrDefault();
+
+                if (checkedInResidency != null && checkedInResidency.Student?.User != null)
+                {
+                    var studentUser = checkedInResidency.Student.User;
+                    var term = checkedInResidency.Term;
+                    checkedInStudents.Add(new RoomCheckedInStudentDto
+                    {
+                        ResidencyId = checkedInResidency.Id,
+                        StudentId = checkedInResidency.StudentId,
+                        StudentCode = studentUser.Code ?? string.Empty,
+                        FullName = studentUser.FullName ?? string.Empty,
+                        Gender = studentUser.Gender,
+                        Email = studentUser.Email,
+                        Phone = studentUser.Phone,
+                        Major = checkedInResidency.Student.Major,
+                        Cohort = checkedInResidency.Student.Cohort,
+                        BedId = bed.Id,
+                        BedCode = bed.BedCode,
+                        PositionInRoom = bed.PositionInRoom,
+                        TermId = checkedInResidency.TermId,
+                        TermName = term != null ? $"{term.Name} ({term.AcademicYear})" : string.Empty,
+                        RegistrationType = checkedInResidency.RegistrationType,
+                        CheckInDate = checkedInResidency.CheckInDate,
+                        PlannedCheckOutDate = checkedInResidency.PlannedCheckOutDate,
+                        HandoverId = checkedInResidency.Handover?.Id,
+                        HandoverCompletedTime = checkedInResidency.Handover?.CompletedTime ?? checkedInResidency.Handover?.CreatedTime
+                    });
+                }
+
+                var hasCheckedInResident = checkedInResidency != null;
+                var effectiveBedStatus = GetEffectiveCurrentBedStatus(bed, hasCheckedInResident);
+
+                bedDtos.Add(new RoomBedOccupancyDto
+                {
+                    BedId = bed.Id,
+                    BedCode = bed.BedCode,
+                    PositionInRoom = bed.PositionInRoom,
+                    Status = effectiveBedStatus,
+                    CheckedInStudentCode = checkedInResidency?.Student?.User?.Code,
+                    CheckedInStudentName = checkedInResidency?.Student?.User?.FullName
+                });
+            }
+
+            return new RoomDetailDto
+            {
+                Id = room.Id,
+                DormId = room.Block?.DormId ?? 0,
+                DormName = room.Block?.Dorm?.Name ?? string.Empty,
+                BlockId = room.BlockId,
+                BlockCode = room.Block?.Code ?? string.Empty,
+                BlockName = room.Block?.Name ?? string.Empty,
+                BlockGenderType = room.Block?.GenderType ?? string.Empty,
+                RoomTypeId = room.RoomTypeId,
+                RoomTypeName = room.RoomType?.Name ?? string.Empty,
+                BedCapacity = room.RoomType?.BedCapacity ?? 0,
+                RoomNumber = room.RoomNumber,
+                FloorLevel = room.FloorLevel,
+                Status = room.Status,
+                TotalBeds = bedDtos.Count,
+                FreeBeds = bedDtos.Count(b => b.Status == "Free"),
+                OccupiedBeds = bedDtos.Count(b => b.Status == "Occupied" || b.Status == "Holding" || b.Status == "Pending Transfer"),
+                CheckedInCount = checkedInStudents.Count,
+                CheckedInStudents = checkedInStudents,
+                Beds = bedDtos
+            };
+        }
+
+        public async Task<IEnumerable<GuardAssignedBlockDto>> GetAssignedBlocksLookupAsync(int? guardUserId = null)
+        {
+            int? dormId = null;
+            if (guardUserId.HasValue)
+            {
+                dormId = await ResolveGuardDormIdOrThrowAsync(guardUserId.Value);
+            }
+
+            var blocks = await _roomRepo.GetBlocksWithRoomsAsync(dormId);
+            return blocks.Select(b => new GuardAssignedBlockDto
+            {
+                Id = b.Id,
+                DormId = b.DormId,
+                DormName = b.Dorm?.Name ?? string.Empty,
+                Code = b.Code,
+                Name = b.Name,
+                GenderType = b.GenderType,
+                NumberOfFloors = b.FloorLevel,
+                Status = b.Status,
+                Rooms = (b.Rooms ?? Enumerable.Empty<Room>())
+                    .OrderBy(r => r.FloorLevel)
+                    .ThenBy(r => r.RoomNumber)
+                    .Select(r => new GuardRoomLookupItemDto
+                    {
+                        Id = r.Id,
+                        RoomNumber = r.RoomNumber,
+                        FloorLevel = r.FloorLevel
+                    })
+                    .ToList()
+            }).ToList();
+        }
+
+        private async Task<int> ResolveGuardDormIdOrThrowAsync(int guardUserId)
+        {
+            var dormId = await _roomRepo.GetGuardDormIdAsync(guardUserId);
+            if (!dormId.HasValue || dormId.Value <= 0)
+            {
+                throw new UnauthorizedAccessException("Tài khoản bảo vệ chưa được phân công khu KTX / Block quản lý.");
+            }
+            return dormId.Value;
+        }
+
+        private static string GetEffectiveCurrentBedStatus(Bed bed, bool hasCheckedInResident)
+        {
+            if (hasCheckedInResident)
+            {
+                return string.Equals(bed.Status, "Pending Transfer", StringComparison.OrdinalIgnoreCase)
+                    ? "Pending Transfer"
+                    : "Occupied";
+            }
+
+            return bed.Status;
+        }
+
+        private static bool IsCheckedInResidency(Residency res, Bed? bed = null)
+        {
+            if (!string.Equals(res.Status, "Active", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (res.Handover != null)
+            {
+                return string.Equals(res.Handover.HandoverType, "Checkin", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(res.Handover.Status, "Completed", StringComparison.OrdinalIgnoreCase);
+            }
+
+            var effectiveBed = bed ?? res.Bed;
+            var bedStatus = effectiveBed?.Status;
+            return res.CheckInDate.HasValue
+                && !string.Equals(bedStatus, "Holding", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(bedStatus, "Maintenance", StringComparison.OrdinalIgnoreCase);
         }
 
         public async Task<RoomDto> CreateAsync(CreateRoomDto dto)
@@ -125,21 +329,49 @@ namespace FUD.Services.Facilities
             });
         }
 
-        private static RoomDto MapToDto(Room r) => new()
+        private static RoomDto MapToDto(Room r)
         {
-            Id = r.Id,
-            BlockId = r.BlockId,
-            BlockName = r.Block?.Name ?? string.Empty,
-            BlockGenderType = r.Block?.GenderType ?? string.Empty,
-            RoomTypeId = r.RoomTypeId,
-            RoomTypeName = r.RoomType?.Name ?? string.Empty,
-            BedCapacity = r.RoomType?.BedCapacity ?? 0,
-            RoomNumber = r.RoomNumber,
-            FloorLevel = r.FloorLevel,
-            Status = r.Status,
-            TotalBeds = r.Beds?.Count ?? 0,
-            FreeBeds = r.Beds?.Count(b => b.Status == "Free") ?? 0,
-            OccupiedBeds = r.Beds?.Count(b => b.Status == "Occupied" || b.Status == "Holding" || b.Status == "Pending Transfer") ?? 0
-        };
+            var beds = r.Beds ?? Enumerable.Empty<Bed>();
+            int totalBeds = 0;
+            int freeBeds = 0;
+            int occupiedBeds = 0;
+            int checkedInCount = 0;
+
+            foreach (var b in beds)
+            {
+                totalBeds++;
+                var checkedInOnBed = (b.Residencies ?? Enumerable.Empty<Residency>())
+                    .Count(res => IsCheckedInResidency(res, b));
+                checkedInCount += checkedInOnBed;
+
+                var effectiveStatus = GetEffectiveCurrentBedStatus(b, checkedInOnBed > 0);
+                if (effectiveStatus == "Free")
+                {
+                    freeBeds++;
+                }
+                else if (effectiveStatus == "Occupied" || effectiveStatus == "Holding" || effectiveStatus == "Pending Transfer")
+                {
+                    occupiedBeds++;
+                }
+            }
+
+            return new RoomDto
+            {
+                Id = r.Id,
+                BlockId = r.BlockId,
+                BlockName = r.Block?.Name ?? string.Empty,
+                BlockGenderType = r.Block?.GenderType ?? string.Empty,
+                RoomTypeId = r.RoomTypeId,
+                RoomTypeName = r.RoomType?.Name ?? string.Empty,
+                BedCapacity = r.RoomType?.BedCapacity ?? 0,
+                RoomNumber = r.RoomNumber,
+                FloorLevel = r.FloorLevel,
+                Status = r.Status,
+                TotalBeds = totalBeds,
+                FreeBeds = freeBeds,
+                OccupiedBeds = occupiedBeds,
+                CheckedInStudentsCount = checkedInCount
+            };
+        }
     }
 }
