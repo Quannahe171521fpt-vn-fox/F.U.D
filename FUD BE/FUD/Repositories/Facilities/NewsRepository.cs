@@ -19,7 +19,6 @@ namespace FUD.Repositories.Facilities
             var q = _context.News
                 .Include(n => n.Author)
                     .ThenInclude(m => m.User)
-                .Include(n => n.NewsAttachments)
                 .AsQueryable();
 
             if (!string.IsNullOrWhiteSpace(query.Search))
@@ -54,7 +53,6 @@ namespace FUD.Repositories.Facilities
             return await _context.News
                 .Include(n => n.Author)
                     .ThenInclude(m => m.User)
-                .Include(n => n.NewsAttachments)
                 .FirstOrDefaultAsync(n => n.Id == id);
         }
 
@@ -63,7 +61,6 @@ namespace FUD.Repositories.Facilities
             return await _context.News
                 .Include(n => n.Author)
                     .ThenInclude(m => m.User)
-                .Include(n => n.NewsAttachments)
                 .Where(n => n.Status == "Published")
                 .OrderByDescending(n => n.PublishedTime)
                 .ToListAsync();

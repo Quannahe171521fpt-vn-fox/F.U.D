@@ -3,6 +3,7 @@ using FUD.DTOs.Facilities.Equipment;
 using FUD.Models;
 using FUD.Repositories.Interfaces.Facilities;
 using FUD.Services.Interfaces.Facilities;
+using Microsoft.EntityFrameworkCore;
 
 namespace FUD.Services.Facilities
 {
@@ -63,10 +64,17 @@ namespace FUD.Services.Facilities
             return MapToDto(full ?? created);
         }
 
+        private const string HiddenMarker = "[HIDDEN]";
+
+        private static bool IsEquipmentHidden(Equipment e) =>
+            !string.IsNullOrEmpty(e.Note) && e.Note.Contains(HiddenMarker, StringComparison.Ordinal);
+
         public async Task<EquipmentDto> UpdateAsync(int id, UpdateEquipmentDto dto, int? userId = null)
         {
             var equip = await _repo.GetByIdAsync(id);
             if (equip == null) throw new KeyNotFoundException($"Thiết bị id {id} không tồn tại");
+            if (IsEquipmentHidden(equip))
+                throw new InvalidOperationException("Thiết bị đang bị ẩn, không thể chỉnh sửa.");
 
             var oldVal = $"Catalog: {equip.CatalogId}, Room: {equip.RoomId}, Bed: {equip.BedId}, Condition: {equip.Condition}";
 
@@ -90,6 +98,8 @@ namespace FUD.Services.Facilities
         {
             var equip = await _repo.GetByIdAsync(id);
             if (equip == null) throw new KeyNotFoundException($"Thiết bị id {id} không tồn tại");
+            if (IsEquipmentHidden(equip))
+                throw new InvalidOperationException("Thiết bị đang bị ẩn, không thể di chuyển.");
 
             var oldLoc = $"Room: {equip.RoomId}, Bed: {equip.BedId}";
             equip.RoomId = dto.RoomId;
@@ -108,6 +118,8 @@ namespace FUD.Services.Facilities
         {
             var equip = await _repo.GetByIdAsync(id);
             if (equip == null) throw new KeyNotFoundException($"Thiết bị id {id} không tồn tại");
+            if (IsEquipmentHidden(equip))
+                throw new InvalidOperationException("Thiết bị đang bị ẩn, không thể thay đổi tình trạng.");
 
             var oldCond = equip.Condition;
             equip.Condition = dto.Condition;
@@ -125,11 +137,22 @@ namespace FUD.Services.Facilities
             var equip = await _repo.GetByIdAsync(id);
             if (equip == null) throw new KeyNotFoundException($"Thiết bị id {id} không tồn tại");
 
-            var oldCond = equip.Condition;
-            equip.Condition = "Liquidated";
+            var wasHidden = IsEquipmentHidden(equip);
+            if (wasHidden)
+            {
+                var cleaned = equip.Note!.Replace(HiddenMarker, string.Empty, StringComparison.Ordinal).Trim();
+                equip.Note = string.IsNullOrEmpty(cleaned) ? null : cleaned;
+            }
+            else
+            {
+                equip.Note = string.IsNullOrWhiteSpace(equip.Note)
+                    ? HiddenMarker
+                    : $"{HiddenMarker} {equip.Note.Trim()}";
+            }
+
             await _repo.UpdateAsync(equip);
 
-            await LogAuditAsync(userId, "LIQUIDATE", "Equipment", id.ToString(), oldCond, "Liquidated");
+            await LogAuditAsync(userId, "TOGGLE_VISIBILITY", "Equipment", id.ToString(), wasHidden ? "Hidden" : "Visible", wasHidden ? "Visible" : "Hidden");
         }
 
         public async Task<IEnumerable<EquipmentCatalogDto>> GetCatalogsAsync()
@@ -141,12 +164,18 @@ namespace FUD.Services.Facilities
                 Category = c.Category,
                 Name = c.Name,
                 ActiveFlag = c.ActiveFlag,
-                InUseCount = c.Equipment.Count(e => e.Condition != "Liquidated")
+                InUseCount = c.Equipment.Count(e => !IsEquipmentHidden(e))
             });
         }
 
         public async Task<EquipmentCatalogDto> CreateCatalogAsync(CreateEquipmentCatalogDto dto)
         {
+            // Kiểm tra trùng (Category, Name) trước khi lưu
+            var exists = await _context.EquipmentCatalogs
+                .AnyAsync(c => c.Category == dto.Category && c.Name == dto.Name);
+            if (exists)
+                throw new InvalidOperationException($"Loại thiết bị '{dto.Name}' trong nhóm '{dto.Category}' đã tồn tại trong danh mục.");
+
             var cat = new EquipmentCatalog
             {
                 Category = dto.Category,
@@ -199,14 +228,18 @@ namespace FUD.Services.Facilities
         private static EquipmentDto MapToDto(Equipment e)
         {
             string loc = string.Empty;
-            var blockCode = e.Room?.Block?.Code ?? "";
-            if (e.Bed != null && e.Room != null)
+            if (e.Room != null)
             {
-                loc = $"Giường {e.Bed.BedCode}/{blockCode}{e.Room.RoomNumber}";
-            }
-            else if (e.Room != null)
-            {
-                loc = $"Phòng {blockCode}{e.Room.RoomNumber}";
+                var blockCode = e.Room.Block?.Code?.Trim() ?? "";
+                var roomNum = (e.Room.RoomNumber ?? "").Trim();
+                if (string.IsNullOrWhiteSpace(blockCode) || roomNum.StartsWith(blockCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    loc = $"Phòng {roomNum}";
+                }
+                else
+                {
+                    loc = $"Phòng {blockCode} - {roomNum}";
+                }
             }
 
             return new EquipmentDto
@@ -222,6 +255,7 @@ namespace FUD.Services.Facilities
                 BedCode = e.Bed?.BedCode,
                 Location = loc,
                 Condition = e.Condition,
+                IsHidden = IsEquipmentHidden(e),
                 PurchaseDate = e.PurchaseDate,
                 Note = e.Note,
                 HasOpenTicket = false

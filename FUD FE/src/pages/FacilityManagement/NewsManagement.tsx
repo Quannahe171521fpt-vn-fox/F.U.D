@@ -21,7 +21,6 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
   const [searchKeyword, setSearchKeyword] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [hasAttachmentFilter, setHasAttachmentFilter] = useState<'all' | 'yes' | 'no'>('all');
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -31,13 +30,9 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [attachments, setAttachments] = useState<{ name: string; size: string; type: string }[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
-
-  // File drag state
-  const [isDragging, setIsDragging] = useState(false);
 
   // Helper parse dd/MM/yyyy to Date
   const parseVNDate = (str?: string | null): Date | null => {
@@ -61,13 +56,6 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
       if (!titleNorm.includes(term) && !contentNorm.includes(term)) {
         return false;
       }
-    }
-
-    if (hasAttachmentFilter === 'yes' && (!item.attachments || item.attachments.length === 0)) {
-      return false;
-    }
-    if (hasAttachmentFilter === 'no' && item.attachments && item.attachments.length > 0) {
-      return false;
     }
 
     const itemDate = parseVNDate(item.publishedDate || item.createdDate);
@@ -102,7 +90,6 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
     setSearchKeyword('');
     setDateFrom('');
     setDateTo('');
-    setHasAttachmentFilter('all');
     setFilter('All');
     setCurrentPage(1);
   };
@@ -116,7 +103,6 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
     setEditingId(null);
     setTitle('');
     setContent('');
-    setAttachments([]);
     setErrorMessage(null);
     setIsEditorOpen(true);
   };
@@ -125,42 +111,8 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
     setEditingId(item.id);
     setTitle(item.title);
     setContent(item.content);
-    setAttachments(item.attachments ? [...item.attachments] : []);
     setErrorMessage(null);
     setIsEditorOpen(true);
-  };
-
-  const handleFileUpload = (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const file = files[0];
-
-    const allowedExtensions = ['pdf', 'doc', 'docx', 'jpg', 'png'];
-    const fileExt = file.name.split('.').pop()?.toLowerCase() || '';
-
-    if (!allowedExtensions.includes(fileExt)) {
-      setErrorMessage(`Định dạng tệp không hợp lệ (.${fileExt}). Chỉ chấp nhận PDF, DOC, DOCX, JPG, PNG.`);
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      setErrorMessage('Dung lượng tệp vượt quá giới hạn cho phép (tối đa 5MB).');
-      return;
-    }
-
-    const formattedSize =
-      file.size > 1024 * 1024
-        ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
-        : `${Math.round(file.size / 1024)} KB`;
-
-    setAttachments((prev) => [
-      ...prev,
-      {
-        name: file.name,
-        size: formattedSize,
-        type: fileExt,
-      },
-    ]);
-    setErrorMessage(null);
   };
 
   const handleSave = (status: 'Published' | 'Draft') => {
@@ -187,7 +139,6 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
       content: content.trim(),
       status: status,
       publishedDate: status === 'Published' ? (publishedDate || formattedToday) : null,
-      attachments: [...attachments],
     };
 
     onSaveNews(newNewsItem);
@@ -309,28 +260,6 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ fontSize: '12px', color: '#64748B', fontWeight: 600 }}>Tệp đính kèm:</span>
-              <select
-                value={hasAttachmentFilter}
-                onChange={(e) => {
-                  setHasAttachmentFilter(e.target.value as any);
-                  setCurrentPage(1);
-                }}
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: '6px',
-                  border: '1px solid #CBD5E1',
-                  fontSize: '12px',
-                  backgroundColor: '#FFF',
-                }}
-              >
-                <option value="all">Tất cả</option>
-                <option value="yes">Có đính kèm</option>
-                <option value="no">Không có đính kèm</option>
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ fontSize: '12px', color: '#64748B', fontWeight: 600 }}>Từ ngày:</span>
               <input
                 type="date"
@@ -366,7 +295,7 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
               />
             </div>
 
-            {(searchKeyword || dateFrom || dateTo || hasAttachmentFilter !== 'all' || filter !== 'All') && (
+            {(searchKeyword || dateFrom || dateTo || filter !== 'All') && (
               <button
                 type="button"
                 onClick={handleResetFilters}
@@ -390,18 +319,17 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
             <table className="mgmt-table">
               <thead>
                 <tr>
-                  <th style={{ width: '38%' }}>Tiêu đề</th>
-                  <th style={{ width: '12%' }}>Trạng thái</th>
-                  <th style={{ width: '13%' }}>Ngày tạo</th>
-                  <th style={{ width: '13%' }}>Ngày đăng</th>
-                  <th style={{ width: '13%' }}>Ngày ẩn</th>
-                  <th style={{ width: '11%', textAlign: 'right' }}>Thao tác</th>
+                  <th style={{ width: '44%' }}>Tiêu đề</th>
+                  <th style={{ width: '14%' }}>Trạng thái</th>
+                  <th style={{ width: '15%' }}>Ngày tạo</th>
+                  <th style={{ width: '15%' }}>Ngày đăng</th>
+                  <th style={{ width: '12%', textAlign: 'right' }}>Thao tác</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredNews.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="empty-table-cell">
+                    <td colSpan={5} className="empty-table-cell">
                       Không có tin tức nào phù hợp.
                     </td>
                   </tr>
@@ -412,11 +340,6 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
                         <span className="news-title-text" title={news.title}>
                           {news.title}
                         </span>
-                        {news.attachments && news.attachments.length > 0 && (
-                          <span className="attachment-badge">
-                            [{news.attachments.length} tệp đính kèm]
-                          </span>
-                        )}
                       </td>
                       <td>
                         {news.status === 'Published' ? (
@@ -430,9 +353,6 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
                       </td>
                       <td className="cell-date">
                         {news.publishedDate ? news.publishedDate : '—'}
-                      </td>
-                      <td className="cell-date">
-                        {news.status === 'Draft' && news.hiddenDate ? news.hiddenDate : '—'}
                       </td>
                       <td className="cell-actions">
                         <button
@@ -543,62 +463,6 @@ export const NewsManagement: React.FC<NewsManagementProps> = ({
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                 />
-              </div>
-
-              {/* Attachments drag & drop */}
-              <div className="form-group">
-                <label className="input-label">Tệp đính kèm</label>
-                <div
-                  className={`dropzone-box ${isDragging ? 'drag-over' : ''}`}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setIsDragging(true);
-                  }}
-                  onDragLeave={() => setIsDragging(false)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setIsDragging(false);
-                    handleFileUpload(e.dataTransfer.files);
-                  }}
-                >
-                  <p className="dropzone-text">
-                    Kéo thả tệp vào đây hoặc{' '}
-                    <label htmlFor="file-upload" className="dropzone-browse-label">
-                      chọn tệp từ máy
-                    </label>
-                  </p>
-                  <span className="dropzone-hint">
-                    Định dạng: PDF, DOC, DOCX, JPG, PNG (Tối đa 5MB)
-                  </span>
-                  <input
-                    id="file-upload"
-                    type="file"
-                    className="hidden-file-input"
-                    onChange={(e) => handleFileUpload(e.target.files)}
-                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                  />
-                </div>
-
-                {/* Uploaded attachments list */}
-                {attachments.length > 0 && (
-                  <div className="attachments-list" style={{ marginTop: '10px' }}>
-                    {attachments.map((file, idx) => (
-                      <div key={idx} className="attachment-chip">
-                        <span className="file-name">{file.name}</span>
-                        <span className="file-size">({file.size})</span>
-                        <button
-                          type="button"
-                          className="file-remove-btn"
-                          onClick={() =>
-                            setAttachments(attachments.filter((_, i) => i !== idx))
-                          }
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
 
               {/* Action Buttons */}

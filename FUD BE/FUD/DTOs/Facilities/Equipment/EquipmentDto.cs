@@ -12,7 +12,8 @@ namespace FUD.DTOs.Facilities.Equipment
         public int? BedId { get; set; }
         public string? BedCode { get; set; }
         public string Location { get; set; } = string.Empty; // formatted as "Phòng A101" or "Giường 1/A101"
-        public string Condition { get; set; } = "Good"; // 'Good', 'Under repair', 'Broken', 'Liquidated'
+        public string Condition { get; set; } = "Good"; // 'Good', 'Under repair', 'Broken'
+        public bool IsHidden { get; set; }
         public DateOnly? PurchaseDate { get; set; }
         public string? Note { get; set; }
         public bool HasOpenTicket { get; set; }

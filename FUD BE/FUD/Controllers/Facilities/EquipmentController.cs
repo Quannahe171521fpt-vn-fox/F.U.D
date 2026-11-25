@@ -109,8 +109,18 @@ namespace FUD.Controllers.Facilities
         [HttpPost("catalogs")]
         public async Task<IActionResult> CreateCatalog([FromBody] CreateEquipmentCatalogDto dto)
         {
-            var created = await _service.CreateCatalogAsync(dto);
-            return Ok(ApiResponse<EquipmentCatalogDto>.Ok(created, "Thêm danh mục thiết bị thành công"));
+            if (!ModelState.IsValid)
+                return BadRequest(ApiResponse.Fail("Dữ liệu không hợp lệ"));
+
+            try
+            {
+                var created = await _service.CreateCatalogAsync(dto);
+                return Ok(ApiResponse<EquipmentCatalogDto>.Ok(created, "Thêm danh mục thiết bị thành công"));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
         }
 
         [HttpDelete("catalogs/{id:int}")]

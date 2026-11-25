@@ -940,6 +940,11 @@
   background-color: #fffbf7 !important;
 }
 
+.row-hidden td:not(.cell-actions) {
+  opacity: 0.45;
+  filter: blur(0.4px);
+}
+
 .empty-table-cell {
   text-align: center;
   padding: 36px 16px;
@@ -991,6 +996,23 @@
   border-radius: 4px;
   font-weight: 500;
 }
+
+.hidden-badge {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  background-color: #f3f4f6;
+  color: #6b7280;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.badge-hidden {
+  background-color: #f3f4f6;
+  color: #6b7280;
+}
+
 
 .attachment-badge {
   margin-left: 6px;

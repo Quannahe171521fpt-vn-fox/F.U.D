@@ -131,35 +131,40 @@ namespace FUD.Repositories.Facilities
         {
             var rooms = await _context.Rooms
                 .Include(r => r.Block)
-                .Include(r => r.Beds)
                 .OrderBy(r => r.Block.Code)
                 .ThenBy(r => r.RoomNumber)
                 .ToListAsync();
 
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var list = new List<LocationOptionDto>();
             foreach (var r in rooms)
             {
-                var blockCode = r.Block != null ? r.Block.Code : "";
-                var roomLabel = string.IsNullOrWhiteSpace(blockCode) ? $"Phòng {r.RoomNumber}" : $"Phòng {blockCode}{r.RoomNumber}";
+                var blockCode = r.Block != null ? r.Block.Code.Trim() : "";
+                var roomNum = (r.RoomNumber ?? "").Trim();
+                string roomLabel;
+
+                if (string.IsNullOrWhiteSpace(blockCode))
+                {
+                    roomLabel = $"Phòng {roomNum}";
+                }
+                else if (roomNum.StartsWith(blockCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    roomLabel = $"Phòng {roomNum}";
+                }
+                else
+                {
+                    roomLabel = $"Phòng {blockCode} - {roomNum}";
+                }
+
+                // Bỏ qua nếu label đã được thêm (tránh trùng lặp)
+                if (!seen.Add(roomLabel)) continue;
+
                 list.Add(new LocationOptionDto
                 {
                     RoomId = r.Id,
                     BedId = null,
                     Label = roomLabel
                 });
-
-                if (r.Beds != null && r.Beds.Count > 0)
-                {
-                    foreach (var b in r.Beds.OrderBy(b => b.PositionInRoom))
-                    {
-                        list.Add(new LocationOptionDto
-                        {
-                            RoomId = r.Id,
-                            BedId = b.Id,
-                            Label = $"Giường {b.BedCode}/{blockCode}{r.RoomNumber}"
-                        });
-                    }
-                }
             }
 
             return list;

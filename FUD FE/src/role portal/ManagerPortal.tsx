@@ -58,6 +58,7 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({
   const [equipmentList, setEquipmentList] = useState<EquipmentRecord[]>([]);
   const [catalogList, setCatalogList] = useState<EquipmentCatalogItem[]>([]);
   const [locationList, setLocationList] = useState<string[]>([]);
+  const [locationOptions, setLocationOptions] = useState<{ roomId: number; bedId?: number | null; label: string }[]>([]);
   const [newsList, setNewsList] = useState<NewsItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasPendingViolations, setHasPendingViolations] = useState(false);
@@ -140,6 +141,7 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({
             category: e.category,
             location: e.location || `Phòng ${e.roomId}`,
             condition: e.condition as 'Good' | 'Under repair' | 'Broken',
+            isHidden: Boolean(e.isHidden),
             hasOpenTicket: e.hasOpenTicket,
           }));
           setEquipmentList(mappedEquip);
@@ -169,6 +171,7 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({
       try {
         const locs = await equipmentApi.getLocations();
         if (locs && locs.length > 0) {
+          setLocationOptions(locs);
           setLocationList(locs.map((l: any) => l.label));
         }
       } catch (err) {
@@ -257,10 +260,10 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({
   };
 
   // Handlers for Equipment
-  const handleSaveEquipment = async (record: EquipmentRecord) => {
+  const handleSaveEquipment = async (record: EquipmentRecord): Promise<boolean> => {
     try {
-      const matchRoom = record.location.match(/(\d+)/);
-      const roomId = matchRoom ? parseInt(matchRoom[1], 10) : 1;
+      const matchedLoc = locationOptions.find((l) => l.label === record.location);
+      const roomId = matchedLoc ? matchedLoc.roomId : 1;
       const catalog = catalogList.find((c) => c.name === record.name);
       const catalogId = catalog ? catalog.id : (catalogList[0]?.id || 1);
 
@@ -279,9 +282,11 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({
         });
       }
       await loadData();
+      return true;
     } catch (err: any) {
       alert(err.message || 'Lỗi khi lưu thiết bị vào cơ sở dữ liệu');
       console.error(err);
+      return false;
     }
   };
 
@@ -295,16 +300,18 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({
     }
   };
 
-  const handleSaveCatalogItem = async (item: EquipmentCatalogItem) => {
+  const handleSaveCatalogItem = async (item: EquipmentCatalogItem): Promise<boolean> => {
     try {
       await equipmentApi.createCatalog({
         category: item.category,
         name: item.name,
       });
       await loadData();
+      return true;
     } catch (err: any) {
       alert(err.message || 'Lỗi khi thêm danh mục vào cơ sở dữ liệu');
       console.error(err);
+      return false;
     }
   };
 
