@@ -261,8 +261,8 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
       setSelectedStudent(null);
       setSuccessMsg(
         result.status === 'Draft'
-          ? `Đã lập biên bản (Draw up a record) cho SV ${result.studentName} (${result.studentCode}). Do có thiết bị hư hỏng/thiếu nên biên bản đã chuyển cho Ban Quản lý xử lý sự cố (Troubleshooting)!`
-          : `Đã lập biên bản (Draw up a record) cho SV ${result.studentName} (${result.studentCode}). Biên bản đang chờ Sinh viên ký xác nhận (Sign to confirm) trước khi Bảo vệ bấm Confirm Check-in!`
+          ? `Đã lập biên bản cho SV ${result.studentName} (${result.studentCode}). Do có thiết bị hư hỏng/thiếu nên biên bản đã chuyển cho Ban Quản lý xử lý sự cố (Troubleshooting)!`
+          : `Đã hoàn tất Check-in & kích hoạt giường Occupied cho SV ${result.studentName} (${result.studentCode}). Biên bản đã được lưu và chuyển cho Ban Quản lý kiểm tra hồ sơ (Check record)!`
       );
       // Cập nhật lại danh sách chờ
       const updatedPending = await checkinApi.getPendingStudents({
@@ -974,14 +974,14 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
                         <div>
                           <div>Người nhận bàn giao</div>
                           <div style={{ fontWeight: 400, fontSize: 12, fontStyle: 'italic' }}>
-                            (Sinh viên kiểm tra & ký xác nhận)
+                            (Ký và ghi rõ họ tên)
                           </div>
                           <div className="fpt-sig-name">{selectedStudent.studentName}</div>
                         </div>
                         <div>
                           <div>Người bàn giao</div>
                           <div style={{ fontWeight: 400, fontSize: 12, fontStyle: 'italic' }}>
-                            (Cán bộ Bảo vệ lập biên bản)
+                            (Ký và ghi rõ họ tên)
                           </div>
                           <div className="fpt-sig-name">{currentUser?.fullName || 'Cán bộ Bảo vệ'}</div>
                         </div>
@@ -1003,7 +1003,11 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
                     In phôi biên bản
                   </button>
                   <button type="submit" className="btn-submit" disabled={submitting || loadingEquip}>
-                    {submitting ? 'Đang lập biên bản...' : 'Lập biên bản (Draw up a record)'}
+                    {submitting
+                      ? 'Đang xử lý...'
+                      : equipItems.some(i => i.itemCondition !== 'Good')
+                        ? 'Lập biên bản & chuyển QL xử lý'
+                        : 'Hoàn tất Check-in & Lập biên bản'}
                   </button>
                 </div>
               </form>
@@ -1061,13 +1065,9 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
                             <span className="checkin-status-badge" style={{ backgroundColor: '#FEF3C7', color: '#B45309' }}>
                               🔧 Chờ Quản lý Troubleshooting
                             </span>
-                          ) : h.workflowStage === 'PendingStudentSign' || (h.status === 'Pending Acceptance' && !h.studentAcceptedFlag) ? (
-                            <span className="checkin-status-badge" style={{ backgroundColor: '#DBEAFE', color: '#1D4ED8' }}>
-                              ✍️ Chờ SV ký (Sign to confirm)
-                            </span>
-                          ) : h.workflowStage === 'PendingGuardConfirm' || (h.status === 'Pending Acceptance' && h.studentAcceptedFlag) ? (
+                          ) : h.workflowStage === 'PendingGuardConfirm' || h.status === 'Pending Acceptance' ? (
                             <span className="checkin-status-badge" style={{ backgroundColor: '#E0E7FF', color: '#4338CA' }}>
-                              🛡️ SV đã ký - Chờ Bảo vệ Confirm
+                              🛡️ QL đã xử lý - Chờ Bảo vệ Confirm Check-in
                             </span>
                           ) : h.workflowStage === 'PendingManagerCheckRecord' ? (
                             <span className="checkin-status-badge completed">
@@ -1080,7 +1080,7 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
                           )}
                         </td>
                         <td style={{ textAlign: 'right', display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                          {(h.workflowStage === 'PendingGuardConfirm' || (h.status === 'Pending Acceptance' && h.studentAcceptedFlag)) && (
+                          {(h.workflowStage === 'PendingGuardConfirm' || h.status === 'Pending Acceptance') && (
                             <button
                               type="button"
                               className="btn-submit"
@@ -1143,7 +1143,7 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
                     Đóng
                   </button>
                   {(viewingHandover.workflowStage === 'PendingGuardConfirm' ||
-                    (viewingHandover.status === 'Pending Acceptance' && viewingHandover.studentAcceptedFlag)) && (
+                    viewingHandover.status === 'Pending Acceptance') && (
                     <button
                       type="button"
                       className="btn-submit"

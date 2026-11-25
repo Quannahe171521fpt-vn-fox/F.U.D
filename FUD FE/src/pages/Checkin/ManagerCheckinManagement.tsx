@@ -86,7 +86,7 @@ export const ManagerCheckinManagement: React.FC = () => {
       setErrorMsg('');
       setSuccessMsg('');
       const updated = await checkinApi.managerTroubleshoot(handover.id, {
-        note: managerNote.trim() || 'Đã xử lý khắc phục/thay thế thiết bị hư hỏng, bàn giao cho Sinh viên ký xác nhận.',
+        note: managerNote.trim() || 'Đã xử lý khắc phục/thay thế thiết bị hư hỏng, chuyển Bảo vệ xác nhận hoàn tất Check-in.',
         repairDamagedEquipments: repairEquips,
       });
       setList(prev => prev.map(h => (h.id === handover.id ? updated : h)));
@@ -95,7 +95,7 @@ export const ManagerCheckinManagement: React.FC = () => {
       }
       setManagerNote('');
       setSuccessMsg(
-        `Đã hoàn tất Troubleshooting cho biên bản #BB-${String(handover.id).padStart(4, '0')} (${handover.studentName}). Biên bản đã chuyển sang chờ Sinh viên ký xác nhận (Sign to confirm)!`
+        `Đã hoàn tất Troubleshooting cho biên bản #BB-${String(handover.id).padStart(4, '0')} (${handover.studentName}). Biên bản đã chuyển cho Bảo vệ xác nhận hoàn tất Check-in!`
       );
     } catch (err: any) {
       setErrorMsg(err?.message || 'Lỗi khi xử lý sự cố thiết bị (Troubleshooting).');
@@ -298,13 +298,9 @@ export const ManagerCheckinManagement: React.FC = () => {
                           <span className="checkin-status-badge" style={{ backgroundColor: '#FEF3C7', color: '#B45309' }}>
                             🔧 Cần Troubleshooting (Thiết bị hỏng/thiếu)
                           </span>
-                        ) : h.workflowStage === 'PendingStudentSign' ? (
-                          <span className="checkin-status-badge" style={{ backgroundColor: '#DBEAFE', color: '#1D4ED8' }}>
-                            ✍️ Chờ SV ký (Sign to confirm)
-                          </span>
-                        ) : h.workflowStage === 'PendingGuardConfirm' ? (
+                        ) : h.workflowStage === 'PendingGuardConfirm' || h.status === 'Pending Acceptance' ? (
                           <span className="checkin-status-badge" style={{ backgroundColor: '#E0E7FF', color: '#4338CA' }}>
-                            🛡️ SV đã ký - Chờ Bảo vệ Confirm
+                            🛡️ Chờ Bảo vệ Confirm Check-in
                           </span>
                         ) : isCheckRecord ? (
                           <span className="checkin-status-badge" style={{ backgroundColor: '#FCE7F3', color: '#BE185D' }}>
@@ -445,7 +441,7 @@ export const ManagerCheckinManagement: React.FC = () => {
                       checked={repairEquips}
                       onChange={e => setRepairEquips(e.target.checked)}
                     />
-                    <span>Đã sửa chữa / thay thế thiết bị hư hỏng về trạng thái Tốt (Good) trước khi chuyển cho SV ký</span>
+                    <span>Đã sửa chữa / thay thế thiết bị hư hỏng về trạng thái Tốt (Good) trước khi bàn giao lại</span>
                   </label>
                 )}
               </div>
@@ -466,7 +462,7 @@ export const ManagerCheckinManagement: React.FC = () => {
                 >
                   {processingId === viewingHandover.id
                     ? 'Đang xử lý...'
-                    : '🔧 Hoàn tất Troubleshooting -> Chuyển SV ký xác nhận'}
+                    : '🔧 Hoàn tất Troubleshooting -> Chuyển Bảo vệ Confirm'}
                 </button>
               )}
               {(viewingHandover.workflowStage === 'PendingManagerCheckRecord' ||

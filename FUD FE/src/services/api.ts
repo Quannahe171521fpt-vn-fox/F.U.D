@@ -1578,7 +1578,7 @@ export interface CheckinHandoverDetail {
   bedCode: string;
   termName: string;
   status: string;
-  workflowStage?: 'PendingManagerTroubleshooting' | 'PendingStudentSign' | 'PendingGuardConfirm' | 'PendingManagerCheckRecord' | 'Completed' | string;
+  workflowStage?: 'PendingManagerTroubleshooting' | 'PendingGuardConfirm' | 'PendingManagerCheckRecord' | 'Completed' | string;
   hasDamageOrMissingFlag: boolean;
   studentAcceptedFlag?: boolean;
   studentAcceptedTime?: string | null;
@@ -1642,17 +1642,6 @@ export const checkinApi = {
     const json = await parseJsonSafe(res);
     if (!res.ok || (json && json.success === false)) {
       throw new Error(json?.message || 'Lỗi khi Quản lý xử lý sự cố thiết bị (Troubleshooting)');
-    }
-    return json?.data;
-  },
-
-  studentSignConfirm: async (id: number): Promise<CheckinHandoverDetail> => {
-    const res = await authFetch(`${BASE_URL}/checkin/${id}/student-sign`, {
-      method: 'POST',
-    });
-    const json = await parseJsonSafe(res);
-    if (!res.ok || (json && json.success === false)) {
-      throw new Error(json?.message || 'Lỗi khi Sinh viên ký xác nhận biên bản');
     }
     return json?.data;
   },
