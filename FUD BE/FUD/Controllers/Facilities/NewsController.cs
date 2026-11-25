@@ -8,7 +8,7 @@ namespace FUD.Controllers.Facilities
 {
     [Route("api/facilities/news")]
     [ApiController]
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "Manager")]
     public class NewsController : ControllerBase
     {
         private readonly INewsService _service;

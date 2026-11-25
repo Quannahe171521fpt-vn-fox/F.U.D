@@ -8,7 +8,7 @@ namespace FUD.Controllers.Facilities
 {
     [Route("api/facilities/equipment")]
     [ApiController]
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "Manager")]
     public class EquipmentController : ControllerBase
     {
         private readonly IEquipmentService _service;

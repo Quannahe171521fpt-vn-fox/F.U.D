@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using FluentAssertions;
 using FUD.Common;
@@ -437,6 +438,100 @@ public class RoomsControllerTests
         var response = okResult.Value.Should().BeOfType<ApiResponse<object>>().Subject;
         response.Success.Should().BeTrue();
         response.Data.Should().BeEquivalentTo(types);
+    }
+
+    #endregion
+
+    #region Guard Room Management Endpoints Tests
+
+    private RoomsController CreateGuardSut(int? guardUserId = 100)
+    {
+        var claims = new List<Claim> { new(ClaimTypes.Role, "Guard") };
+        if (guardUserId.HasValue)
+        {
+            claims.Add(new Claim(ClaimTypes.NameIdentifier, guardUserId.Value.ToString()));
+        }
+
+        var identity = new ClaimsIdentity(claims, "TestAuth");
+        return new RoomsController(_roomServiceMock.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(identity)
+                }
+            }
+        };
+    }
+
+    [Fact]
+    public async Task GetAll_WhenCallerIsGuard_CallsGetAllForGuardAsync()
+    {
+        // Arrange
+        var query = new RoomQueryDto { FloorLevel = 1, GenderType = "Male", RoomNumber = "101" };
+        var pagedData = new PagedResult<RoomDto>
+        {
+            Items = new List<RoomDto> { CreateSampleRoomDto(10) },
+            TotalCount = 1,
+            Page = 1,
+            PageSize = 10
+        };
+        _roomServiceMock.Setup(s => s.GetAllForGuardAsync(query, 100)).ReturnsAsync(pagedData);
+        var sut = CreateGuardSut(100);
+
+        // Act
+        var result = await sut.GetAll(query);
+
+        // Assert
+        var okResult = result.Should().BeOfType<OkObjectResult>().Subject;
+        okResult.StatusCode.Should().Be(StatusCodes.Status200OK);
+        _roomServiceMock.Verify(s => s.GetAllForGuardAsync(query, 100), Times.Once);
+        _roomServiceMock.Verify(s => s.GetAllAsync(It.IsAny<RoomQueryDto>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetDetail_WhenGuardAccessesAssignedRoom_Returns200OkWithCheckedInStudents()
+    {
+        // Arrange
+        var detailDto = new RoomDetailDto
+        {
+            Id = 10,
+            RoomNumber = "101L",
+            BlockName = "Block 101",
+            CheckedInCount = 1,
+            CheckedInStudents = new List<RoomCheckedInStudentDto>
+            {
+                new() { ResidencyId = 1, StudentId = 501, StudentCode = "SE180001", FullName = "Nguyễn Văn A", BedCode = "101L-1" }
+            }
+        };
+        _roomServiceMock.Setup(s => s.GetDetailByIdAsync(10, 100)).ReturnsAsync(detailDto);
+        var sut = CreateGuardSut(100);
+
+        // Act
+        var result = await sut.GetDetail(10);
+
+        // Assert
+        var okResult = result.Should().BeOfType<OkObjectResult>().Subject;
+        var response = okResult.Value.Should().BeOfType<ApiResponse<object>>().Subject;
+        response.Success.Should().BeTrue();
+        response.Data.Should().BeEquivalentTo(detailDto);
+    }
+
+    [Fact]
+    public async Task GetDetail_WhenGuardAccessesUnassignedRoom_Returns403Forbidden()
+    {
+        // Arrange
+        _roomServiceMock.Setup(s => s.GetDetailByIdAsync(99, 100))
+            .ThrowsAsync(new UnauthorizedAccessException("Bạn chỉ được xem chi tiết phòng thuộc Block đang được phân công quản lý."));
+        var sut = CreateGuardSut(100);
+
+        // Act
+        var result = await sut.GetDetail(99);
+
+        // Assert
+        var forbiddenResult = result.Should().BeOfType<ObjectResult>().Subject;
+        forbiddenResult.StatusCode.Should().Be(StatusCodes.Status403Forbidden);
     }
 
     #endregion

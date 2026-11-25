@@ -664,3 +664,120 @@
   font-size: 13px;
 }
 
+/* ── Guard Room Management & Room Detail Modal ── */
+.facilities-clickable-row {
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.facilities-clickable-row:hover td {
+  background-color: #f1f5f9 !important;
+}
+
+.badge-checkedin {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background-color: #f8fafc;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
+.badge-checkedin.has-residents {
+  background-color: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+
+.badge-readonly {
+  cursor: default !important;
+}
+
+.badge-readonly:hover {
+  opacity: 1 !important;
+}
+
+.facilities-modal-card-wide {
+  max-width: 880px;
+  max-height: 88vh;
+}
+
+.room-detail-body {
+  overflow-y: auto;
+  max-height: calc(88vh - 135px);
+}
+
+.room-detail-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.room-detail-stat-box {
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.room-detail-stat-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.room-detail-stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.room-detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.room-detail-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.room-detail-section-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.room-beds-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.room-bed-mini-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background-color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.room-bed-mini-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+

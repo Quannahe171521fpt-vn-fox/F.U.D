@@ -5,6 +5,7 @@ import { ViolationListPage } from '../pages/Violations/ViolationListPage';
 import { GuardCheckinPage } from '../pages/Checkin/GuardCheckinPage';
 import { GuardBedTransferPage } from '../pages/Requests/GuardBedTransferPage';
 import { EwManagement } from '../pages/FacilityManagement/EwManagement';
+import { RoomManagement } from '../pages/FacilityManagement/RoomManagement';
 import { SharedSidebar, type SidebarSection } from './SharedSidebar';
 import type { GuardTab } from '../utils/notificationRouting';
 
@@ -38,6 +39,12 @@ export const GuardPortal: React.FC<GuardPortalProps> = ({
         { id: 'checkin-list', name: 'Biên bản đã nhận phòng', counter: 'Tra cứu & In biên bản' },
         { id: 'bed-transfer', name: 'Trả phòng', counter: 'Chốt thiết bị & điện nước' },
         { id: 'bed-transfer-list', name: 'Biên bản đã trả phòng', counter: 'Tra cứu biên bản đã lập' },
+      ],
+    },
+    {
+      label: 'QUẢN LÝ PHÒNG',
+      items: [
+        { id: 'rooms', name: 'Quản lý Phòng', counter: 'Phòng & SV đã Check-in' },
       ],
     },
     {
@@ -87,6 +94,8 @@ export const GuardPortal: React.FC<GuardPortalProps> = ({
           <GuardBedTransferPage mode="pending" />
         ) : activeTab === 'bed-transfer-list' ? (
           <GuardBedTransferPage mode="history" />
+        ) : activeTab === 'rooms' ? (
+          <RoomManagement />
         ) : activeTab === 'create' ? (
           <RecordViolationPage onSuccessNavigate={() => setActiveTab('list')} />
         ) : activeTab === 'list' ? (

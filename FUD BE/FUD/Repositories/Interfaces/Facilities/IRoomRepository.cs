@@ -27,6 +27,12 @@ namespace FUD.Repositories.Interfaces.Facilities
 
         Task<int?> GetBlockNumberOfFloorsAsync(int blockId);
 
+        Task<int?> GetGuardDormIdAsync(int guardUserId);
+
+        Task<IEnumerable<Block>> GetBlocksWithRoomsAsync(int? dormId = null);
+
+        Task<Room?> GetRoomDetailWithResidentsAsync(int roomId);
+
         Task<Room> CreateAsync(Room room);
         Task<Room> UpdateAsync(Room room);
     }

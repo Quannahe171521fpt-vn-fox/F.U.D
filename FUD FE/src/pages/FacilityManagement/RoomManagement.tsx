@@ -1,11 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   roomApi,
   blockApi,
   type RoomDto,
   type BlockDto,
   type RoomTypeLookup,
+  type RoomDetailDto,
+  type GuardAssignedBlockDto,
 } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
 import { Pagination } from '../../components/Pagination';
 import '../../styles/facilities.css';
 
@@ -23,9 +26,43 @@ const EMPTY_FORM: RoomFormData = {
   floorLevel: 1,
 };
 
+function formatDateDisplay(value?: string | null): string {
+  if (!value) return '—';
+  const datePart = value.split('T')[0];
+  const parts = datePart.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  return value;
+}
+
+function getBedStatusBadge(status: string): { className: string; label: string } {
+  switch (status) {
+    case 'Occupied':
+      return { className: 'badge-bed-occupied', label: 'Đang ở' };
+    case 'Holding':
+      return { className: 'badge-bed-holding', label: 'Giữ chỗ (Chưa check-in)' };
+    case 'Pending Transfer':
+      return { className: 'badge-bed-transfer', label: 'Chờ chuyển giường' };
+    case 'Maintenance':
+      return { className: 'badge-bed-maintenance', label: 'Bảo trì' };
+    default:
+      return { className: 'badge-bed-free', label: 'Trống' };
+  }
+}
+
 export const RoomManagement: React.FC = () => {
+  const { currentUser } = useAuth();
+  const isGuardOnly = Boolean(
+    currentUser &&
+    (currentUser.primaryRole === 'Guard' || currentUser.roles?.includes('Guard')) &&
+    !currentUser.roles?.includes('Manager') &&
+    !currentUser.roles?.includes('Admin')
+  );
+
   const [rooms, setRooms] = useState<RoomDto[]>([]);
   const [blocks, setBlocks] = useState<BlockDto[]>([]);
+  const [assignedBlocks, setAssignedBlocks] = useState<GuardAssignedBlockDto[]>([]);
   const [roomTypes, setRoomTypes] = useState<RoomTypeLookup[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
@@ -34,37 +71,113 @@ export const RoomManagement: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // Filters
+  // Search & Filters
   const [searchRoomNumber, setSearchRoomNumber] = useState('');
   const [searchBlockName, setSearchBlockName] = useState('');
+  const [filterBlockId, setFilterBlockId] = useState<number | 'All'>('All');
+  const [filterExactRoom, setFilterExactRoom] = useState<string>('All');
+  const [filterFloor, setFilterFloor] = useState<number | 'All'>('All');
   const [filterRoomTypeId, setFilterRoomTypeId] = useState<number | 'All'>('All');
   const [filterGender, setFilterGender] = useState('All');
   const [filterStatus, setFilterStatus] = useState('All');
 
-  // Modal create/edit
+  // Room Detail Modal (xem chi tiết phòng & sinh viên đã check-in vào ở)
+  const [detailTargetId, setDetailTargetId] = useState<number | null>(null);
+  const [roomDetail, setRoomDetail] = useState<RoomDetailDto | null>(null);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
+  // Modal create/edit (Manager/Admin only)
   const [showModal, setShowModal] = useState(false);
   const [editingRoom, setEditingRoom] = useState<RoomDto | null>(null);
   const [formData, setFormData] = useState<RoomFormData>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Status Change Modal
+  // Status Change Modal (Manager/Admin only)
   const [statusModalTarget, setStatusModalTarget] = useState<RoomDto | null>(null);
   const [isChangingStatus, setIsChangingStatus] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
 
-  // Load lookups (blocks & room types)
+  // Load lookups (assigned blocks, room types, and full blocks for Manager/Admin)
   useEffect(() => {
     Promise.all([
-      blockApi.getAll({ pageSize: 100 }),
+      roomApi.getAssignedBlocks().catch(() => [] as GuardAssignedBlockDto[]),
       roomApi.getTypes().catch(() => [] as RoomTypeLookup[]),
+      isGuardOnly
+        ? Promise.resolve({ items: [] as BlockDto[] })
+        : blockApi.getAll({ pageSize: 100 }).catch(() => ({ items: [] as BlockDto[] })),
     ])
-      .then(([blockRes, typesRes]) => {
-        setBlocks(blockRes.items || []);
+      .then(([assignedRes, typesRes, blockRes]) => {
+        setAssignedBlocks(assignedRes || []);
         setRoomTypes(typesRes || []);
+        if (!isGuardOnly) {
+          setBlocks(blockRes.items || []);
+        }
       })
-      .catch(() => { });
-  }, []);
+      .catch(() => {});
+  }, [isGuardOnly]);
+
+  // Danh sách tầng khả dụng dựa trên các Block đang được phân công (và Block/Giới tính đang chọn)
+  const availableFloors = useMemo(() => {
+    const floorSet = new Set<number>();
+    const candidateBlocks = assignedBlocks.filter(b => {
+      if (filterBlockId !== 'All' && b.id !== filterBlockId) return false;
+      if (filterGender !== 'All' && b.genderType !== filterGender) return false;
+      return true;
+    });
+
+    candidateBlocks.forEach(b => {
+      if (b.numberOfFloors && b.numberOfFloors > 0) {
+        for (let f = 1; f <= b.numberOfFloors; f++) {
+          floorSet.add(f);
+        }
+      }
+      (b.rooms || []).forEach(r => {
+        if (r.floorLevel && r.floorLevel > 0) {
+          floorSet.add(r.floorLevel);
+        }
+      });
+    });
+
+    return Array.from(floorSet).sort((a, b) => a - b);
+  }, [assignedBlocks, filterBlockId, filterGender]);
+
+  // Danh sách tên phòng khả dụng để lọc theo tên phòng (dựa trên Block / Tầng / Giới tính đang chọn)
+  const availableRoomNames = useMemo(() => {
+    const roomSet = new Set<string>();
+    const candidateBlocks = assignedBlocks.filter(b => {
+      if (filterBlockId !== 'All' && b.id !== filterBlockId) return false;
+      if (filterGender !== 'All' && b.genderType !== filterGender) return false;
+      return true;
+    });
+
+    candidateBlocks.forEach(b => {
+      (b.rooms || []).forEach(r => {
+        if (filterFloor !== 'All' && r.floorLevel !== filterFloor) return;
+        if (r.roomNumber) {
+          roomSet.add(r.roomNumber);
+        }
+      });
+    });
+
+    return Array.from(roomSet).sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+    );
+  }, [assignedBlocks, filterBlockId, filterGender, filterFloor]);
+
+  // Tự động đặt lại filterExactRoom hoặc filterFloor nếu không còn khớp với Block/Giới tính vừa chọn
+  useEffect(() => {
+    if (filterFloor !== 'All' && availableFloors.length > 0 && !availableFloors.includes(filterFloor)) {
+      setFilterFloor('All');
+    }
+  }, [availableFloors, filterFloor]);
+
+  useEffect(() => {
+    if (filterExactRoom !== 'All' && availableRoomNames.length > 0 && !availableRoomNames.includes(filterExactRoom)) {
+      setFilterExactRoom('All');
+    }
+  }, [availableRoomNames, filterExactRoom]);
 
   // Load rooms
   const loadRooms = useCallback(async () => {
@@ -72,8 +185,11 @@ export const RoomManagement: React.FC = () => {
     setError(null);
     try {
       const result = await roomApi.getAll({
-        roomNumber: searchRoomNumber || undefined,
-        blockName: searchBlockName || undefined,
+        blockId: filterBlockId !== 'All' ? filterBlockId : undefined,
+        blockName: !isGuardOnly && searchBlockName ? searchBlockName : undefined,
+        roomNumber: searchRoomNumber.trim() || undefined,
+        exactRoomNumber: filterExactRoom !== 'All' ? filterExactRoom : undefined,
+        floorLevel: filterFloor !== 'All' ? filterFloor : undefined,
         roomTypeId: filterRoomTypeId !== 'All' ? filterRoomTypeId : undefined,
         genderType: filterGender !== 'All' ? filterGender : undefined,
         status: filterStatus !== 'All' ? filterStatus : undefined,
@@ -87,18 +203,75 @@ export const RoomManagement: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [searchRoomNumber, searchBlockName, filterRoomTypeId, filterGender, filterStatus, page, pageSize]);
+  }, [
+    filterBlockId,
+    isGuardOnly,
+    searchBlockName,
+    searchRoomNumber,
+    filterExactRoom,
+    filterFloor,
+    filterRoomTypeId,
+    filterGender,
+    filterStatus,
+    page,
+    pageSize,
+  ]);
 
   useEffect(() => {
     loadRooms();
   }, [loadRooms]);
+
+  const hasActiveFilters = Boolean(
+    searchRoomNumber.trim() ||
+    searchBlockName.trim() ||
+    filterBlockId !== 'All' ||
+    filterExactRoom !== 'All' ||
+    filterFloor !== 'All' ||
+    filterRoomTypeId !== 'All' ||
+    filterGender !== 'All' ||
+    filterStatus !== 'All'
+  );
+
+  const resetFilters = () => {
+    setSearchRoomNumber('');
+    setSearchBlockName('');
+    setFilterBlockId('All');
+    setFilterExactRoom('All');
+    setFilterFloor('All');
+    setFilterRoomTypeId('All');
+    setFilterGender('All');
+    setFilterStatus('All');
+    setPage(1);
+  };
 
   const showNotification = (msg: string) => {
     setSuccessMsg(msg);
     setTimeout(() => setSuccessMsg(null), 3500);
   };
 
-  // Handlers
+  // Xem chi tiết phòng & danh sách sinh viên đã check-in vào ở
+  const openRoomDetail = async (room: RoomDto) => {
+    setDetailTargetId(room.id);
+    setRoomDetail(null);
+    setDetailError(null);
+    setIsLoadingDetail(true);
+    try {
+      const detail = await roomApi.getDetail(room.id);
+      setRoomDetail(detail);
+    } catch (err: any) {
+      setDetailError(err.message || 'Không thể tải thông tin chi tiết phòng');
+    } finally {
+      setIsLoadingDetail(false);
+    }
+  };
+
+  const closeRoomDetail = () => {
+    setDetailTargetId(null);
+    setRoomDetail(null);
+    setDetailError(null);
+  };
+
+  // Handlers (Manager/Admin)
   const openCreate = () => {
     setEditingRoom(null);
     const defaultBlock = blocks[0];
@@ -198,19 +371,27 @@ export const RoomManagement: React.FC = () => {
     }
   };
 
+  const guardDormLabel = assignedBlocks[0]?.dormName || currentUser?.dormName || '';
+
   return (
     <div className="facilities-container">
       {/* Header */}
       <div className="facilities-header">
         <div className="facilities-title-group">
-          <span className="facilities-sub">Hệ thống KTX FUD</span>
+          <span className="facilities-sub">
+            {isGuardOnly
+              ? `An ninh KTX FUD${guardDormLabel ? ` · Khu phụ trách: ${guardDormLabel}` : ''}`
+              : 'Hệ thống KTX FUD'}
+          </span>
           <h1 className="facilities-title">Quản lý Phòng (Room)</h1>
         </div>
-        <div>
-          <button type="button" className="btn-fud-primary" onClick={openCreate}>
-            + Thêm phòng mới
-          </button>
-        </div>
+        {!isGuardOnly && (
+          <div>
+            <button type="button" className="btn-fud-primary" onClick={openCreate}>
+              + Thêm phòng mới
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Notifications */}
@@ -230,40 +411,88 @@ export const RoomManagement: React.FC = () => {
       {/* Card: Filters + Table */}
       <div className="facilities-card">
         <div className="facilities-card-header">
-          <h2 className="facilities-card-title">Danh sách phòng ở</h2>
-          <p className="facilities-card-desc">Quản lý danh sách các phòng, tầng, sức chứa giường và trạng thái bảo trì</p>
+          <h2 className="facilities-card-title">
+            {isGuardOnly ? 'Danh sách phòng thuộc Block phụ trách' : 'Danh sách phòng ở'}
+          </h2>
+          <p className="facilities-card-desc">
+            {isGuardOnly
+              ? 'Tra cứu, lọc phòng theo tên phòng, tầng, giới tính và nhấn vào phòng để xem chi tiết các sinh viên đã check-in vào ở'
+              : 'Quản lý danh sách các phòng, tầng, sức chứa giường, sinh viên đang ở và trạng thái bảo trì'}
+          </p>
         </div>
 
-        {/* Filters */}
+        {/* Search & Filters */}
         <div className="facilities-filter-row">
           <input
             className="facilities-search-input"
-            placeholder="Tìm theo số phòng..."
+            placeholder="Tìm kiếm theo tên phòng (VD: 101, 101L)..."
             value={searchRoomNumber}
             onChange={e => { setSearchRoomNumber(e.target.value); setPage(1); }}
           />
-          <input
-            className="facilities-search-input"
-            placeholder="Tìm theo tên Block..."
-            value={searchBlockName}
-            onChange={e => { setSearchBlockName(e.target.value); setPage(1); }}
-          />
+
+          {isGuardOnly ? (
+            <select
+              className="facilities-select"
+              value={filterBlockId}
+              onChange={e => {
+                const val = e.target.value;
+                setFilterBlockId(val === 'All' ? 'All' : Number(val));
+                setPage(1);
+              }}
+            >
+              <option value="All">Tất cả Block quản lý</option>
+              {assignedBlocks.map(b => {
+                const hasGenderInName = /\((Nam|Nữ)\)/i.test(b.name);
+                const genderSuffix = hasGenderInName ? '' : ` (${b.genderType === 'Male' ? 'Nam' : 'Nữ'})`;
+                return (
+                  <option key={b.id} value={b.id}>
+                    {b.name}{genderSuffix}
+                  </option>
+                );
+              })}
+            </select>
+          ) : (
+            <input
+              className="facilities-search-input"
+              placeholder="Tìm theo tên Block..."
+              value={searchBlockName}
+              onChange={e => { setSearchBlockName(e.target.value); setPage(1); }}
+            />
+          )}
+
+          {/* Lọc theo tên phòng */}
           <select
             className="facilities-select"
-            value={filterRoomTypeId}
-            onChange={e => {
-              const val = e.target.value;
-              setFilterRoomTypeId(val === 'All' ? 'All' : Number(val));
-              setPage(1);
-            }}
+            value={filterExactRoom}
+            onChange={e => { setFilterExactRoom(e.target.value); setPage(1); }}
           >
-            <option value="All">Tất cả loại phòng</option>
-            {roomTypes.map(rt => (
-              <option key={rt.id} value={rt.id}>
-                {rt.name} ({rt.bedCapacity} giường)
+            <option value="All">Lọc tên phòng: Tất cả</option>
+            {availableRoomNames.map(roomName => (
+              <option key={roomName} value={roomName}>
+                Phòng {roomName}
               </option>
             ))}
           </select>
+
+          {/* Lọc theo tầng */}
+          <select
+            className="facilities-select"
+            value={filterFloor}
+            onChange={e => {
+              const val = e.target.value;
+              setFilterFloor(val === 'All' ? 'All' : Number(val));
+              setPage(1);
+            }}
+          >
+            <option value="All">Tất cả tầng</option>
+            {availableFloors.map(floor => (
+              <option key={floor} value={floor}>
+                Tầng {floor}
+              </option>
+            ))}
+          </select>
+
+          {/* Lọc theo giới tính */}
           <select
             className="facilities-select"
             value={filterGender}
@@ -273,15 +502,42 @@ export const RoomManagement: React.FC = () => {
             <option value="Male">Phòng Nam</option>
             <option value="Female">Phòng Nữ</option>
           </select>
-          <select
-            className="facilities-select"
-            value={filterStatus}
-            onChange={e => { setFilterStatus(e.target.value); setPage(1); }}
-          >
-            <option value="All">Tất cả trạng thái</option>
-            <option value="Active">Đang hoạt động</option>
-            <option value="Maintenance">Đang bảo trì</option>
-          </select>
+
+          {!isGuardOnly && (
+            <>
+              <select
+                className="facilities-select"
+                value={filterRoomTypeId}
+                onChange={e => {
+                  const val = e.target.value;
+                  setFilterRoomTypeId(val === 'All' ? 'All' : Number(val));
+                  setPage(1);
+                }}
+              >
+                <option value="All">Tất cả loại phòng</option>
+                {roomTypes.map(rt => (
+                  <option key={rt.id} value={rt.id}>
+                    {rt.name} ({rt.bedCapacity} giường)
+                  </option>
+                ))}
+              </select>
+              <select
+                className="facilities-select"
+                value={filterStatus}
+                onChange={e => { setFilterStatus(e.target.value); setPage(1); }}
+              >
+                <option value="All">Tất cả trạng thái</option>
+                <option value="Active">Đang hoạt động</option>
+                <option value="Maintenance">Đang bảo trì</option>
+              </select>
+            </>
+          )}
+
+          {hasActiveFilters && (
+            <button type="button" className="btn-fud-secondary" onClick={resetFilters}>
+              Đặt lại lọc
+            </button>
+          )}
           <button type="button" className="btn-fud-secondary" onClick={() => loadRooms()}>
             Làm mới
           </button>
@@ -296,69 +552,106 @@ export const RoomManagement: React.FC = () => {
           ) : rooms.length === 0 ? (
             <div className="facilities-empty-cell">
               <p style={{ fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>Không tìm thấy phòng nào</p>
-              <p>Vui lòng thay đổi từ khóa tìm kiếm hoặc thêm phòng mới</p>
+              <p>
+                {isGuardOnly
+                  ? 'Vui lòng thay đổi bộ lọc tên phòng, tầng, giới tính hoặc từ khóa tìm kiếm'
+                  : 'Vui lòng thay đổi từ khóa tìm kiếm hoặc thêm phòng mới'}
+              </p>
             </div>
           ) : (
             <table className="facilities-table">
               <thead>
                 <tr>
-                  <th style={{ width: '12%' }}>Số phòng</th>
+                  <th style={{ width: '10%' }}>Tên phòng</th>
                   <th style={{ width: '18%' }}>Thuộc Block</th>
-                  <th style={{ width: '12%', textAlign: 'center' }}>Giới tính</th>
-                  <th style={{ width: '10%', textAlign: 'center' }}>Tầng</th>
-                  <th style={{ width: '20%' }}>Loại phòng</th>
-                  <th style={{ width: '14%', textAlign: 'center' }}>Giường trống</th>
-                  <th style={{ width: '14%', textAlign: 'center' }}>Trạng thái</th>
-                  <th style={{ width: '10%', textAlign: 'center' }}>Thao tác</th>
+                  <th style={{ width: '10%', textAlign: 'center' }}>Giới tính</th>
+                  <th style={{ width: '9%', textAlign: 'center' }}>Tầng</th>
+                  <th style={{ width: '15%' }}>Loại phòng</th>
+                  <th style={{ width: '13%', textAlign: 'center' }}>SV đã Check-in</th>
+                  <th style={{ width: '11%', textAlign: 'center' }}>Giường trống</th>
+                  <th style={{ width: '10%', textAlign: 'center' }}>Trạng thái</th>
+                  <th style={{ width: '14%', textAlign: 'center' }}>Thao tác</th>
                 </tr>
               </thead>
               <tbody>
-                {rooms.map(room => (
-                  <tr key={room.id}>
-                    <td>
-                      <span className="badge-code">{room.roomNumber}</span>
-                    </td>
-                    <td style={{ fontWeight: 600 }}>{room.blockName}</td>
-                    <td style={{ textAlign: 'center' }}>
-                      <span className={room.blockGenderType === 'Male' ? 'badge-gender-male' : (room.blockGenderType === 'Female' ? 'badge-gender-female' : 'badge-code')}>
-                        {room.blockGenderType === 'Male' ? 'Nam' : (room.blockGenderType === 'Female' ? 'Nữ' : '—')}
-                      </span>
-                    </td>
-                    <td style={{ textAlign: 'center', color: '#64748b' }}>
-                      {room.floorLevel ? `Tầng ${room.floorLevel}` : '—'}
-                    </td>
-                    <td>{room.roomTypeName || `${room.bedCapacity} giường`}</td>
-                    <td style={{ textAlign: 'center' }}>
-                      <span className={`badge-capacity ${room.freeBeds > 0 ? 'has-free' : ''}`}>
-                        {room.freeBeds} / {room.totalBeds} trống
-                      </span>
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <span
-                        className={room.status === 'Active' ? 'badge-active' : 'badge-maintenance'}
-                        onClick={() => openStatusModal(room)}
-                        title="Nhấn để đổi trạng thái phòng"
-                      >
-                        {room.status === 'Active' ? 'Hoạt động' : 'Bảo trì'}
-                      </span>
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <button
-                        type="button"
-                        className={`btn-tbl-action${!room.isEditable ? ' btn-tbl-action-disabled' : ''}`}
-                        onClick={() => room.isEditable && openEdit(room)}
-                        disabled={!room.isEditable}
-                        title={
-                          !room.isEditable
-                            ? `Phòng đang có ${room.occupiedBeds} sinh viên cư trú — không thể chỉnh sửa`
-                            : 'Chỉnh sửa thông tin phòng'
-                        }
-                      >
-                        Sửa
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {rooms.map(room => {
+                  const checkedInCount = room.checkedInStudentsCount ?? 0;
+                  return (
+                    <tr
+                      key={room.id}
+                      className="facilities-clickable-row"
+                      onClick={() => openRoomDetail(room)}
+                      title="Nhấn để xem chi tiết phòng và danh sách sinh viên đã check-in vào ở"
+                    >
+                      <td>
+                        <span className="badge-code">{room.roomNumber}</span>
+                      </td>
+                      <td style={{ fontWeight: 600 }}>{room.blockName}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        <span className={room.blockGenderType === 'Male' ? 'badge-gender-male' : (room.blockGenderType === 'Female' ? 'badge-gender-female' : 'badge-code')}>
+                          {room.blockGenderType === 'Male' ? 'Nam' : (room.blockGenderType === 'Female' ? 'Nữ' : '—')}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'center', color: '#64748b' }}>
+                        {room.floorLevel ? `Tầng ${room.floorLevel}` : '—'}
+                      </td>
+                      <td>{room.roomTypeName || `${room.bedCapacity} giường`}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        <span className={`badge-checkedin ${checkedInCount > 0 ? 'has-residents' : ''}`}>
+                          {checkedInCount} SV đang ở
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <span className={`badge-capacity ${room.freeBeds > 0 ? 'has-free' : ''}`}>
+                          {room.freeBeds} / {room.totalBeds} trống
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        {isGuardOnly ? (
+                          <span
+                            className={`${room.status === 'Active' ? 'badge-active' : 'badge-maintenance'} badge-readonly`}
+                          >
+                            {room.status === 'Active' ? 'Hoạt động' : 'Bảo trì'}
+                          </span>
+                        ) : (
+                          <span
+                            className={room.status === 'Active' ? 'badge-active' : 'badge-maintenance'}
+                            onClick={e => { e.stopPropagation(); openStatusModal(room); }}
+                            title="Nhấn để đổi trạng thái phòng"
+                          >
+                            {room.status === 'Active' ? 'Hoạt động' : 'Bảo trì'}
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                        <div className="facilities-actions" style={{ justifyContent: 'center' }}>
+                          <button
+                            type="button"
+                            className="btn-tbl-action"
+                            onClick={() => openRoomDetail(room)}
+                          >
+                            Chi tiết
+                          </button>
+                          {!isGuardOnly && (
+                            <button
+                              type="button"
+                              className={`btn-tbl-action${!room.isEditable ? ' btn-tbl-action-disabled' : ''}`}
+                              onClick={() => room.isEditable && openEdit(room)}
+                              disabled={!room.isEditable}
+                              title={
+                                !room.isEditable
+                                  ? `Phòng đang có ${room.occupiedBeds} sinh viên cư trú — không thể chỉnh sửa`
+                                  : 'Chỉnh sửa thông tin phòng'
+                              }
+                            >
+                              Sửa
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -374,8 +667,206 @@ export const RoomManagement: React.FC = () => {
         />
       </div>
 
-      {/* ── Create / Edit Modal ────────────────────────────── */}
-      {showModal && (
+      {/* ── Room Detail Modal (Danh sách SV đã Check-in vào ở) ── */}
+      {detailTargetId !== null && (
+        <div className="facilities-modal-backdrop" onClick={closeRoomDetail}>
+          <div
+            className="facilities-modal-card facilities-modal-card-wide"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="facilities-modal-header">
+              <div>
+                <h3 className="facilities-modal-title">
+                  {roomDetail
+                    ? `Chi tiết Phòng ${roomDetail.roomNumber} — ${roomDetail.blockName}`
+                    : 'Chi tiết thông tin phòng'}
+                </h3>
+                {roomDetail && (
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px', alignItems: 'center' }}>
+                    {roomDetail.dormName && (
+                      <span className="badge-code">{roomDetail.dormName}</span>
+                    )}
+                    <span className={roomDetail.blockGenderType === 'Male' ? 'badge-gender-male' : 'badge-gender-female'}>
+                      {roomDetail.blockGenderType === 'Male' ? 'Phòng Nam' : 'Phòng Nữ'}
+                    </span>
+                    <span className="badge-code">
+                      {roomDetail.floorLevel ? `Tầng ${roomDetail.floorLevel}` : 'Chưa rõ tầng'}
+                    </span>
+                    <span className="badge-code">
+                      {roomDetail.roomTypeName || `${roomDetail.bedCapacity} giường`}
+                    </span>
+                    <span className={`${roomDetail.status === 'Active' ? 'badge-active' : 'badge-maintenance'} badge-readonly`}>
+                      {roomDetail.status === 'Active' ? 'Đang hoạt động' : 'Đang bảo trì'}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <button type="button" className="facilities-modal-close" onClick={closeRoomDetail}>✕</button>
+            </div>
+
+            <div className="facilities-modal-body room-detail-body">
+              {isLoadingDetail ? (
+                <div className="facilities-empty-cell">
+                  <p>Đang tải danh sách sinh viên đã check-in vào ở...</p>
+                </div>
+              ) : detailError ? (
+                <div className="facilities-form-error">{detailError}</div>
+              ) : roomDetail ? (
+                <>
+                  {/* Thống kê tổng quan phòng */}
+                  <div className="room-detail-summary-grid">
+                    <div className="room-detail-stat-box">
+                      <span className="room-detail-stat-label">Tổng số giường</span>
+                      <span className="room-detail-stat-value">{roomDetail.totalBeds} giường</span>
+                    </div>
+                    <div className="room-detail-stat-box" style={{ backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }}>
+                      <span className="room-detail-stat-label" style={{ color: '#1e40af' }}>Sinh viên đã Check-in vào ở</span>
+                      <span className="room-detail-stat-value" style={{ color: '#1d4ed8' }}>
+                        {roomDetail.checkedInCount} sinh viên
+                      </span>
+                    </div>
+                    <div className="room-detail-stat-box" style={{ backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' }}>
+                      <span className="room-detail-stat-label" style={{ color: '#065f46' }}>Giường trống hiện tại</span>
+                      <span className="room-detail-stat-value" style={{ color: '#059669' }}>
+                        {roomDetail.freeBeds} giường
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Danh sách sinh viên đã Check-in vào ở */}
+                  <div className="room-detail-section">
+                    <div className="room-detail-section-header">
+                      <h4 className="room-detail-section-title">
+                        Danh sách sinh viên đã Check-in vào ở ({roomDetail.checkedInStudents.length})
+                      </h4>
+                    </div>
+
+                    {roomDetail.checkedInStudents.length === 0 ? (
+                      <div
+                        className="facilities-empty-cell"
+                        style={{
+                          border: '1px dashed #cbd5e1',
+                          borderRadius: '8px',
+                          backgroundColor: '#f8fafc',
+                          padding: '28px 16px',
+                        }}
+                      >
+                        <p style={{ fontWeight: 600, color: '#0f172a', margin: '0 0 4px' }}>
+                          Chưa có sinh viên nào check-in vào ở trong phòng này
+                        </p>
+                        <p style={{ margin: 0, fontSize: '13px' }}>
+                          Sinh viên sẽ hiển thị tại đây sau khi hoàn tất thủ tục nhận phòng (Check-in)
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="facilities-table-wrap">
+                        <table className="facilities-table">
+                          <thead>
+                            <tr>
+                              <th>MSSV</th>
+                              <th>Họ và tên</th>
+                              <th>Giường ở</th>
+                              <th>Ngành / Khóa</th>
+                              <th>Liên hệ</th>
+                              <th>Học kỳ</th>
+                              <th style={{ textAlign: 'center' }}>Ngày Check-in</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {roomDetail.checkedInStudents.map(st => (
+                              <tr key={st.residencyId}>
+                                <td>
+                                  <span className="badge-code">{st.studentCode}</span>
+                                </td>
+                                <td>
+                                  <div style={{ fontWeight: 600, color: '#0f172a' }}>{st.fullName}</div>
+                                  {st.gender && (
+                                    <div style={{ fontSize: '12px', color: '#64748b' }}>
+                                      {st.gender === 'Male' ? 'Nam' : st.gender === 'Female' ? 'Nữ' : st.gender}
+                                    </div>
+                                  )}
+                                </td>
+                                <td>
+                                  <span className="badge-bed-occupied">{st.bedCode}</span>
+                                  {st.positionInRoom && (
+                                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '3px' }}>
+                                      {st.positionInRoom}
+                                    </div>
+                                  )}
+                                </td>
+                                <td>
+                                  <div style={{ fontSize: '13px', color: '#334155' }}>
+                                    {st.major || '—'}
+                                  </div>
+                                  {st.cohort && (
+                                    <div style={{ fontSize: '12px', color: '#64748b' }}>Khóa {st.cohort}</div>
+                                  )}
+                                </td>
+                                <td>
+                                  <div style={{ fontSize: '13px', color: '#334155' }}>{st.phone || '—'}</div>
+                                  {st.email && (
+                                    <div style={{ fontSize: '12px', color: '#64748b' }}>{st.email}</div>
+                                  )}
+                                </td>
+                                <td style={{ fontSize: '13px' }}>{st.termName || '—'}</td>
+                                <td style={{ textAlign: 'center', fontWeight: 600, color: '#059669' }}>
+                                  {formatDateDisplay(st.checkInDate || st.handoverCompletedTime)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Tình trạng từng giường trong phòng */}
+                  {roomDetail.beds && roomDetail.beds.length > 0 && (
+                    <div className="room-detail-section">
+                      <h4 className="room-detail-section-title">
+                        Tình trạng các giường trong phòng ({roomDetail.beds.length})
+                      </h4>
+                      <div className="room-beds-mini-grid">
+                        {roomDetail.beds.map(bed => {
+                          const effectiveStatus = bed.checkedInStudentName && bed.status === 'Free' ? 'Occupied' : bed.status;
+                          const badge = getBedStatusBadge(effectiveStatus);
+                          return (
+                            <div key={bed.bedId} className="room-bed-mini-card">
+                              <div className="room-bed-mini-top">
+                                <span className="badge-code">{bed.bedCode}</span>
+                                <span className={badge.className}>{badge.label}</span>
+                              </div>
+                              {bed.positionInRoom && (
+                                <div style={{ fontSize: '12px', color: '#64748b' }}>
+                                  Vị trí: {bed.positionInRoom}
+                                </div>
+                              )}
+                              <div style={{ fontSize: '12.5px', color: bed.checkedInStudentName ? '#0f172a' : '#94a3b8', fontWeight: bed.checkedInStudentName ? 600 : 400 }}>
+                                {bed.checkedInStudentName
+                                  ? `${bed.checkedInStudentName} (${bed.checkedInStudentCode})`
+                                  : 'Chưa có SV check-in'}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : null}
+            </div>
+
+            <div className="facilities-modal-footer">
+              <button type="button" className="btn-fud-secondary" onClick={closeRoomDetail}>
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Create / Edit Modal (Manager/Admin) ────────────── */}
+      {!isGuardOnly && showModal && (
         <div className="facilities-modal-backdrop" onClick={() => !isSaving && setShowModal(false)}>
           <div className="facilities-modal-card" onClick={e => e.stopPropagation()}>
             <div className="facilities-modal-header">
@@ -490,8 +981,8 @@ export const RoomManagement: React.FC = () => {
         </div>
       )}
 
-      {/* ── Toggle Status Modal ────────────────────────────── */}
-      {statusModalTarget && (
+      {/* ── Toggle Status Modal (Manager/Admin) ────────────── */}
+      {!isGuardOnly && statusModalTarget && (
         <div className="facilities-modal-backdrop" onClick={() => !isChangingStatus && setStatusModalTarget(null)}>
           <div className="facilities-modal-card" onClick={e => e.stopPropagation()}>
             <div className="facilities-modal-header">

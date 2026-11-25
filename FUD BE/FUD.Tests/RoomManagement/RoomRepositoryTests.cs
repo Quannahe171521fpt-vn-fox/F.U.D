@@ -607,4 +607,121 @@ public class RoomRepositoryTests
     }
 
     #endregion
+
+    #region Guard Room Management & Detail Tests
+
+    [Fact]
+    public async Task GetAllAsync_WhenFilteredByDormBlockFloorAndExactRoomNumber_ReturnsMatchingRooms()
+    {
+        // Arrange
+        using var context = CreateInMemoryContext();
+        await SeedBasicFacilitiesAsync(context);
+        var dormB = new Dorm { Id = 2, Name = "Dorm B", Code = "DB", CampusId = 1, Status = "Active" };
+        var blockB = new Block { Id = 3, DormId = 2, Name = "Block 301", Code = "B301", FloorLevel = 3, GenderType = "Male", Status = "Active", Dorm = dormB };
+        var roomB = new Room { Id = 50, BlockId = 3, RoomTypeId = 2, RoomNumber = "101L", FloorLevel = 1, Status = "Active", Block = blockB };
+        await context.Dorms.AddAsync(dormB);
+        await context.Blocks.AddAsync(blockB);
+        await context.Rooms.AddAsync(roomB);
+        await context.SaveChangesAsync();
+
+        var sut = new RoomRepository(context);
+        var query = new RoomQueryDto
+        {
+            DormId = 1,
+            BlockId = 1,
+            FloorLevel = 1,
+            ExactRoomNumber = "101L",
+            Page = 1,
+            PageSize = 10
+        };
+
+        // Act
+        var (items, totalCount) = await sut.GetAllAsync(query);
+
+        // Assert
+        totalCount.Should().Be(1);
+        var matched = items.Single();
+        matched.Id.Should().Be(10);
+        matched.Block.DormId.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task GetGuardDormIdAsync_WhenGuardExists_ReturnsAssignedDormId()
+    {
+        // Arrange
+        using var context = CreateInMemoryContext();
+        await SeedBasicFacilitiesAsync(context);
+        context.Guards.Add(new Guard { UserId = 100, DormId = 1 });
+        await context.SaveChangesAsync();
+        var sut = new RoomRepository(context);
+
+        // Act
+        var dormId = await sut.GetGuardDormIdAsync(100);
+
+        // Assert
+        dormId.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task GetRoomDetailWithResidentsAsync_WhenRoomHasResidencies_LoadsStudentTermAndHandover()
+    {
+        // Arrange
+        using var context = CreateInMemoryContext();
+        await SeedBasicFacilitiesAsync(context);
+
+        var studentUser = new User
+        {
+            Id = 501,
+            Code = "SE180001",
+            FullName = "Nguyen Van A",
+            Gender = "Male",
+            Email = "anvse180001@fpt.edu.vn",
+            AccountStatus = "Active"
+        };
+        var student = new Student { UserId = 501, Major = "SE", Cohort = "K18", User = studentUser };
+        var term = new Term { Id = 1, Name = "Fall", AcademicYear = "2026-2027", StartDate = new DateOnly(2026, 9, 1), EndDate = new DateOnly(2026, 12, 31) };
+        var residency = new Residency
+        {
+            Id = 701,
+            StudentId = 501,
+            BedId = 1,
+            TermId = 1,
+            Status = "Active",
+            CheckInDate = new DateOnly(2026, 9, 2),
+            Student = student,
+            Term = term
+        };
+        var handover = new Handover
+        {
+            Id = 801,
+            HandoverType = "Checkin",
+            ResidencyId = 701,
+            RoomId = 10,
+            GuardId = 100,
+            Status = "Completed",
+            CreatedTime = DateTime.UtcNow
+        };
+
+        await context.Users.AddAsync(studentUser);
+        await context.Students.AddAsync(student);
+        await context.Terms.AddAsync(term);
+        await context.Residencies.AddAsync(residency);
+        await context.Handovers.AddAsync(handover);
+        await context.SaveChangesAsync();
+
+        var sut = new RoomRepository(context);
+
+        // Act
+        var detailRoom = await sut.GetRoomDetailWithResidentsAsync(10);
+
+        // Assert
+        detailRoom.Should().NotBeNull();
+        detailRoom!.Beds.Should().HaveCount(2);
+        var occupiedBed = detailRoom.Beds.Single(b => b.Id == 1);
+        occupiedBed.Residencies.Should().ContainSingle();
+        occupiedBed.Residencies.First().Student.User.Code.Should().Be("SE180001");
+        occupiedBed.Residencies.First().Handover!.Status.Should().Be("Completed");
+    }
+
+    #endregion
 }

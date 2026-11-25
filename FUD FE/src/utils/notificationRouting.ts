@@ -14,6 +14,7 @@ export type GuardTab =
   | 'checkin-list'
   | 'bed-transfer'
   | 'bed-transfer-list'
+  | 'rooms'
   | 'create'
   | 'list'
   | 'ew'
@@ -60,6 +61,7 @@ const GUARD_TABS: readonly string[] = [
   'checkin-list',
   'bed-transfer',
   'bed-transfer-list',
+  'rooms',
   'create',
   'list',
   'ew',
