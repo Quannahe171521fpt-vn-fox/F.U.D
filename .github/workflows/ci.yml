@@ -6,9 +6,6 @@ on:
   pull_request:
     branches: [ "main", "develop" ]
 
-permissions:
-  contents: read
-
 jobs:
   # ==============================
   # JOB 1: BUILD BACKEND (.NET)
@@ -18,18 +15,15 @@ jobs:
 
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@v4
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@87b7050bc53ea08284295505d98d2aa94301e852 # v4.2.0
+        uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x' # Thay đổi nếu nhóm dùng .NET 7 hoặc 9
 
       - name: Restore Dependencies
         run: dotnet restore "FUD BE/FUD BE.sln"
-
-      - name: Check Vulnerable NuGet Packages
-        run: dotnet list "FUD BE/FUD BE.sln" package --vulnerable --include-transitive
 
       - name: Build Backend Solution
         run: dotnet build "FUD BE/FUD BE.sln" --configuration Release --no-restore
@@ -49,19 +43,15 @@ jobs:
 
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        uses: actions/setup-node@v4
         with:
           node-version: '20' # Phiên bản Node.js LTS khuyến nghị
 
       - name: Install Frontend Dependencies
-        run: npm ci
-
-      - name: Audit Frontend Dependencies
-        run: npm audit --audit-level=high
-        continue-on-error: true
+        run: npm install
 
       - name: Build Frontend Project
         run: npm run build

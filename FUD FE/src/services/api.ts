@@ -1480,7 +1480,14 @@ export interface CheckinHandoverDetail {
   bedCode: string;
   termName: string;
   status: string;
+  workflowStage?: 'PendingManagerTroubleshooting' | 'PendingStudentSign' | 'PendingGuardConfirm' | 'PendingManagerCheckRecord' | 'Completed' | string;
   hasDamageOrMissingFlag: boolean;
+  studentAcceptedFlag?: boolean;
+  studentAcceptedTime?: string | null;
+  managerReviewedById?: number | null;
+  managerReviewedByName?: string | null;
+  managerReviewedTime?: string | null;
+  managerNote?: string | null;
   otherItems?: string;
   electricityL?: string;
   electricityR?: string;
@@ -1524,6 +1531,54 @@ export const checkinApi = {
     const json = await parseJsonSafe(res);
     if (!res.ok || (json && json.success === false)) {
       throw new Error(json?.message || 'Lỗi khi thực hiện Check-in');
+    }
+    return json?.data;
+  },
+
+  managerTroubleshoot: async (id: number, payload?: { note?: string; repairDamagedEquipments?: boolean }): Promise<CheckinHandoverDetail> => {
+    const res = await authFetch(`${BASE_URL}/checkin/${id}/manager-troubleshoot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || { repairDamagedEquipments: true }),
+    });
+    const json = await parseJsonSafe(res);
+    if (!res.ok || (json && json.success === false)) {
+      throw new Error(json?.message || 'Lỗi khi Quản lý xử lý sự cố thiết bị (Troubleshooting)');
+    }
+    return json?.data;
+  },
+
+  studentSignConfirm: async (id: number): Promise<CheckinHandoverDetail> => {
+    const res = await authFetch(`${BASE_URL}/checkin/${id}/student-sign`, {
+      method: 'POST',
+    });
+    const json = await parseJsonSafe(res);
+    if (!res.ok || (json && json.success === false)) {
+      throw new Error(json?.message || 'Lỗi khi Sinh viên ký xác nhận biên bản');
+    }
+    return json?.data;
+  },
+
+  guardConfirmCheckin: async (id: number): Promise<CheckinHandoverDetail> => {
+    const res = await authFetch(`${BASE_URL}/checkin/${id}/guard-confirm`, {
+      method: 'POST',
+    });
+    const json = await parseJsonSafe(res);
+    if (!res.ok || (json && json.success === false)) {
+      throw new Error(json?.message || 'Lỗi khi Bảo vệ xác nhận hoàn tất Check-in');
+    }
+    return json?.data;
+  },
+
+  managerCheckRecord: async (id: number, payload?: { note?: string }): Promise<CheckinHandoverDetail> => {
+    const res = await authFetch(`${BASE_URL}/checkin/${id}/manager-check`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    });
+    const json = await parseJsonSafe(res);
+    if (!res.ok || (json && json.success === false)) {
+      throw new Error(json?.message || 'Lỗi khi Quản lý kiểm tra biên bản (Check record)');
     }
     return json?.data;
   },

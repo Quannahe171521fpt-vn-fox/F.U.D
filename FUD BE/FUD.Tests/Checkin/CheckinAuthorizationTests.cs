@@ -34,6 +34,10 @@ public class CheckinAuthorizationTests
     [InlineData(nameof(CheckinController.GetHistory), "Guard,Manager,Admin")]
     [InlineData(nameof(CheckinController.GetMyCheckins), "Student")]
     [InlineData(nameof(CheckinController.GetById), "Student,Guard,Manager,Admin")]
+    [InlineData(nameof(CheckinController.ManagerTroubleshoot), "Manager,Admin")]
+    [InlineData(nameof(CheckinController.StudentSignConfirm), "Student")]
+    [InlineData(nameof(CheckinController.GuardConfirmCheckin), "Guard,Manager,Admin")]
+    [InlineData(nameof(CheckinController.ManagerCheckRecord), "Manager,Admin")]
     public void CheckinController_Action_HasExpectedAuthorizeRoles(string actionName, string expectedRoles)
     {
         var method = typeof(CheckinController).GetMethod(
@@ -56,7 +60,7 @@ public class CheckinAuthorizationTests
             .Where(m => !m.IsSpecialName && m.GetCustomAttribute<NonActionAttribute>() == null)
             .ToList();
 
-        publicActions.Should().HaveCount(6);
+        publicActions.Should().HaveCount(10);
 
         foreach (var action in publicActions)
         {
@@ -350,7 +354,7 @@ public class CheckinAuthorizationTests
         // Assert
         result.Should().NotBeNull();
         result.ResidencyId.Should().Be(501);
-        result.Status.Should().Be("Completed");
+        result.Status.Should().Be("Pending Acceptance");
     }
 
     [Fact]
@@ -429,7 +433,7 @@ public class CheckinAuthorizationTests
         // Assert
         result.Should().NotBeNull();
         result.ResidencyId.Should().Be(501);
-        result.Status.Should().Be("Completed");
+        result.Status.Should().Be("Pending Acceptance");
     }
 
     [Fact]

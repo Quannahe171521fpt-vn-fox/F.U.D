@@ -260,7 +260,9 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
       setCompletedHandover(result);
       setSelectedStudent(null);
       setSuccessMsg(
-        `Đã hoàn tất Check-in nhận phòng cho sinh viên ${result.studentName} (${result.studentCode}) tại Phòng ${result.roomNumber} - Giường ${result.bedCode}!`
+        result.status === 'Draft'
+          ? `Đã lập biên bản (Draw up a record) cho SV ${result.studentName} (${result.studentCode}). Do có thiết bị hư hỏng/thiếu nên biên bản đã chuyển cho Ban Quản lý xử lý sự cố (Troubleshooting)!`
+          : `Đã lập biên bản (Draw up a record) cho SV ${result.studentName} (${result.studentCode}). Biên bản đang chờ Sinh viên ký xác nhận (Sign to confirm) trước khi Bảo vệ bấm Confirm Check-in!`
       );
       // Cập nhật lại danh sách chờ
       const updatedPending = await checkinApi.getPendingStudents({
@@ -273,6 +275,31 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
       setModalErrorMsg(err.message || 'Lỗi khi hoàn tất biên bản Check-in.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const [confirmingId, setConfirmingId] = useState<number | null>(null);
+
+  const handleGuardConfirmCheckin = async (handoverId: number) => {
+    try {
+      setConfirmingId(handoverId);
+      setErrorMsg('');
+      setSuccessMsg('');
+      const updated = await checkinApi.guardConfirmCheckin(handoverId);
+      setHistoryList(prev => prev.map(h => (h.id === handoverId ? updated : h)));
+      if (viewingHandover?.id === handoverId) {
+        setViewingHandover(updated);
+      }
+      if (completedHandover?.id === handoverId) {
+        setCompletedHandover(updated);
+      }
+      setSuccessMsg(
+        `Đã xác nhận hoàn tất Check-in (Confirm check-in -> Save record & Bed Occupied) cho sinh viên ${updated.studentName} (${updated.studentCode})! Biên bản đã chuyển cho Ban Quản lý kiểm tra (Check record).`
+      );
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Lỗi khi xác nhận hoàn tất Check-in.');
+    } finally {
+      setConfirmingId(null);
     }
   };
 
@@ -976,7 +1003,7 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
                     In phôi biên bản
                   </button>
                   <button type="submit" className="btn-submit" disabled={submitting || loadingEquip}>
-                    {submitting ? 'Đang lưu & kích hoạt phòng...' : 'Hoàn tất Check-in'}
+                    {submitting ? 'Đang lập biên bản...' : 'Lập biên bản (Draw up a record)'}
                   </button>
                 </div>
               </form>
@@ -1030,11 +1057,43 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
                         <td>{h.guardName}</td>
                         <td>{new Date(h.createdTime).toLocaleString('vi-VN')}</td>
                         <td>
-                          <span className={`checkin-status-badge ${h.hasDamageOrMissingFlag ? '' : 'completed'}`}>
-                            {h.hasDamageOrMissingFlag ? 'Có ghi nhận hư hỏng/thiếu' : 'Đầy đủ / Tốt'}
-                          </span>
+                          {h.workflowStage === 'PendingManagerTroubleshooting' || h.status === 'Draft' ? (
+                            <span className="checkin-status-badge" style={{ backgroundColor: '#FEF3C7', color: '#B45309' }}>
+                              🔧 Chờ Quản lý Troubleshooting
+                            </span>
+                          ) : h.workflowStage === 'PendingStudentSign' || (h.status === 'Pending Acceptance' && !h.studentAcceptedFlag) ? (
+                            <span className="checkin-status-badge" style={{ backgroundColor: '#DBEAFE', color: '#1D4ED8' }}>
+                              ✍️ Chờ SV ký (Sign to confirm)
+                            </span>
+                          ) : h.workflowStage === 'PendingGuardConfirm' || (h.status === 'Pending Acceptance' && h.studentAcceptedFlag) ? (
+                            <span className="checkin-status-badge" style={{ backgroundColor: '#E0E7FF', color: '#4338CA' }}>
+                              🛡️ SV đã ký - Chờ Bảo vệ Confirm
+                            </span>
+                          ) : h.workflowStage === 'PendingManagerCheckRecord' ? (
+                            <span className="checkin-status-badge completed">
+                              ✓ Bed Occupied - Chờ QL Check record
+                            </span>
+                          ) : (
+                            <span className="checkin-status-badge completed">
+                              ✓ Hoàn tất (QL đã Check record)
+                            </span>
+                          )}
                         </td>
-                        <td style={{ textAlign: 'right' }}>
+                        <td style={{ textAlign: 'right', display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                          {(h.workflowStage === 'PendingGuardConfirm' || (h.status === 'Pending Acceptance' && h.studentAcceptedFlag)) && (
+                            <button
+                              type="button"
+                              className="btn-submit"
+                              style={{ padding: '5px 12px', fontSize: 12 }}
+                              disabled={confirmingId === h.id}
+                              onClick={e => {
+                                e.stopPropagation();
+                                handleGuardConfirmCheckin(h.id);
+                              }}
+                            >
+                              {confirmingId === h.id ? 'Đang chốt...' : '✓ Confirm Check-in'}
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="btn-secondary"
@@ -1083,6 +1142,18 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
                   <button type="button" className="btn-secondary" onClick={() => setViewingHandover(null)}>
                     Đóng
                   </button>
+                  {(viewingHandover.workflowStage === 'PendingGuardConfirm' ||
+                    (viewingHandover.status === 'Pending Acceptance' && viewingHandover.studentAcceptedFlag)) && (
+                    <button
+                      type="button"
+                      className="btn-submit"
+                      style={{ backgroundColor: '#16A34A' }}
+                      disabled={confirmingId === viewingHandover.id}
+                      onClick={() => handleGuardConfirmCheckin(viewingHandover.id)}
+                    >
+                      {confirmingId === viewingHandover.id ? 'Đang xác nhận...' : '✓ Confirm Check-in (Save record & Bed Occupied)'}
+                    </button>
+                  )}
                   <button type="button" className="btn-submit" onClick={() => window.print()}>
                     In biên bản bàn giao (A4)
                   </button>

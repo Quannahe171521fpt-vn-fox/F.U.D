@@ -194,5 +194,139 @@ namespace FUD.Controllers.Checkin
                 return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail(ex.Message));
             }
         }
+
+        /// <summary>
+        /// Bước Manager 1 (Troubleshooting): Quản lý xử lý sự cố khi biên bản có thiết bị hư hỏng/thiếu
+        /// và chuyển biên bản sang trạng thái chờ Sinh viên ký xác nhận (Pending Acceptance).
+        /// </summary>
+        [HttpPost("{id:int}/manager-troubleshoot")]
+        [Authorize(Roles = "Manager,Admin")]
+        public async Task<IActionResult> ManagerTroubleshoot(int id, [FromBody] ManagerTroubleshootCheckinDto? dto)
+        {
+            try
+            {
+                var managerUserId = GetCurrentUserId();
+                if (!managerUserId.HasValue)
+                {
+                    return Unauthorized(ApiResponse.Fail("Không xác định được danh tính Quản lý từ Token."));
+                }
+
+                var result = await _checkinService.TroubleshootByManagerAsync(managerUserId.Value, id, dto);
+                return Ok(ApiResponse<CheckinHandoverResponseDto>.Ok(result, "Quản lý đã xử lý sự cố thiết bị (Troubleshooting) và chuyển cho Sinh viên ký xác nhận."));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse.Fail($"Lỗi khi xử lý sự cố thiết bị: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Bước Student (Sign to confirm): Sinh viên ký xác nhận biên bản bàn giao phòng.
+        /// </summary>
+        [HttpPost("{id:int}/student-sign")]
+        [Authorize(Roles = "Student")]
+        public async Task<IActionResult> StudentSignConfirm(int id)
+        {
+            try
+            {
+                var studentUserId = GetCurrentUserId();
+                if (!studentUserId.HasValue)
+                {
+                    return Unauthorized(ApiResponse.Fail("Không xác định được danh tính Sinh viên từ Token."));
+                }
+
+                var result = await _checkinService.StudentSignConfirmAsync(studentUserId.Value, id);
+                return Ok(ApiResponse<CheckinHandoverResponseDto>.Ok(result, "Sinh viên đã ký xác nhận biên bản bàn giao (Sign to confirm)."));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, ApiResponse.Fail(ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse.Fail($"Lỗi khi ký xác nhận biên bản: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Bước Guard (Confirm check-in -> System: Save record &amp; Bed -- Occupied):
+        /// Sau khi Sinh viên đã ký xác nhận, Bảo vệ bấm Confirm check-in để lưu chính thức và kích hoạt giường Occupied.
+        /// </summary>
+        [HttpPost("{id:int}/guard-confirm")]
+        [Authorize(Roles = "Guard,Manager,Admin")]
+        public async Task<IActionResult> GuardConfirmCheckin(int id)
+        {
+            try
+            {
+                var guardUserId = GetCurrentUserId();
+                if (!guardUserId.HasValue)
+                {
+                    return Unauthorized(ApiResponse.Fail("Không xác định được danh tính Bảo vệ từ Token."));
+                }
+
+                var result = await _checkinService.GuardConfirmCheckinAsync(guardUserId.Value, id);
+                return Ok(ApiResponse<CheckinHandoverResponseDto>.Ok(result, "Bảo vệ đã xác nhận Check-in (Save record & Bed -> Occupied)."));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse.Fail($"Lỗi khi xác nhận Check-in: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Bước Manager 2 (Check record -> End): Quản lý kiểm tra biên bản bàn giao sau khi lưu và kết thúc quy trình.
+        /// </summary>
+        [HttpPost("{id:int}/manager-check")]
+        [Authorize(Roles = "Manager,Admin")]
+        public async Task<IActionResult> ManagerCheckRecord(int id, [FromBody] ManagerCheckRecordDto? dto)
+        {
+            try
+            {
+                var managerUserId = GetCurrentUserId();
+                if (!managerUserId.HasValue)
+                {
+                    return Unauthorized(ApiResponse.Fail("Không xác định được danh tính Quản lý từ Token."));
+                }
+
+                var result = await _checkinService.ManagerCheckRecordAsync(managerUserId.Value, id, dto);
+                return Ok(ApiResponse<CheckinHandoverResponseDto>.Ok(result, "Ban Quản lý đã kiểm tra và duyệt hồ sơ biên bản Check-in (Check record)."));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(ApiResponse.Fail(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse.Fail($"Lỗi khi kiểm tra biên bản Check-in: {ex.Message}"));
+            }
+        }
     }
 }

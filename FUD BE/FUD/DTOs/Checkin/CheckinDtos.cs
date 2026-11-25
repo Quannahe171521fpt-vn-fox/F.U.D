@@ -98,7 +98,14 @@ namespace FUD.DTOs.Checkin
         public string BedCode { get; set; } = string.Empty;
         public string TermName { get; set; } = string.Empty;
         public string Status { get; set; } = "Completed";
+        public string WorkflowStage { get; set; } = string.Empty;
         public bool HasDamageOrMissingFlag { get; set; }
+        public bool StudentAcceptedFlag { get; set; }
+        public DateTime? StudentAcceptedTime { get; set; }
+        public int? ManagerReviewedById { get; set; }
+        public string? ManagerReviewedByName { get; set; }
+        public DateTime? ManagerReviewedTime { get; set; }
+        public string? ManagerNote { get; set; }
         public string? OtherItems { get; set; }
         public string? ElectricityL { get; set; }
         public string? ElectricityR { get; set; }
@@ -107,5 +114,16 @@ namespace FUD.DTOs.Checkin
         public DateTime CreatedTime { get; set; }
         public DateTime? CompletedTime { get; set; }
         public List<CheckinHandoverItemResponseDto> Items { get; set; } = new();
+    }
+
+    public class ManagerTroubleshootCheckinDto
+    {
+        public string? Note { get; set; }
+        public bool RepairDamagedEquipments { get; set; } = true;
+    }
+
+    public class ManagerCheckRecordDto
+    {
+        public string? Note { get; set; }
     }
 }
