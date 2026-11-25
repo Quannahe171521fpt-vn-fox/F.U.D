@@ -122,7 +122,7 @@ export const INITIAL_EQUIPMENT: EquipmentRecord[] = [
     assetCode: 'TB-000120',
     name: 'Quạt treo tường',
     category: 'Thiết bị điện',
-    location: 'Phòng A101',
+    location: 'Phòng 101 - 101L',
     condition: 'Good',
     hasOpenTicket: false
   },
@@ -131,7 +131,7 @@ export const INITIAL_EQUIPMENT: EquipmentRecord[] = [
     assetCode: 'TB-000121',
     name: 'Bàn học cá nhân',
     category: 'Nội thất',
-    location: 'Giường 1/A101',
+    location: 'Phòng 101 - 101L',
     condition: 'Good',
     hasOpenTicket: false
   },
@@ -140,7 +140,7 @@ export const INITIAL_EQUIPMENT: EquipmentRecord[] = [
     assetCode: 'TB-000122',
     name: 'Đèn bàn LED',
     category: 'Thiết bị điện',
-    location: 'Giường 1/A101',
+    location: 'Phòng 101 - 101R',
     condition: 'Under repair',
     hasOpenTicket: true
   },
@@ -149,7 +149,7 @@ export const INITIAL_EQUIPMENT: EquipmentRecord[] = [
     assetCode: 'TB-000123',
     name: 'Tủ quần áo 2 cánh',
     category: 'Nội thất',
-    location: 'Phòng A102',
+    location: 'Phòng 102 - 102L',
     condition: 'Good',
     hasOpenTicket: false
   },
@@ -158,7 +158,7 @@ export const INITIAL_EQUIPMENT: EquipmentRecord[] = [
     assetCode: 'TB-000124',
     name: 'Ổ cắm điện đa năng',
     category: 'Thiết bị điện',
-    location: 'Phòng A201',
+    location: 'Phòng 201 - 201L',
     condition: 'Broken',
     hasOpenTicket: true
   },
@@ -167,7 +167,7 @@ export const INITIAL_EQUIPMENT: EquipmentRecord[] = [
     assetCode: 'TB-000125',
     name: 'Điều hòa Inverter 12000 BTU',
     category: 'Thiết bị làm mát',
-    location: 'Phòng B204',
+    location: 'Phòng 204 - 204L',
     condition: 'Good',
     hasOpenTicket: false
   },
@@ -176,7 +176,7 @@ export const INITIAL_EQUIPMENT: EquipmentRecord[] = [
     assetCode: 'TB-000126',
     name: 'Bình nóng lạnh 30L',
     category: 'Thiết bị vệ sinh',
-    location: 'Phòng C305',
+    location: 'Phòng 305 - 305L',
     condition: 'Good',
     hasOpenTicket: false
   },
@@ -185,7 +185,7 @@ export const INITIAL_EQUIPMENT: EquipmentRecord[] = [
     assetCode: 'TB-000127',
     name: 'Quạt treo tường',
     category: 'Thiết bị điện',
-    location: 'Phòng A102',
+    location: 'Phòng 102 - 102R',
     condition: 'Good',
     hasOpenTicket: false
   },
@@ -194,7 +194,7 @@ export const INITIAL_EQUIPMENT: EquipmentRecord[] = [
     assetCode: 'TB-000128',
     name: 'Bàn học cá nhân',
     category: 'Nội thất',
-    location: 'Giường 2/A101',
+    location: 'Phòng 101 - 101R',
     condition: 'Good',
     hasOpenTicket: false
   },
@@ -203,7 +203,7 @@ export const INITIAL_EQUIPMENT: EquipmentRecord[] = [
     assetCode: 'TB-000129',
     name: 'Giường tầng khung thép',
     category: 'Nội thất',
-    location: 'Phòng A101',
+    location: 'Phòng 101 - 101L',
     condition: 'Good',
     hasOpenTicket: false
   },
@@ -212,7 +212,7 @@ export const INITIAL_EQUIPMENT: EquipmentRecord[] = [
     assetCode: 'TB-000130',
     name: 'Bình chữa cháy bột ABC 4kg',
     category: 'Thiết bị PCCC',
-    location: 'Hành lang A1',
+    location: 'Phòng 101 - 101L',
     condition: 'Good',
     hasOpenTicket: false
   },
@@ -221,7 +221,7 @@ export const INITIAL_EQUIPMENT: EquipmentRecord[] = [
     assetCode: 'TB-000131',
     name: 'Router Wifi gắn trần',
     category: 'Thiết bị mạng',
-    location: 'Hành lang B2',
+    location: 'Phòng 201 - 201R',
     condition: 'Under repair',
     hasOpenTicket: true
   },
@@ -230,7 +230,7 @@ export const INITIAL_EQUIPMENT: EquipmentRecord[] = [
     assetCode: 'TB-000132',
     name: 'Điều hòa Inverter 12000 BTU',
     category: 'Thiết bị làm mát',
-    location: 'Phòng A201',
+    location: 'Phòng 201 - 201L',
     condition: 'Good',
     hasOpenTicket: false
   },
@@ -239,7 +239,7 @@ export const INITIAL_EQUIPMENT: EquipmentRecord[] = [
     assetCode: 'TB-000133',
     name: 'Tủ quần áo 2 cánh',
     category: 'Nội thất',
-    location: 'Phòng B204',
+    location: 'Phòng 204 - 204R',
     condition: 'Good',
     hasOpenTicket: false
   },
@@ -248,27 +248,23 @@ export const INITIAL_EQUIPMENT: EquipmentRecord[] = [
     assetCode: 'TB-000134',
     name: 'Đèn bàn LED',
     category: 'Thiết bị điện',
-    location: 'Giường 2/A101',
+    location: 'Phòng 101 - 101R',
     condition: 'Good',
     hasOpenTicket: false
   }
 ];
 
 export const AVAILABLE_LOCATIONS = [
-  'Phòng A101',
-  'Giường 1/A101',
-  'Giường 2/A101',
-  'Giường 3/A101',
-  'Giường 4/A101',
-  'Phòng A102',
-  'Giường 1/A102',
-  'Giường 2/A102',
-  'Phòng A201',
-  'Phòng B101',
-  'Phòng B204',
-  'Giường 1/B204',
-  'Phòng C305',
-  'Phòng D102',
-  'Hành lang A1',
-  'Hành lang B2'
+  'Phòng 101 - 101L',
+  'Phòng 101 - 101R',
+  'Phòng 102 - 102L',
+  'Phòng 102 - 102R',
+  'Phòng 201 - 201L',
+  'Phòng 201 - 201R',
+  'Phòng 204 - 204L',
+  'Phòng 204 - 204R',
+  'Phòng 302 - 302L',
+  'Phòng 302 - 302R',
+  'Phòng 305 - 305L',
+  'Phòng 305 - 305R',
 ];

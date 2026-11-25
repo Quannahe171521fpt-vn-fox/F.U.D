@@ -20,6 +20,7 @@ export interface EquipmentRecord {
   category: string;
   location: string; // Room or Bed assigned to
   condition: 'Good' | 'Under repair' | 'Broken'; // Tốt, Đang sửa, Hỏng
+  isHidden?: boolean;
   hasOpenTicket?: boolean; // If linked to an open incident ticket
 }
 

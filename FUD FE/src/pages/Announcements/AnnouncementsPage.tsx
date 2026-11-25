@@ -92,7 +92,7 @@ export const AnnouncementsPage: React.FC<AnnouncementsPageProps> = ({
               >
                 <div className="announcement-item-meta">
                   <span className="announcement-item-date">
-                    Ngày đăng: {item.publishedDate}
+                    Ngày đăng: {item.publishedDate || item.createdDate || '—'}
                   </span>
                   {item.attachments && item.attachments.length > 0 && (
                     <span className="announcement-item-attach">

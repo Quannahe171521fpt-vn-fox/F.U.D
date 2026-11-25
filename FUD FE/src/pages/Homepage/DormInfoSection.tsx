@@ -71,9 +71,9 @@ export const DormInfoSection: React.FC = () => {
 
         <div className="feature-item">
           <div className="feature-badge">03</div>
-          <h3 className="feature-title">An ninh &amp; Kiểm soát thông minh</h3>
+          <h3 className="feature-title">An ninh &amp; Kiểm soát</h3>
           <p className="feature-text">
-            Cửa ra vào tích hợp thẻ từ sinh viên và nhận diện khuôn mặt, hệ thống camera hành lang 24/7,
+            Hệ thống camera hành lang 24/7,
             đội ngũ quản lý tòa nhà và bảo vệ luôn túc trực hỗ trợ sinh viên bất cứ lúc nào.
           </p>
         </div>

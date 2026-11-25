@@ -7,9 +7,9 @@ interface EquipmentManagementProps {
   equipmentList: EquipmentRecord[];
   catalogList: EquipmentCatalogItem[];
   locationList?: string[];
-  onSaveEquipment: (record: EquipmentRecord) => void;
+  onSaveEquipment: (record: EquipmentRecord) => Promise<boolean> | void;
   onDeleteEquipment: (id: number) => void;
-  onSaveCatalogItem: (item: EquipmentCatalogItem) => void;
+  onSaveCatalogItem: (item: EquipmentCatalogItem) => Promise<boolean> | void;
   onDeleteCatalogItem: (id: number) => void;
 }
 
@@ -81,7 +81,12 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
   }, [equipmentList, catalogList]);
 
   const availableLocations = React.useMemo(() => {
-    const set = new Set<string>(locationList || AVAILABLE_LOCATIONS);
+    // Dùng locationList từ API (đã dedupe theo phòng), fallback sang AVAILABLE_LOCATIONS
+    if (locationList && locationList.length > 0) {
+      return [...locationList].sort();
+    }
+    // Nếu không có API data, lấy từ AVAILABLE_LOCATIONS + location thiết bị hiện có
+    const set = new Set<string>(AVAILABLE_LOCATIONS);
     equipmentList.forEach((e) => {
       if (e.location) set.add(e.location);
     });
@@ -141,7 +146,7 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
     setAssetCode(`TB-${String(Math.floor(100000 + Math.random() * 900000))}`);
     setEquipName('');
     setSelectedCategory(catalogList[0]?.name || 'Quạt treo tường');
-    setSelectedLocation(AVAILABLE_LOCATIONS[0] || 'Phòng A101');
+    setSelectedLocation(locationList?.[0] || AVAILABLE_LOCATIONS[0] || 'Phòng 101 - 101L');
     setEquipCondition('Good');
     setInlineAssetError(null);
     setGeneralError(null);
@@ -162,7 +167,7 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
   };
 
   // Handle Save Equipment
-  const handleSaveEquipment = (e: React.FormEvent) => {
+  const handleSaveEquipment = async (e: React.FormEvent) => {
     e.preventDefault();
     setInlineAssetError(null);
     setGeneralError(null);
@@ -211,28 +216,28 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
         : false,
     };
 
-    onSaveEquipment(updatedRecord);
-    setIsEquipFormOpen(false);
-    showNotification(
-      editingEquipId
-        ? `Đã cập nhật thông tin thiết bị [${trimmedCode}] thành công.`
-        : `Đã thêm mới thiết bị [${trimmedCode}] vào hệ thống.`
-    );
+    const ok = await onSaveEquipment(updatedRecord);
+    if (ok !== false) {
+      setIsEquipFormOpen(false);
+      showNotification(
+        editingEquipId
+          ? `Đã cập nhật thông tin thiết bị [${trimmedCode}] thành công.`
+          : `Đã thêm mới thiết bị [${trimmedCode}] vào hệ thống.`
+      );
+    }
   };
 
-  // Handle Delete Equipment
-  const handleDeleteEquipment = (item: EquipmentRecord) => {
-    if (item.hasOpenTicket) {
-      alert(`Không thể xóa thiết bị [${item.assetCode}] vì đang có phiếu báo hỏng hóc hoặc sự cố chưa đóng.`);
-      return;
-    }
-
-    if (window.confirm(`Bạn có chắc chắn muốn xóa thiết bị "${item.name}" (Mã: ${item.assetCode}) không?`)) {
-      onDeleteEquipment(item.id);
-      showNotification(`Đã xóa thiết bị [${item.assetCode}] khỏi danh sách.`);
-      if (editingEquipId === item.id) {
-        setIsEquipFormOpen(false);
-      }
+  // Handle Hide/Show Equipment toggle (Ẩn / Hiển thị)
+  const handleHideEquipment = (item: EquipmentRecord) => {
+    onDeleteEquipment(item.id);
+    const isHiding = !item.isHidden;
+    showNotification(
+      isHiding
+        ? `Đã ẩn thiết bị [${item.assetCode}] khỏi danh sách.`
+        : `Đã hiển thị lại thiết bị [${item.assetCode}].`
+    );
+    if (editingEquipId === item.id) {
+      setIsEquipFormOpen(false);
     }
   };
 
@@ -259,7 +264,7 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
   };
 
   // Catalog Actions
-  const handleCreateCatalogItem = (e: React.FormEvent) => {
+  const handleCreateCatalogItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!catalogName.trim() || !catalogCategory.trim()) {
       alert('Vui lòng nhập đầy đủ nhóm danh mục và tên loại thiết bị.');
@@ -272,11 +277,13 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
       name: catalogName.trim(),
       inUseCount: 0,
     };
-    onSaveCatalogItem(newItem);
-    setIsCatalogModalOpen(false);
-    setCatalogCategory('');
-    setCatalogName('');
-    showNotification(`Đã thêm thiết bị vào danh mục thành công.`);
+    const ok = await onSaveCatalogItem(newItem);
+    if (ok !== false) {
+      setIsCatalogModalOpen(false);
+      setCatalogCategory('');
+      setCatalogName('');
+      showNotification(`Đã thêm thiết bị vào danh mục thành công.`);
+    }
   };
 
   const handleDeleteCatalog = (item: EquipmentCatalogItem) => {
@@ -353,7 +360,7 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
             <div className="card-header-flex">
               <div>
                 <h2 className="card-heading">Danh sách thiết bị hiện có</h2>
-                <p className="card-subtext">Quản lý mã tài sản, vị trí phòng/giường và tình trạng sử dụng</p>
+                <p className="card-subtext">Quản lý mã tài sản, vị trí phòng và tình trạng sử dụng</p>
               </div>
             </div>
 
@@ -476,13 +483,18 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
                       return (
                         <tr
                           key={equip.id}
-                          className={editingEquipId === equip.id && isEquipFormOpen ? 'row-selected' : ''}
+                          className={`${editingEquipId === equip.id && isEquipFormOpen ? 'row-selected' : ''} ${equip.isHidden ? 'row-hidden' : ''}`}
                         >
                           <td className="cell-asset-code">
                             <code>{equip.assetCode}</code>
                           </td>
                           <td className="cell-title font-semibold">
                             {equip.name}
+                            {equip.isHidden && (
+                              <span className="hidden-badge" title="Thiết bị đang bị ẩn">
+                                Đang ẩn
+                              </span>
+                            )}
                             {equip.hasOpenTicket && (
                               <span className="incident-badge" title="Đang có phiếu báo sự cố">
                                 Đang báo hỏng
@@ -499,32 +511,37 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
                             {isGood && <span className="status-badge badge-good">Tốt</span>}
                             {isRepair && <span className="status-badge badge-repair">Đang sửa</span>}
                             {isBroken && <span className="status-badge badge-broken">Hỏng</span>}
+                            {equip.isHidden && <span className="status-badge badge-hidden">Đã ẩn</span>}
                           </td>
                           <td className="cell-actions">
+                            {!equip.isHidden && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="action-link edit-link"
+                                  onClick={() => openEditEquipmentForm(equip)}
+                                  title="Chỉnh sửa thông tin"
+                                >
+                                  Sửa
+                                </button>
+                                <button
+                                  type="button"
+                                  className="action-link move-link"
+                                  onClick={() => handleOpenMoveModal(equip)}
+                                  title="Chuyển sang phòng khác"
+                                >
+                                  Chuyển
+                                </button>
+                              </>
+                            )}
                             <button
                               type="button"
-                              className="action-link edit-link"
-                              onClick={() => openEditEquipmentForm(equip)}
-                              title="Chỉnh sửa thông tin"
-                            >
-                              Sửa
-                            </button>
-                            <button
-                              type="button"
-                              className="action-link move-link"
-                              onClick={() => handleOpenMoveModal(equip)}
-                              title="Chuyển phòng hoặc giường khác"
-                            >
-                              Chuyển
-                            </button>
-                            <button
-                              type="button"
-                              className={`action-link delete-link ${equip.hasOpenTicket ? 'disabled-link' : ''}`}
-                              onClick={() => handleDeleteEquipment(equip)}
-                              title={equip.hasOpenTicket ? 'Đang có phiếu sự cố, không thể xóa' : 'Xóa thiết bị'}
+                              className={`action-link unpublish-link ${equip.hasOpenTicket ? 'disabled-link' : ''}`}
+                              onClick={() => handleHideEquipment(equip)}
+                              title={equip.hasOpenTicket ? 'Đang có phiếu sự cố, không thể thay đổi' : equip.isHidden ? 'Hiện lại thiết bị' : 'Ẩn thiết bị'}
                               disabled={equip.hasOpenTicket}
                             >
-                              Xóa
+                              {equip.isHidden ? 'Hiển thị' : 'Ẩn'}
                             </button>
                           </td>
                         </tr>
@@ -555,13 +572,6 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
                 Định nghĩa các tiêu chuẩn loại thiết bị cấp phát cho các phòng ký túc xá
               </p>
             </div>
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => setIsCatalogModalOpen(true)}
-            >
-              + Thêm loại thiết bị
-            </button>
           </div>
 
           <div className="table-responsive">
@@ -632,7 +642,7 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
 
               <div className="form-group" style={{ marginTop: '16px' }}>
                 <label htmlFor="move-target-location" className="input-label required-label">
-                  Vị trí mới (Phòng / Giường tiếp nhận):
+                  Vị trí mới (Phòng tiếp nhận):
                 </label>
                 <select
                   id="move-target-location"
@@ -640,7 +650,7 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
                   value={newMoveLocation}
                   onChange={(e) => setNewMoveLocation(e.target.value)}
                 >
-                  {AVAILABLE_LOCATIONS.map((loc) => (
+                  {(locationList && locationList.length > 0 ? locationList : AVAILABLE_LOCATIONS).map((loc) => (
                     <option key={loc} value={loc}>
                       {loc} {loc === movingEquip.location ? '(Hiện tại)' : ''}
                     </option>
@@ -768,10 +778,10 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
                 />
               </div>
 
-              {/* Gán vào Phòng / Giường */}
+              {/* Gán vào Phòng */}
               <div className="form-group">
                 <label htmlFor="equip-location-select" className="input-label required-label">
-                  Vị trí phân bổ (Phòng / Giường)
+                  Vị trí phân bổ (Phòng)
                 </label>
                 <select
                   id="equip-location-select"
@@ -780,7 +790,7 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
                   onChange={(e) => setSelectedLocation(e.target.value)}
                   required
                 >
-                  {AVAILABLE_LOCATIONS.map((loc) => (
+                  {(locationList && locationList.length > 0 ? locationList : AVAILABLE_LOCATIONS).map((loc) => (
                     <option key={loc} value={loc}>
                       {loc}
                     </option>
