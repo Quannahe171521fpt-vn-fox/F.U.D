@@ -34,6 +34,10 @@ namespace FUD.Repositories.Requests
                 .Include(r => r.BedTransferRequest).ThenInclude(bt => bt!.AssignedGuard).ThenInclude(g => g!.User)
                 .Include(r => r.BedTransferRequest).ThenInclude(bt => bt!.MeterReadings)
                 .Include(r => r.BedTransferRequest).ThenInclude(bt => bt!.Invoices)
+                .Include(r => r.CheckoutRequest).ThenInclude(co => co!.Residency).ThenInclude(res => res.Bed).ThenInclude(b => b.Room).ThenInclude(rm => rm.Block).ThenInclude(bl => bl.Dorm)
+                .Include(r => r.CheckoutRequest).ThenInclude(co => co!.Residency).ThenInclude(res => res.Bed).ThenInclude(b => b.Room).ThenInclude(rm => rm.Beds).ThenInclude(bd => bd.Residencies)
+                .Include(r => r.CheckoutRequest).ThenInclude(co => co!.AssignedGuard).ThenInclude(g => g!.User)
+                .Include(r => r.CheckoutRequest).ThenInclude(co => co!.MeterReadings)
                 .Include(r => r.Handover).ThenInclude(h => h!.Guard).ThenInclude(g => g.User)
                 .Include(r => r.Handover).ThenInclude(h => h!.HandoverItems).ThenInclude(hi => hi.Equipment).ThenInclude(eq => eq.Catalog)
                 .Include(r => r.Handover).ThenInclude(h => h!.Invoices)
@@ -69,6 +73,10 @@ namespace FUD.Repositories.Requests
                 .Include(r => r.BedTransferRequest).ThenInclude(bt => bt!.AssignedGuard).ThenInclude(g => g!.User)
                 .Include(r => r.BedTransferRequest).ThenInclude(bt => bt!.MeterReadings)
                 .Include(r => r.BedTransferRequest).ThenInclude(bt => bt!.Invoices)
+                .Include(r => r.CheckoutRequest).ThenInclude(co => co!.Residency).ThenInclude(res => res.Bed).ThenInclude(b => b.Room).ThenInclude(rm => rm.Block).ThenInclude(bl => bl.Dorm)
+                .Include(r => r.CheckoutRequest).ThenInclude(co => co!.Residency).ThenInclude(res => res.Bed).ThenInclude(b => b.Room).ThenInclude(rm => rm.Beds).ThenInclude(bd => bd.Residencies)
+                .Include(r => r.CheckoutRequest).ThenInclude(co => co!.AssignedGuard).ThenInclude(g => g!.User)
+                .Include(r => r.CheckoutRequest).ThenInclude(co => co!.MeterReadings)
                 .Include(r => r.Handover).ThenInclude(h => h!.Guard).ThenInclude(g => g.User)
                 .Include(r => r.Handover).ThenInclude(h => h!.HandoverItems).ThenInclude(hi => hi.Equipment).ThenInclude(eq => eq.Catalog)
                 .Include(r => r.Handover).ThenInclude(h => h!.Invoices)
@@ -94,6 +102,10 @@ namespace FUD.Repositories.Requests
                 .Include(r => r.BedTransferRequest).ThenInclude(bt => bt!.AssignedGuard).ThenInclude(g => g!.User)
                 .Include(r => r.BedTransferRequest).ThenInclude(bt => bt!.MeterReadings)
                 .Include(r => r.BedTransferRequest).ThenInclude(bt => bt!.Invoices)
+                .Include(r => r.CheckoutRequest).ThenInclude(co => co!.Residency).ThenInclude(res => res.Bed).ThenInclude(b => b.Room).ThenInclude(rm => rm.Block).ThenInclude(bl => bl.Dorm)
+                .Include(r => r.CheckoutRequest).ThenInclude(co => co!.Residency).ThenInclude(res => res.Bed).ThenInclude(b => b.Room).ThenInclude(rm => rm.Beds).ThenInclude(bd => bd.Residencies)
+                .Include(r => r.CheckoutRequest).ThenInclude(co => co!.AssignedGuard).ThenInclude(g => g!.User)
+                .Include(r => r.CheckoutRequest).ThenInclude(co => co!.MeterReadings)
                 .Include(r => r.Handover).ThenInclude(h => h!.Guard).ThenInclude(g => g.User)
                 .Include(r => r.Handover).ThenInclude(h => h!.HandoverItems).ThenInclude(hi => hi.Equipment).ThenInclude(eq => eq.Catalog)
                 .Include(r => r.Handover).ThenInclude(h => h!.Invoices)
@@ -559,7 +571,7 @@ namespace FUD.Repositories.Requests
 
                 if (fromResidency.Status != "Active")
                 {
-                    throw new System.InvalidOperationException("Đợt lưu trú cũ không còn ở trạng thái Active.");
+                    throw new System.InvalidOperationException($"Đợt lưu trú cũ #{fromResidency.Id} không còn ở trạng thái Active (hiện tại: {fromResidency.Status}).");
                 }
 
                 // 1. Kết thúc lưu trú cũ và SaveChanges trước để giải phóng UX_Residency_Student_Term
@@ -609,6 +621,205 @@ namespace FUD.Repositories.Requests
                 }
 
                 // 5. Hoàn tất Request, ghi Log & Notification
+                MarkModifiedIfDetached(request);
+                await _context.RequestLogs.AddAsync(log);
+                await _context.Notifications.AddAsync(studentNotification);
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        public async Task<bool> HasPendingCheckoutAsync(int studentId, int termId)
+        {
+            return await _context.Requests
+                .AsNoTracking()
+                .AnyAsync(r => r.StudentId == studentId
+                            && r.TermId == termId
+                            && r.RequestType == "Checkout"
+                            && (r.Status == "Pending" || r.Status == "Approved"));
+        }
+
+        public async Task<Request> CreateCheckoutRequestAsync(Request request, CheckoutRequest checkoutRequest, RequestLog log)
+        {
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                await _context.Requests.AddAsync(request);
+                await _context.SaveChangesAsync();
+
+                checkoutRequest.RequestId = request.Id;
+                log.RequestId = request.Id;
+
+                await _context.CheckoutRequests.AddAsync(checkoutRequest);
+                await _context.RequestLogs.AddAsync(log);
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+                return request;
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        public async Task ApproveCheckoutStep1Async(
+            Request request,
+            CheckoutRequest checkoutRequest,
+            RequestLog log,
+            List<Notification> notifications)
+        {
+            await EnsureManagerExistsAsync(request.ProcessedById ?? 0);
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                MarkModifiedIfDetached(request);
+                MarkModifiedIfDetached(checkoutRequest);
+                await _context.RequestLogs.AddAsync(log);
+                if (notifications.Count > 0)
+                {
+                    await _context.Notifications.AddRangeAsync(notifications);
+                }
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        public async Task RejectCheckoutAsync(Request request, RequestLog log, Notification notification)
+        {
+            await EnsureManagerExistsAsync(request.ProcessedById ?? 0);
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                MarkModifiedIfDetached(request);
+                await _context.RequestLogs.AddAsync(log);
+                await _context.Notifications.AddAsync(notification);
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        public async Task<List<Request>> GetCheckoutInspectionTasksForGuardAsync(int guardUserId)
+        {
+            return await _context.Requests
+                .AsSplitQuery()
+                .Include(r => r.Term).ThenInclude(t => t.UtilityPrices)
+                .Include(r => r.Student).ThenInclude(s => s.User)
+                .Include(r => r.CheckoutRequest).ThenInclude(co => co!.Residency).ThenInclude(res => res.Bed).ThenInclude(b => b.Room).ThenInclude(rm => rm.Block).ThenInclude(bl => bl.Dorm)
+                .Include(r => r.CheckoutRequest).ThenInclude(co => co!.Residency).ThenInclude(res => res.Bed).ThenInclude(b => b.Room).ThenInclude(rm => rm.Beds).ThenInclude(bd => bd.Residencies)
+                .Include(r => r.CheckoutRequest).ThenInclude(co => co!.AssignedGuard).ThenInclude(g => g!.User)
+                .Include(r => r.CheckoutRequest).ThenInclude(co => co!.MeterReadings)
+                .Include(r => r.Handover).ThenInclude(h => h!.Guard).ThenInclude(g => g.User)
+                .Include(r => r.Handover).ThenInclude(h => h!.HandoverItems).ThenInclude(hi => hi.Equipment).ThenInclude(eq => eq.Catalog)
+                .Where(r => r.RequestType == "Checkout"
+                         && (r.Status == "Approved" || r.Status == "Completed")
+                         && r.CheckoutRequest != null
+                         && r.CheckoutRequest.AssignedGuardId == guardUserId)
+                .OrderBy(r => r.Handover != null ? 1 : 0)
+                .ThenBy(r => r.CheckoutRequest!.ExpectedCheckOutDate)
+                .ThenByDescending(r => r.CreatedTime)
+                .ToListAsync();
+        }
+
+        public Task SubmitCheckoutInspectionAsync(
+            Request request,
+            Handover handover,
+            List<HandoverItem> items,
+            List<MeterReading> meterReadings,
+            List<(int EquipmentId, string Condition, string? Note)> equipmentUpdates,
+            RequestLog log,
+            List<Notification> notifications)
+        {
+            return SubmitTransferInspectionAsync(request, handover, items, meterReadings, equipmentUpdates, log, notifications);
+        }
+
+        public async Task CompleteCheckoutAsync(
+            Request request,
+            CheckoutRequest checkoutRequest,
+            int residencyId,
+            int bedId,
+            DateOnly actualCheckOutDate,
+            List<Invoice> invoices,
+            int? handoverId,
+            int managerId,
+            string? managerNote,
+            RequestLog log,
+            Notification studentNotification,
+            List<Notification>? invoiceNotifications = null)
+        {
+            await EnsureManagerExistsAsync(managerId);
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                var residency = await _context.Residencies.FirstOrDefaultAsync(r => r.Id == residencyId)
+                    ?? throw new System.InvalidOperationException("Không tìm thấy đợt lưu trú hiện tại của sinh viên.");
+                var bed = await _context.Beds.FirstOrDefaultAsync(b => b.Id == bedId)
+                    ?? throw new System.InvalidOperationException("Không tìm thấy giường hiện tại của sinh viên.");
+
+                if (residency.Status != "Active")
+                {
+                    throw new System.InvalidOperationException($"Đợt lưu trú #{residency.Id} không còn ở trạng thái Active (hiện tại: {residency.Status}).");
+                }
+
+                // 1. Kết thúc lưu trú & giải phóng giường về Free
+                residency.Status = "Ended";
+                residency.ActualCheckOutDate = residency.CheckInDate.HasValue && actualCheckOutDate < residency.CheckInDate.Value
+                    ? residency.CheckInDate.Value
+                    : actualCheckOutDate;
+                bed.Status = "Free";
+
+                MarkModifiedIfDetached(checkoutRequest);
+
+                // 2. Tạo hóa đơn (Unpaid) và gắn đúng Invoice.Id cho thông báo
+                if (invoices.Count > 0)
+                {
+                    await _context.Invoices.AddRangeAsync(invoices);
+                    if (invoiceNotifications != null && invoiceNotifications.Count > 0)
+                    {
+                        await _context.SaveChangesAsync();
+                        for (var i = 0; i < invoices.Count && i < invoiceNotifications.Count; i++)
+                        {
+                            invoiceNotifications[i].ReferenceId = invoices[i].Id.ToString();
+                        }
+                        await _context.Notifications.AddRangeAsync(invoiceNotifications);
+                    }
+                }
+
+                // 3. Cập nhật thông tin review của Manager trên Handover
+                if (handoverId.HasValue)
+                {
+                    var trackedHandover = await _context.Handovers.FirstOrDefaultAsync(h => h.Id == handoverId.Value);
+                    if (trackedHandover != null)
+                    {
+                        trackedHandover.ManagerReviewedById = managerId;
+                        trackedHandover.ManagerReviewedTime = System.DateTime.UtcNow;
+                        if (!string.IsNullOrWhiteSpace(managerNote))
+                        {
+                            trackedHandover.ManagerNote = managerNote;
+                        }
+                    }
+                }
+
+                // 4. Hoàn tất Request, ghi Log & Notification
                 MarkModifiedIfDetached(request);
                 await _context.RequestLogs.AddAsync(log);
                 await _context.Notifications.AddAsync(studentNotification);

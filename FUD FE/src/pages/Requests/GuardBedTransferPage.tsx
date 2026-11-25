@@ -4,6 +4,7 @@ import {
   requestApi,
   type RoomEquipmentCheckin,
   type TransferInspectionTaskDto,
+  type CheckoutInspectionTaskDto,
 } from '../../services/api';
 import { formatDateTime } from '../../utils/dateUtils';
 import { MeterPhotoScanner } from '../../components/MeterPhotoScanner';
@@ -15,6 +16,46 @@ interface EditableTransferEquipment extends RoomEquipmentCheckin {
   itemCondition: 'Good' | 'Damaged' | 'Missing';
   description: string;
   compensationAmount: number;
+}
+
+type UnifiedInspectionTask = TransferInspectionTaskDto & {
+  taskType: 'BedTransfer' | 'Checkout';
+};
+
+function mapCheckoutToUnifiedTask(co: CheckoutInspectionTaskDto): UnifiedInspectionTask {
+  return {
+    taskType: 'Checkout',
+    requestId: co.requestId,
+    requestCode: co.requestCode,
+    status: co.status,
+    studentId: co.studentId,
+    studentName: co.studentName,
+    studentCode: co.studentCode,
+    studentPhone: co.studentPhone,
+    fromResidencyId: co.residencyId,
+    fromDormName: co.dormName,
+    fromBlockName: co.blockName,
+    fromRoomId: co.roomId,
+    fromRoomNumber: co.roomNumber,
+    fromBedId: co.bedId,
+    fromBedCode: co.bedCode,
+    toDormName: '',
+    toBlockName: '',
+    toRoomNumber: '',
+    toBedCode: '',
+    transferDate: co.expectedCheckOutDate,
+    transferReason: co.reason,
+    assignedGuardId: co.assignedGuardId,
+    assignedGuardName: co.assignedGuardName,
+    previousElectricityReading: co.previousElectricityReading,
+    previousWaterReading: co.previousWaterReading,
+    electricityUnitPrice: co.electricityUnitPrice,
+    waterUnitPrice: co.waterUnitPrice,
+    activeResidentCount: co.activeResidentCount,
+    handoverCompleted: co.handoverCompleted,
+    handover: co.handover,
+    meterReadings: co.meterReadings,
+  };
 }
 
 const CONDITION_LABELS: Record<'Good' | 'Damaged' | 'Missing', string> = {
@@ -33,9 +74,9 @@ interface GuardBedTransferPageProps {
 }
 
 export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode = 'pending' }) => {
-  const [tasks, setTasks] = useState<TransferInspectionTaskDto[]>([]);
+  const [tasks, setTasks] = useState<UnifiedInspectionTask[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedTask, setSelectedTask] = useState<TransferInspectionTaskDto | null>(null);
+  const [selectedTask, setSelectedTask] = useState<UnifiedInspectionTask | null>(null);
 
   const [equipments, setEquipments] = useState<EditableTransferEquipment[]>([]);
   const [loadingEquip, setLoadingEquip] = useState(false);
@@ -46,6 +87,7 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
   const [waterEvidenceUrl, setWaterEvidenceUrl] = useState<string>('');
   const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string; subtitle?: string } | null>(null);
   const [note, setNote] = useState('');
+  const [belongingsCleared, setBelongingsCleared] = useState(false);
   const [witnessConfirmed, setWitnessConfirmed] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
@@ -57,10 +99,17 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
     setLoading(true);
     setErrorMsg('');
     try {
-      const data = await requestApi.getGuardTransferTasks();
-      setTasks(data);
+      const [transferList, checkoutList] = await Promise.all([
+        requestApi.getGuardTransferTasks().catch(() => [] as TransferInspectionTaskDto[]),
+        requestApi.getGuardCheckoutTasks().catch(() => [] as CheckoutInspectionTaskDto[]),
+      ]);
+      const unified: UnifiedInspectionTask[] = [
+        ...checkoutList.map(mapCheckoutToUnifiedTask),
+        ...transferList.map((t) => ({ ...t, taskType: 'BedTransfer' as const })),
+      ];
+      setTasks(unified);
     } catch (err: unknown) {
-      setErrorMsg(err instanceof Error ? err.message : 'Không thể tải danh sách nhiệm vụ kiểm tra chuyển giường.');
+      setErrorMsg(err instanceof Error ? err.message : 'Không thể tải danh sách nhiệm vụ kiểm tra trả phòng.');
     } finally {
       setLoading(false);
     }
@@ -95,11 +144,12 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedTask, submitting]);
 
-  const handleSelectTask = async (task: TransferInspectionTaskDto) => {
+  const handleSelectTask = async (task: UnifiedInspectionTask) => {
     setSelectedTask(task);
     setModalError('');
     setSuccessMsg('');
     setNote('');
+    setBelongingsCleared(false);
     setWitnessConfirmed(false);
     setCurrElectricity(String(task.previousElectricityReading ?? 0));
     setCurrWater(String(task.previousWaterReading ?? 0));
@@ -169,6 +219,10 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
       setModalError(`Chỉ số nước hiện tại phải >= chỉ số cũ (${selectedTask.previousWaterReading}).`);
       return;
     }
+    if (selectedTask.taskType === 'Checkout' && !belongingsCleared) {
+      setModalError('Bắt buộc xác nhận sinh viên đã dọn sạch toàn bộ đồ đạc cá nhân trước khi nộp biên bản trả phòng.');
+      return;
+    }
     if (!witnessConfirmed) {
       setModalError('Vui lòng xác nhận biên bản đã có sự chứng kiến của 3 bên (Sinh viên - Bảo vệ - Bạn cùng phòng).');
       return;
@@ -178,23 +232,39 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
     setModalError('');
     setSuccessMsg('');
     try {
-      const updated = await requestApi.submitTransferInspection(selectedTask.requestId, {
-        currentElectricityReading: elecVal,
-        currentWaterReading: waterVal,
-        electricityEvidenceImageUrl: elecEvidenceUrl || undefined,
-        waterEvidenceImageUrl: waterEvidenceUrl || undefined,
-        note: note.trim() || undefined,
-        items: equipments.map((eq) => ({
-          equipmentId: eq.equipmentId,
-          itemCondition: eq.itemCondition,
-          description: eq.description.trim() || undefined,
-          compensationAmount: eq.itemCondition === 'Good' ? 0 : Math.max(0, Number(eq.compensationAmount) || 0),
-        })),
-      });
+      const commonItems = equipments.map((eq) => ({
+        equipmentId: eq.equipmentId,
+        itemCondition: eq.itemCondition,
+        description: eq.description.trim() || undefined,
+        compensationAmount: eq.itemCondition === 'Good' ? 0 : Math.max(0, Number(eq.compensationAmount) || 0),
+      }));
 
-      setSuccessMsg(
-        `Đã lập biên bản kiểm tra và chốt điện/nước cho đơn ${updated.requestCode}. Dữ liệu đã gửi tới Quản lý để phát hành hóa đơn và chuyển giường.`
-      );
+      if (selectedTask.taskType === 'Checkout') {
+        const updated = await requestApi.submitCheckoutInspection(selectedTask.requestId, {
+          belongingsCleared: true,
+          currentElectricityReading: elecVal,
+          currentWaterReading: waterVal,
+          electricityEvidenceImageUrl: elecEvidenceUrl || undefined,
+          waterEvidenceImageUrl: waterEvidenceUrl || undefined,
+          note: note.trim() || undefined,
+          items: commonItems,
+        });
+        setSuccessMsg(
+          `Đã lập biên bản kiểm tra trả phòng & chốt điện/nước cho đơn ${updated.requestCode}. Dữ liệu đã gửi tới Quản lý để chốt trả phòng và xuất hóa đơn.`
+        );
+      } else {
+        const updated = await requestApi.submitTransferInspection(selectedTask.requestId, {
+          currentElectricityReading: elecVal,
+          currentWaterReading: waterVal,
+          electricityEvidenceImageUrl: elecEvidenceUrl || undefined,
+          waterEvidenceImageUrl: waterEvidenceUrl || undefined,
+          note: note.trim() || undefined,
+          items: commonItems,
+        });
+        setSuccessMsg(
+          `Đã lập biên bản kiểm tra và chốt điện/nước cho đơn ${updated.requestCode}. Dữ liệu đã gửi tới Quản lý để phát hành hóa đơn và chuyển giường.`
+        );
+      }
       setSelectedTask(null);
       setModalError('');
       await loadTasks();
@@ -289,19 +359,19 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
         ) : visibleTasks.length === 0 ? (
           <p style={{ color: '#64748B', fontSize: 13, margin: 0 }}>
             {mode === 'pending'
-              ? 'Hiện không có đơn chuyển giường nào đang chờ bạn kiểm tra.'
-              : 'Chưa có biên bản kiểm tra chuyển giường nào được ghi nhận.'}
+              ? 'Hiện không có đơn trả phòng hoặc chuyển giường nào đang chờ bạn kiểm tra.'
+              : 'Chưa có biên bản kiểm tra trả phòng / chuyển giường nào được ghi nhận.'}
           </p>
         ) : (
           <div className="checkin-pending-table-wrap">
             <table className="checkin-pending-table">
               <thead>
                 <tr>
-                  <th>Mã đơn</th>
+                  <th>Mã đơn / Loại</th>
                   <th>Sinh viên</th>
-                  <th>Phòng / Giường cũ</th>
-                  <th>Giường đích</th>
-                  <th>Ngày chuyển dự kiến</th>
+                  <th>Phòng / Giường kiểm tra</th>
+                  <th>Đích đến / Hình thức</th>
+                  <th>Ngày dự kiến</th>
                   <th>Trạng thái kiểm tra</th>
                   <th>Thao tác</th>
                 </tr>
@@ -311,12 +381,29 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
                   const isSelected = selectedTask?.requestId === t.requestId;
                   return (
                     <tr
-                      key={t.requestId}
+                      key={`${t.taskType}-${t.requestId}`}
                       className={isSelected ? 'selected-row' : undefined}
                       onClick={() => handleSelectTask(t)}
                       style={{ cursor: 'pointer' }}
                     >
-                      <td style={{ fontWeight: 600 }}>{t.requestCode}</td>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{t.requestCode}</div>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            marginTop: 3,
+                            padding: '2px 7px',
+                            borderRadius: 999,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            background: t.taskType === 'Checkout' ? '#FFF7ED' : '#EFF6FF',
+                            color: t.taskType === 'Checkout' ? '#C2410C' : '#1D4ED8',
+                            border: `1px solid ${t.taskType === 'Checkout' ? '#FDBA74' : '#BFDBFE'}`,
+                          }}
+                        >
+                          {t.taskType === 'Checkout' ? 'Trả phòng KTX' : 'Chuyển giường'}
+                        </span>
+                      </td>
                       <td>
                         <div style={{ fontWeight: 600 }}>{t.studentName}</div>
                         <div style={{ fontSize: 12, color: '#64748B' }}>
@@ -332,10 +419,18 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
                         </div>
                       </td>
                       <td>
-                        <div>{t.toDormName} · {t.toBlockName}</div>
-                        <div style={{ fontSize: 12, color: '#047857', fontWeight: 600 }}>
-                          P.{t.toRoomNumber} - Giường {t.toBedCode}
-                        </div>
+                        {t.taskType === 'Checkout' ? (
+                          <div style={{ fontSize: 12, color: '#C2410C', fontWeight: 700 }}>
+                            Rời KTX (Trả giường Free)
+                          </div>
+                        ) : (
+                          <>
+                            <div>{t.toDormName} · {t.toBlockName}</div>
+                            <div style={{ fontSize: 12, color: '#047857', fontWeight: 600 }}>
+                              P.{t.toRoomNumber} - Giường {t.toBedCode}
+                            </div>
+                          </>
+                        )}
                       </td>
                       <td>{t.transferDate || '—'}</td>
                       <td>
@@ -380,12 +475,19 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
               <div>
                 <h2 className="checkin-modal-title">
                   {selectedTask.handoverCompleted
-                    ? 'Chi tiết Biên bản Kiểm tra Chuyển giường'
-                    : 'Lập Biên bản Kiểm tra Phòng cũ & Chốt Điện Nước'}{' '}
+                    ? selectedTask.taskType === 'Checkout'
+                      ? 'Chi tiết Biên bản Kiểm tra Trả phòng'
+                      : 'Chi tiết Biên bản Kiểm tra Chuyển giường'
+                    : selectedTask.taskType === 'Checkout'
+                      ? 'Lập Biên bản Kiểm tra Trả phòng & Chốt Điện Nước'
+                      : 'Lập Biên bản Kiểm tra Phòng cũ & Chốt Điện Nước'}{' '}
                   — {selectedTask.requestCode}
                 </h2>
                 <p className="checkin-modal-subtitle">
-                  Sinh viên: <strong>{selectedTask.studentName} ({selectedTask.studentCode})</strong> · Rời P.{selectedTask.fromRoomNumber} (Giường {selectedTask.fromBedCode}) sang P.{selectedTask.toRoomNumber} (Giường {selectedTask.toBedCode})
+                  Sinh viên: <strong>{selectedTask.studentName} ({selectedTask.studentCode})</strong> ·{' '}
+                  {selectedTask.taskType === 'Checkout'
+                    ? `Trả phòng P.${selectedTask.fromRoomNumber} (Giường ${selectedTask.fromBedCode})`
+                    : `Rời P.${selectedTask.fromRoomNumber} (Giường ${selectedTask.fromBedCode}) sang P.${selectedTask.toRoomNumber} (Giường ${selectedTask.toBedCode})`}
                 </p>
               </div>
               <button
@@ -738,16 +840,33 @@ export const GuardBedTransferPage: React.FC<GuardBedTransferPageProps> = ({ mode
                     }}
                   >
                     <div style={{ fontSize: 13, color: '#065F46' }}>
-                      <strong>Tạm tính công nợ phát sinh tại phòng cũ:</strong> Điện ({formatVnd(estElecShare)}) + Nước ({formatVnd(estWaterShare)}) + Bồi thường ({formatVnd(estCompensation)}) ={' '}
+                      <strong>
+                        {selectedTask.taskType === 'Checkout'
+                          ? 'Tạm tính công nợ phát sinh khi trả phòng:'
+                          : 'Tạm tính công nợ phát sinh tại phòng cũ:'}
+                      </strong>{' '}
+                      Điện ({formatVnd(estElecShare)}) + Nước ({formatVnd(estWaterShare)}) + Bồi thường ({formatVnd(estCompensation)}) ={' '}
                       <strong>{formatVnd(estElecShare + estWaterShare + estCompensation)}</strong>
                     </div>
+                    {selectedTask.taskType === 'Checkout' && (
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#9A3412', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={belongingsCleared}
+                          onChange={(e) => setBelongingsCleared(e.target.checked)}
+                        />
+                        Xác nhận sinh viên đã dọn sạch toàn bộ đồ đạc cá nhân khỏi phòng/giường (Bắt buộc).
+                      </label>
+                    )}
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: '#065F46', cursor: 'pointer' }}>
                       <input
                         type="checkbox"
                         checked={witnessConfirmed}
                         onChange={(e) => setWitnessConfirmed(e.target.checked)}
                       />
-                      Xác nhận đã kiểm tra thực tế có sự chứng kiến của 3 bên (Sinh viên chuyển giường, Bảo vệ, Bạn cùng phòng).
+                      {selectedTask.taskType === 'Checkout'
+                        ? 'Xác nhận đã kiểm tra thực tế có sự chứng kiến của 3 bên (Sinh viên trả phòng, Bảo vệ, Bạn cùng phòng).'
+                        : 'Xác nhận đã kiểm tra thực tế có sự chứng kiến của 3 bên (Sinh viên chuyển giường, Bảo vệ, Bạn cùng phòng).'}
                     </label>
                   </div>
                 </div>

@@ -80,8 +80,20 @@ export const ManagerRequestManagement: React.FC = () => {
     setSelectedRequest(req);
     setDecision('Approved');
     setResolutionNote('');
-    setAssignedGuardId(req.bedTransfer?.assignedGuardId ? String(req.bedTransfer.assignedGuardId) : '');
-    setTransferDateInput(req.bedTransfer?.transferDate ? req.bedTransfer.transferDate.slice(0, 10) : '');
+    setAssignedGuardId(
+      req.bedTransfer?.assignedGuardId
+        ? String(req.bedTransfer.assignedGuardId)
+        : req.checkout?.assignedGuardId
+          ? String(req.checkout.assignedGuardId)
+          : ''
+    );
+    setTransferDateInput(
+      req.bedTransfer?.transferDate
+        ? req.bedTransfer.transferDate.slice(0, 10)
+        : req.checkout?.expectedCheckOutDate
+          ? req.checkout.expectedCheckOutDate.slice(0, 10)
+          : ''
+    );
 
     // Tìm mức độ nhẹ hơn mức ban đầu nếu là complaint
     const initial = req.complaint?.initialLevel;
@@ -92,19 +104,20 @@ export const ManagerRequestManagement: React.FC = () => {
     setErrorMsg('');
     setSuccessMsg('');
 
-    if (req.requestType === 'BedTransfer' && req.status === 'Pending') {
+    if ((req.requestType === 'BedTransfer' || req.requestType === 'Checkout') && req.status === 'Pending') {
+      const targetDormId = req.requestType === 'BedTransfer' ? req.bedTransfer?.fromDormId : req.checkout?.dormId;
       setLoadingGuards(true);
       try {
-        const list = await requestApi.getGuards(req.bedTransfer?.fromDormId);
-        const sameDormGuards = req.bedTransfer?.fromDormId
-          ? list.filter(g => g.assignedDormId === req.bedTransfer?.fromDormId)
+        const list = await requestApi.getGuards(targetDormId);
+        const sameDormGuards = targetDormId
+          ? list.filter(g => g.assignedDormId === targetDormId)
           : list;
         setGuards(sameDormGuards);
         setAssignedGuardId(sameDormGuards.length > 0 ? String(sameDormGuards[0].userId) : '');
       } catch (err: any) {
         setGuards([]);
         setAssignedGuardId('');
-        setErrorMsg(err.message || 'Không thể tải thông tin Bảo vệ tòa KTX phòng cũ.');
+        setErrorMsg(err.message || 'Không thể tải thông tin Bảo vệ phụ trách tòa KTX.');
       } finally {
         setLoadingGuards(false);
       }
@@ -137,13 +150,17 @@ export const ManagerRequestManagement: React.FC = () => {
     e.preventDefault();
     if (!selectedRequest) return;
 
-    if (selectedRequest.requestType === 'BedTransfer' && decision === 'Approved' && !assignedGuardId) {
-      setErrorMsg('Vui lòng phân công Bảo vệ kiểm tra phòng cũ trước khi duyệt Bước 1.');
+    if ((selectedRequest.requestType === 'BedTransfer' || selectedRequest.requestType === 'Checkout') && decision === 'Approved' && !assignedGuardId) {
+      setErrorMsg('Vui lòng phân công Bảo vệ kiểm tra phòng trước khi duyệt Bước 1.');
       return;
     }
 
-    if (selectedRequest.requestType === 'BedTransfer' && decision === 'Rejected' && !resolutionNote.trim()) {
-      setErrorMsg('Vui lòng nhập lý do từ chối đơn chuyển giường.');
+    if ((selectedRequest.requestType === 'BedTransfer' || selectedRequest.requestType === 'Checkout') && decision === 'Rejected' && !resolutionNote.trim()) {
+      setErrorMsg(
+        selectedRequest.requestType === 'Checkout'
+          ? 'Vui lòng nhập lý do từ chối đơn trả phòng.'
+          : 'Vui lòng nhập lý do từ chối đơn chuyển giường.'
+      );
       return;
     }
 
@@ -156,8 +173,9 @@ export const ManagerRequestManagement: React.FC = () => {
         decision,
         note: resolutionNote.trim() || undefined,
         adjustedLevel: (selectedRequest.requestType === 'Complaint' && decision === 'Approved') ? adjustedLevel : undefined,
-        assignedGuardId: (selectedRequest.requestType === 'BedTransfer' && decision === 'Approved') ? Number(assignedGuardId) : undefined,
+        assignedGuardId: ((selectedRequest.requestType === 'BedTransfer' || selectedRequest.requestType === 'Checkout') && decision === 'Approved') ? Number(assignedGuardId) : undefined,
         transferDate: (selectedRequest.requestType === 'BedTransfer' && decision === 'Approved' && transferDateInput) ? transferDateInput : undefined,
+        expectedCheckOutDate: (selectedRequest.requestType === 'Checkout' && decision === 'Approved' && transferDateInput) ? transferDateInput : undefined,
       });
 
       setSuccessMsg(`Đã cập nhật trạng thái đơn ${selectedRequest.requestCode} thành "${REQUEST_STATUS_LABELS[decision as DBRequestStatus] || decision}" thành công.`);
@@ -165,6 +183,34 @@ export const ManagerRequestManagement: React.FC = () => {
       await loadRequests();
     } catch (err: any) {
       setErrorMsg(err.message || 'Lỗi khi cập nhật trạng thái đơn');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Manager Bước 2: Hoàn tất trả phòng & phát hành hóa đơn (Completed)
+  const handleCompleteCheckout = async () => {
+    if (!selectedRequest) return;
+    setSubmitting(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    try {
+      const updated = await requestApi.process(selectedRequest.id, {
+        decision: 'Completed',
+        note: resolutionNote.trim() || undefined,
+      });
+
+      const issuedCount = updated.checkout?.invoices?.length ?? 0;
+      setSuccessMsg(
+        issuedCount > 0
+          ? `Đã hoàn tất trả phòng (Bed -> Free), phát hành ${issuedCount} hóa đơn công nợ sang mục Thanh toán của sinh viên cho đơn ${selectedRequest.requestCode}.`
+          : `Đã hoàn tất trả phòng (Bed -> Free) cho đơn ${selectedRequest.requestCode} (không phát sinh công nợ).`
+      );
+      handleCloseModal();
+      await loadRequests();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Lỗi khi hoàn tất trả phòng');
     } finally {
       setSubmitting(false);
     }
@@ -543,11 +589,16 @@ export const ManagerRequestManagement: React.FC = () => {
                           item.requestType === 'BedTransfer' &&
                           item.status === 'Approved' &&
                           Boolean(item.bedTransfer?.handover);
-                        const isBedTransferWaitingGuard =
-                          item.requestType === 'BedTransfer' &&
+                        const isCheckoutStep2Ready =
+                          item.requestType === 'Checkout' &&
                           item.status === 'Approved' &&
-                          !item.bedTransfer?.handover;
-                        const isPrimary = item.status === 'Pending' || isBedTransferStep2Ready;
+                          Boolean(item.checkout?.handover);
+                        const isStep2Ready = isBedTransferStep2Ready || isCheckoutStep2Ready;
+                        const isWaitingGuard =
+                          ((item.requestType === 'BedTransfer' && !item.bedTransfer?.handover) ||
+                            (item.requestType === 'Checkout' && !item.checkout?.handover)) &&
+                          item.status === 'Approved';
+                        const isPrimary = item.status === 'Pending' || isStep2Ready;
 
                         return (
                           <button
@@ -555,17 +606,17 @@ export const ManagerRequestManagement: React.FC = () => {
                             onClick={() => handleOpenProcess(item)}
                             style={{
                               padding: '6px 10px',
-                              backgroundColor: isBedTransferStep2Ready
+                              backgroundColor: isStep2Ready
                                 ? '#047857'
                                 : isPrimary
                                   ? '#EA580C'
-                                  : isBedTransferWaitingGuard
+                                  : isWaitingGuard
                                     ? '#EFF6FF'
                                     : '#F1F5F9',
-                              color: isPrimary ? '#FFFFFF' : isBedTransferWaitingGuard ? '#1D4ED8' : '#334155',
+                              color: isPrimary ? '#FFFFFF' : isWaitingGuard ? '#1D4ED8' : '#334155',
                               border: isPrimary
                                 ? 'none'
-                                : isBedTransferWaitingGuard
+                                : isWaitingGuard
                                   ? '1px solid #BFDBFE'
                                   : '1px solid #CBD5E1',
                               borderRadius: '6px',
@@ -579,9 +630,11 @@ export const ManagerRequestManagement: React.FC = () => {
                               ? 'Xử lý đơn'
                               : isBedTransferStep2Ready
                                 ? 'Xuất HĐ & Chuyển giường'
-                                : isBedTransferWaitingGuard
-                                  ? 'Chờ Bảo vệ kiểm tra'
-                                  : 'Xem chi tiết'}
+                                : isCheckoutStep2Ready
+                                  ? 'Hoàn tất & Xuất HĐ'
+                                  : isWaitingGuard
+                                    ? 'Chờ Bảo vệ kiểm tra'
+                                    : 'Xem chi tiết'}
                           </button>
                         );
                       })()}
@@ -898,6 +951,121 @@ export const ManagerRequestManagement: React.FC = () => {
               );
             })()}
 
+            {/* Chi tiết đơn Trả phòng (Checkout) */}
+            {selectedRequest.checkout && (() => {
+              const co = selectedRequest.checkout;
+              const isApprovedWaitOrStep2 = selectedRequest.status === 'Approved';
+              return (
+                <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ backgroundColor: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: '8px', padding: '12px', fontSize: 13, lineHeight: 1.6 }}>
+                    <div style={{ fontWeight: 700, color: '#9A3412', marginBottom: 4 }}>
+                      Thông tin Trả phòng KTX (Check-out)
+                    </div>
+                    <div>
+                      <strong>Phòng / Giường trả:</strong> {co.dormName} · {co.blockName} · P.{co.roomNumber} · Giường <strong>{co.bedCode}</strong>
+                    </div>
+                    <div>
+                      <strong>Ngày dự kiến trả phòng:</strong> {co.expectedCheckOutDate}
+                      {co.actualCheckOutDate && <> · <strong>Ngày trả thực tế:</strong> {co.actualCheckOutDate}</>}
+                    </div>
+                    {co.assignedGuardName && (
+                      <div>
+                        <strong>Bảo vệ phụ trách:</strong> {co.assignedGuardName} ({co.assignedGuardCode || 'Guard'})
+                      </div>
+                    )}
+                  </div>
+
+                  {co.handover && (
+                    <div style={{ backgroundColor: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: '8px', padding: '12px', fontSize: 12.5, lineHeight: 1.6 }}>
+                      <div style={{ fontWeight: 700, color: '#047857', marginBottom: 6 }}>
+                        Biên bản Kiểm tra trả phòng của Bảo vệ ({co.handover.handoverCode})
+                      </div>
+                      <div>
+                        <strong>Người lập:</strong> {co.handover.inspectorName} · <strong>Đồ cá nhân:</strong> Đã xác nhận dọn sạch ·{' '}
+                        <strong>Thời gian:</strong> {formatDateTime(co.handover.completedTime || '')}
+                      </div>
+                      {co.meterReadings && co.meterReadings.length > 0 && (
+                        <div style={{ marginTop: 6 }}>
+                          <strong>Chỉ số Điện &amp; Nước chốt trả phòng:</strong>
+                          {co.meterReadings.map((mr) => (
+                            <div key={mr.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 3 }}>
+                              <span>
+                                • {mr.meterType === 'Electricity' ? 'Điện' : 'Nước'}: {mr.previousValue} → <strong>{mr.currentValue}</strong> (Dùng {mr.consumption}, chia {mr.residentCount} SV:{' '}
+                                <strong>{mr.studentShareCost.toLocaleString('vi-VN')} đ</strong>)
+                              </span>
+                              {mr.evidenceImageUrl && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setMeterLightbox({
+                                      url: mr.evidenceImageUrl!,
+                                      title: `Ảnh công tơ ${mr.meterType === 'Electricity' ? 'Điện' : 'Nước'} — P.${co.roomNumber}`,
+                                      subtitle: `Chỉ số: ${mr.previousValue} → ${mr.currentValue}`,
+                                    })
+                                  }
+                                  style={{
+                                    padding: '2px 8px',
+                                    borderRadius: 6,
+                                    border: '1px solid #BFDBFE',
+                                    background: '#EFF6FF',
+                                    color: '#1D4ED8',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  Xem ảnh công tơ
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ marginTop: 6 }}>
+                        <strong>Bồi thường thiết bị:</strong> {(co.equipmentCompensationAmount ?? co.handover.totalCompensation).toLocaleString('vi-VN')} đ
+                      </div>
+                      {co.handover.items.filter(i => i.itemCondition !== 'Good').length > 0 && (
+                        <div style={{ marginTop: 4, paddingLeft: 10 }}>
+                          {co.handover.items
+                            .filter(i => i.itemCondition !== 'Good')
+                            .map(i => (
+                              <div key={i.id}>
+                                • {i.equipmentName} ({i.equipmentCode}): <strong>{i.itemCondition}</strong> — {i.compensationAmount.toLocaleString('vi-VN')} đ {i.description ? `(${i.description})` : ''}
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                      {co.totalOutstandingAmount != null && (
+                        <div style={{ marginTop: 6, color: '#991B1B', fontWeight: 700 }}>
+                          Tổng công nợ phát sinh trả phòng (điện/nước + bồi thường): {co.totalOutstandingAmount.toLocaleString('vi-VN')} đ
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {co.invoices && co.invoices.length > 0 && (
+                    <div style={{ backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '10px 12px', fontSize: 12.5 }}>
+                      <div style={{ fontWeight: 700, color: '#0F172A', marginBottom: 4 }}>
+                        Hóa đơn công nợ đã phát hành ({co.invoices.length}):
+                      </div>
+                      {co.invoices.map(inv => (
+                        <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px dashed #E2E8F0' }}>
+                          <span><strong>{inv.invoiceNumber}</strong> ({inv.invoiceType}) — Hạn: {inv.dueDate || '—'}</span>
+                          <span><strong>{inv.totalAmount.toLocaleString('vi-VN')} đ</strong> ({inv.status})</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {isApprovedWaitOrStep2 && !co.handover && (
+                    <div style={{ backgroundColor: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: '8px', padding: '10px 12px', fontSize: 13, color: '#92400E' }}>
+                      Đơn đã qua Bước 1. Đang chờ Bảo vệ <strong>{co.assignedGuardName || 'được phân công'}</strong> kiểm tra dọn đồ cá nhân, thiết bị phòng và chốt chỉ số điện nước trước khi sang Bước 2.
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Lý do / Căn cứ sinh viên trình bày */}
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
@@ -924,7 +1092,7 @@ export const ManagerRequestManagement: React.FC = () => {
                         checked={decision === 'Approved'}
                         onChange={() => setDecision('Approved')}
                       />
-                      {selectedRequest.requestType === 'BedTransfer'
+                      {selectedRequest.requestType === 'BedTransfer' || selectedRequest.requestType === 'Checkout'
                         ? 'Chấp thuận Bước 1 & Phân công Bảo vệ (Approved)'
                         : 'Chấp thuận đơn khiếu nại (Approved)'}
                     </label>
@@ -938,20 +1106,24 @@ export const ManagerRequestManagement: React.FC = () => {
                       />
                       {selectedRequest.requestType === 'BedTransfer'
                         ? 'Từ chối yêu cầu chuyển giường (Rejected)'
-                        : 'Từ chối đơn khiếu nại (Rejected)'}
+                        : selectedRequest.requestType === 'Checkout'
+                          ? 'Từ chối yêu cầu trả phòng (Rejected)'
+                          : 'Từ chối đơn khiếu nại (Rejected)'}
                     </label>
                   </div>
                 </div>
 
-                {/* Form Bước 1 dành riêng cho BedTransfer */}
-                {selectedRequest.requestType === 'BedTransfer' && decision === 'Approved' && (
+                {/* Form Bước 1 dành riêng cho BedTransfer & Checkout */}
+                {(selectedRequest.requestType === 'BedTransfer' || selectedRequest.requestType === 'Checkout') && decision === 'Approved' && (
                   <div style={{ backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: 8, padding: 12, marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
                     <div>
                       <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>
-                        Bảo vệ kiểm tra phòng cũ (Cố định theo tòa KTX cũ)
+                        {selectedRequest.requestType === 'Checkout'
+                          ? 'Bảo vệ kiểm tra trả phòng (Cố định theo tòa KTX hiện tại)'
+                          : 'Bảo vệ kiểm tra phòng cũ (Cố định theo tòa KTX cũ)'}
                       </label>
                       {loadingGuards ? (
-                        <div style={{ fontSize: 12, color: '#64748B' }}>Đang tải thông tin Bảo vệ phụ trách tòa KTX phòng cũ...</div>
+                        <div style={{ fontSize: 12, color: '#64748B' }}>Đang tải thông tin Bảo vệ phụ trách tòa KTX...</div>
                       ) : guards.length > 0 ? (
                         <div
                           style={{
@@ -969,7 +1141,7 @@ export const ManagerRequestManagement: React.FC = () => {
                             {guards[0].fullName} ({guards[0].guardCode}) — {guards[0].assignedDormName}
                           </div>
                           <div style={{ fontSize: 11.5, color: '#475569', marginTop: 2 }}>
-                            Tự động phân công Bảo vệ phụ trách tòa KTX phòng cũ của sinh viên (không thay đổi sang tòa khác).
+                            Tự động phân công Bảo vệ phụ trách tòa KTX phòng hiện tại của sinh viên (không thay đổi sang tòa khác).
                           </div>
                         </div>
                       ) : (
@@ -984,14 +1156,16 @@ export const ManagerRequestManagement: React.FC = () => {
                             fontWeight: 600,
                           }}
                         >
-                          Tòa KTX phòng cũ ({selectedRequest.bedTransfer?.fromDormName || 'chưa rõ'}) hiện chưa có Bảo vệ đang hoạt động để phân công.
+                          Tòa KTX ({selectedRequest.bedTransfer?.fromDormName || selectedRequest.checkout?.dormName || 'chưa rõ'}) hiện chưa có Bảo vệ đang hoạt động để phân công.
                         </div>
                       )}
                     </div>
 
                     <div>
                       <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>
-                        Ngày chuyển giường dự kiến (Chốt để tính Prorate)
+                        {selectedRequest.requestType === 'Checkout'
+                          ? 'Ngày dự kiến trả phòng (Xác nhận khi duyệt Bước 1)'
+                          : 'Ngày chuyển giường dự kiến (Chốt để tính Prorate)'}
                       </label>
                       <TransferDatePicker
                         value={transferDateInput}
@@ -1050,7 +1224,7 @@ export const ManagerRequestManagement: React.FC = () => {
 
                 <div style={{ marginBottom: 16 }}>
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>
-                    {selectedRequest.requestType === 'BedTransfer' && decision === 'Approved'
+                    {(selectedRequest.requestType === 'BedTransfer' || selectedRequest.requestType === 'Checkout') && decision === 'Approved'
                       ? 'Ghi chú dặn dò Bảo vệ / Sinh viên (tùy chọn)'
                       : <>Ghi chú / Lý do phản hồi tới sinh viên <span style={{ color: '#DC2626' }}>*</span></>}
                   </label>
@@ -1060,12 +1234,14 @@ export const ManagerRequestManagement: React.FC = () => {
                     onChange={e => setResolutionNote(e.target.value)}
                     placeholder="Ghi rõ lý do chấp thuận hoặc căn cứ từ chối để gửi email và hiển thị trên giao diện của sinh viên..."
                     style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', boxSizing: 'border-box' }}
-                    required={!(selectedRequest.requestType === 'BedTransfer' && decision === 'Approved')}
+                    required={!((selectedRequest.requestType === 'BedTransfer' || selectedRequest.requestType === 'Checkout') && decision === 'Approved')}
                   />
                   <div style={{ fontSize: '12px', color: '#64748B', marginTop: 4 }}>
                     {selectedRequest.requestType === 'BedTransfer'
                       ? 'Hệ thống sẽ gửi thông báo & email cập nhật tiến trình xử lý chuyển giường tới sinh viên.'
-                      : 'Hệ thống sẽ tự động cập nhật biên bản vi phạm và gửi email thông báo kết quả tới sinh viên.'}
+                      : selectedRequest.requestType === 'Checkout'
+                        ? 'Hệ thống sẽ gửi thông báo & email cập nhật tiến trình xử lý trả phòng tới sinh viên.'
+                        : 'Hệ thống sẽ tự động cập nhật biên bản vi phạm và gửi email thông báo kết quả tới sinh viên.'}
                   </div>
                 </div>
 
@@ -1081,7 +1257,7 @@ export const ManagerRequestManagement: React.FC = () => {
                     type="submit"
                     disabled={
                       submitting ||
-                      (selectedRequest.requestType === 'BedTransfer' &&
+                      ((selectedRequest.requestType === 'BedTransfer' || selectedRequest.requestType === 'Checkout') &&
                         decision === 'Approved' &&
                         (loadingGuards || !assignedGuardId))
                     }
@@ -1095,14 +1271,14 @@ export const ManagerRequestManagement: React.FC = () => {
                       fontWeight: 600,
                       cursor:
                         submitting ||
-                        (selectedRequest.requestType === 'BedTransfer' &&
+                        ((selectedRequest.requestType === 'BedTransfer' || selectedRequest.requestType === 'Checkout') &&
                           decision === 'Approved' &&
                           (loadingGuards || !assignedGuardId))
                           ? 'not-allowed'
                           : 'pointer',
                       opacity:
                         submitting ||
-                        (selectedRequest.requestType === 'BedTransfer' &&
+                        ((selectedRequest.requestType === 'BedTransfer' || selectedRequest.requestType === 'Checkout') &&
                           decision === 'Approved' &&
                           (loadingGuards || !assignedGuardId))
                           ? 0.6
@@ -1112,13 +1288,68 @@ export const ManagerRequestManagement: React.FC = () => {
                     {submitting
                       ? 'Đang lưu...'
                       : decision === 'Approved'
-                        ? selectedRequest.requestType === 'BedTransfer'
+                        ? (selectedRequest.requestType === 'BedTransfer' || selectedRequest.requestType === 'Checkout')
                           ? 'Duyệt Bước 1 & Phân công Bảo vệ'
                           : 'Xác nhận chấp thuận'
                         : 'Xác nhận từ chối'}
                   </button>
                 </div>
               </form>
+            ) : selectedRequest.requestType === 'Checkout' && selectedRequest.status === 'Approved' ? (
+              <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: 16 }}>
+                {selectedRequest.checkout?.handover ? (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>
+                        Ghi chú hoàn tất trả phòng &amp; phát hành hóa đơn (tùy chọn)
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={resolutionNote}
+                        onChange={(e) => setResolutionNote(e.target.value)}
+                        placeholder="Ghi chú xác nhận trả phòng hoặc nhắc thanh toán hóa đơn công nợ..."
+                        style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                      <button
+                        type="button"
+                        onClick={handleCloseModal}
+                        style={{ padding: '8px 16px', background: '#F1F5F9', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}
+                      >
+                        Đóng
+                      </button>
+                      <button
+                        type="button"
+                        disabled={submitting}
+                        onClick={handleCompleteCheckout}
+                        style={{
+                          padding: '9px 18px',
+                          background: '#047857',
+                          color: '#FFF',
+                          border: 'none',
+                          borderRadius: '6px',
+                          fontSize: '13px',
+                          fontWeight: 700,
+                          cursor: submitting ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {submitting ? 'Đang hoàn tất trả phòng...' : 'Hoàn tất Trả phòng & Xuất hóa đơn (Complete)'}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      type="button"
+                      onClick={handleCloseModal}
+                      style={{ padding: '8px 16px', background: '#EA580C', color: '#FFF', border: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      Đóng
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : selectedRequest.requestType === 'BedTransfer' && selectedRequest.status === 'Approved' ? (
               <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: 16 }}>
                 {selectedRequest.bedTransfer?.handover ? (
@@ -1179,7 +1410,11 @@ export const ManagerRequestManagement: React.FC = () => {
                 {/* Hiển thị chi tiết kết quả sau khi xử lý đơn */}
                 {(() => {
                   const isSuccessState = selectedRequest.status === 'Approved' || selectedRequest.status === 'Completed';
-                  const docNoun = selectedRequest.requestType === 'BedTransfer' ? 'Đơn chuyển giường' : 'Đơn khiếu nại';
+                  const docNoun = selectedRequest.requestType === 'BedTransfer'
+                    ? 'Đơn chuyển giường'
+                    : selectedRequest.requestType === 'Checkout'
+                      ? 'Đơn trả phòng'
+                      : 'Đơn khiếu nại';
                   return (
                     <div style={{ backgroundColor: isSuccessState ? '#ECFDF5' : '#FEF2F2', border: `1px solid ${isSuccessState ? '#A7F3D0' : '#FECACA'}`, borderRadius: '8px', padding: '14px', marginBottom: 14 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 8 }}>

@@ -14,6 +14,11 @@ namespace FUD.DTOs.Requests
         public int? ToBedId { get; set; }
         public DateOnly? TransferDate { get; set; }
 
+        // Dành cho trả phòng (Checkout)
+        public DateOnly? ExpectedCheckOutDate { get; set; }
+        public bool IsExceptionalCase { get; set; }
+        public string? ExceptionNote { get; set; }
+
         // Dành cho khiếu nại Complaint
         public string? TargetType { get; set; } // Violation, Handover, Invoice
         public int? TargetViolationId { get; set; }
@@ -26,8 +31,9 @@ namespace FUD.DTOs.Requests
         public string Decision { get; set; } = null!; // Approved, Rejected, Completed
         public string? Note { get; set; }
         public string? AdjustedLevel { get; set; } // Mức phạt điều chỉnh nếu duyệt khiếu nại vi phạm (Nhắc nhở, Khiển trách, Cảnh cáo...)
-        public int? AssignedGuardId { get; set; } // Bảo vệ được phân công kiểm tra phòng khi duyệt chuyển giường (Bước 1)
+        public int? AssignedGuardId { get; set; } // Bảo vệ được phân công kiểm tra phòng khi duyệt chuyển giường / trả phòng (Bước 1)
         public DateOnly? TransferDate { get; set; } // Ngày chuyển dự kiến xác nhận khi duyệt
+        public DateOnly? ExpectedCheckOutDate { get; set; } // Ngày trả phòng dự kiến xác nhận khi duyệt
     }
 
     public class RequestItemDto
@@ -51,6 +57,9 @@ namespace FUD.DTOs.Requests
 
         // Thông tin BedTransfer nếu có
         public BedTransferDetailDto? BedTransfer { get; set; }
+
+        // Thông tin Checkout nếu có
+        public CheckoutDetailDto? Checkout { get; set; }
 
         // Trạng thái tài khoản của sinh viên
         public string? StudentAccountStatus { get; set; }
@@ -278,6 +287,83 @@ namespace FUD.DTOs.Requests
         public string Content { get; set; } = string.Empty;
         public string? ResolutionNote { get; set; }
         public List<string> Evidences { get; set; } = new List<string>();
+    }
+
+    public class CheckoutContextDto
+    {
+        public bool Eligible { get; set; }
+        public string? IneligibleReason { get; set; }
+        public bool HasOverdueInvoices { get; set; }
+        public CurrentResidencyTransferDto? CurrentResidency { get; set; }
+    }
+
+    public class CheckoutDetailDto
+    {
+        public int ResidencyId { get; set; }
+        public int BedId { get; set; }
+        public int RoomId { get; set; }
+        public int DormId { get; set; }
+        public string BedCode { get; set; } = string.Empty;
+        public string RoomNumber { get; set; } = string.Empty;
+        public string BlockCode { get; set; } = string.Empty;
+        public string BlockName { get; set; } = string.Empty;
+        public string DormName { get; set; } = string.Empty;
+        public DateOnly ExpectedCheckOutDate { get; set; }
+        public DateOnly? ActualCheckOutDate { get; set; }
+        public bool IsExceptionalCase { get; set; }
+        public string? ExceptionNote { get; set; }
+        public int? AssignedGuardId { get; set; }
+        public string? AssignedGuardName { get; set; }
+        public string? AssignedGuardCode { get; set; }
+        public int? ReviewedById { get; set; }
+        public DateTime? ReviewedTime { get; set; }
+        public BedTransferHandoverInfoDto? Handover { get; set; }
+        public List<BedTransferMeterReadingDto> MeterReadings { get; set; } = new();
+        public decimal? UtilityShareAmount { get; set; }
+        public decimal? EquipmentCompensationAmount { get; set; }
+        public decimal? TotalOutstandingAmount { get; set; }
+        public List<BedTransferInvoiceSummaryDto> Invoices { get; set; } = new();
+    }
+
+    public class CheckoutInspectionTaskDto
+    {
+        public int RequestId { get; set; }
+        public string RequestCode { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+        public int StudentId { get; set; }
+        public string StudentName { get; set; } = string.Empty;
+        public string StudentCode { get; set; } = string.Empty;
+        public string? StudentPhone { get; set; }
+        public int ResidencyId { get; set; }
+        public string DormName { get; set; } = string.Empty;
+        public string BlockName { get; set; } = string.Empty;
+        public int RoomId { get; set; }
+        public string RoomNumber { get; set; } = string.Empty;
+        public int BedId { get; set; }
+        public string BedCode { get; set; } = string.Empty;
+        public DateOnly ExpectedCheckOutDate { get; set; }
+        public string Reason { get; set; } = string.Empty;
+        public int? AssignedGuardId { get; set; }
+        public string? AssignedGuardName { get; set; }
+        public decimal PreviousElectricityReading { get; set; }
+        public decimal PreviousWaterReading { get; set; }
+        public decimal ElectricityUnitPrice { get; set; }
+        public decimal WaterUnitPrice { get; set; }
+        public int ActiveResidentCount { get; set; }
+        public bool HandoverCompleted { get; set; }
+        public BedTransferHandoverInfoDto? Handover { get; set; }
+        public List<BedTransferMeterReadingDto> MeterReadings { get; set; } = new();
+    }
+
+    public class SubmitCheckoutInspectionDto
+    {
+        public bool BelongingsCleared { get; set; }
+        public decimal CurrentElectricityReading { get; set; }
+        public decimal CurrentWaterReading { get; set; }
+        public string? ElectricityEvidenceImageUrl { get; set; }
+        public string? WaterEvidenceImageUrl { get; set; }
+        public string? Note { get; set; }
+        public List<TransferInspectionItemInputDto> Items { get; set; } = new();
     }
 }
 

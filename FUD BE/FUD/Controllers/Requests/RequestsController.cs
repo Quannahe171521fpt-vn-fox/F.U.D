@@ -66,6 +66,23 @@ namespace FUD.Controllers.Requests
         }
 
         /// <summary>
+        /// Lấy ngữ cảnh trả phòng (chỗ ở hiện tại, điều kiện gửi đơn và khoảng ngày dự kiến trả hợp lệ)
+        /// </summary>
+        [HttpGet("checkout/context")]
+        [Authorize(Roles = "Student")]
+        public async Task<IActionResult> GetCheckoutContext()
+        {
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirst("sub")?.Value;
+            if (string.IsNullOrEmpty(userIdStr) || !int.TryParse(userIdStr, out var studentId))
+            {
+                return Unauthorized(new { message = "Không xác định được danh tính người dùng." });
+            }
+
+            var result = await _requestService.GetCheckoutContextAsync(studentId);
+            return Ok(result);
+        }
+
+        /// <summary>
         /// Sinh viên gửi đơn yêu cầu (Booking, BedTransfer, Checkout, Complaint, Others)
         /// </summary>
         [HttpPost]
@@ -165,6 +182,66 @@ namespace FUD.Controllers.Requests
             try
             {
                 var result = await _requestService.SubmitTransferInspectionAsync(id, guardUserId, dto);
+                return Ok(result);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau." });
+            }
+        }
+
+        /// <summary>
+        /// Danh sách nhiệm vụ kiểm tra trả phòng & chốt điện nước cho Bảo vệ được phân công
+        /// </summary>
+        [HttpGet("checkout/guard-tasks")]
+        [Authorize(Roles = "Guard")]
+        public async Task<IActionResult> GetGuardCheckoutTasks()
+        {
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirst("sub")?.Value;
+            if (string.IsNullOrEmpty(userIdStr) || !int.TryParse(userIdStr, out var guardUserId))
+            {
+                return Unauthorized(new { message = "Không xác định được danh tính người dùng." });
+            }
+
+            try
+            {
+                var result = await _requestService.GetGuardCheckoutInspectionsAsync(guardUserId);
+                return Ok(result);
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or KeyNotFoundException)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau." });
+            }
+        }
+
+        /// <summary>
+        /// Bảo vệ gửi biên bản kiểm tra trả phòng (xác nhận dọn sạch đồ cá nhân, thiết bị & chỉ số điện nước cuối)
+        /// </summary>
+        [HttpPost("{id}/checkout-inspection")]
+        [Authorize(Roles = "Guard")]
+        public async Task<IActionResult> SubmitCheckoutInspection(int id, [FromBody] SubmitCheckoutInspectionDto dto)
+        {
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirst("sub")?.Value;
+            if (string.IsNullOrEmpty(userIdStr) || !int.TryParse(userIdStr, out var guardUserId))
+            {
+                return Unauthorized(new { message = "Không xác định được danh tính người dùng." });
+            }
+
+            try
+            {
+                var result = await _requestService.SubmitCheckoutInspectionAsync(id, guardUserId, dto);
                 return Ok(result);
             }
             catch (KeyNotFoundException ex)

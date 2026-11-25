@@ -617,6 +617,153 @@ export const StudentRequestListPage: React.FC<StudentRequestListPageProps> = ({ 
               );
             })()}
 
+            {/* Chi tiết đơn Trả phòng (Checkout) */}
+            {selectedRequest.checkout && (() => {
+              const co = selectedRequest.checkout;
+              return (
+                <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ backgroundColor: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: '8px', padding: '12px', fontSize: 12.5, lineHeight: 1.6 }}>
+                    <div style={{ fontWeight: 700, color: '#9A3412', marginBottom: 4 }}>
+                      Thông tin Trả phòng KTX (Check-out)
+                    </div>
+                    <div>
+                      <strong>Phòng / Giường trả:</strong> {co.dormName} · {co.blockName} · P.{co.roomNumber} · Giường <strong>{co.bedCode}</strong>
+                    </div>
+                    <div>
+                      <strong>Ngày dự kiến trả phòng:</strong> {co.expectedCheckOutDate}
+                      {co.actualCheckOutDate && <> · <strong>Ngày trả thực tế:</strong> {co.actualCheckOutDate}</>}
+                    </div>
+                    {co.assignedGuardName && (
+                      <div>
+                        <strong>Bảo vệ phụ trách kiểm tra:</strong> {co.assignedGuardName} ({co.assignedGuardCode || 'Guard'})
+                      </div>
+                    )}
+                  </div>
+
+                  {co.handover && (
+                    <div style={{ backgroundColor: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: '8px', padding: '12px', fontSize: 12, lineHeight: 1.6 }}>
+                      <div style={{ fontWeight: 700, color: '#047857', marginBottom: 4 }}>
+                        Biên bản Kiểm tra trả phòng ({co.handover.handoverCode})
+                      </div>
+                      <div><strong>Bảo vệ lập biên bản:</strong> {co.handover.inspectorName} · <strong>Đồ cá nhân:</strong> Đã dọn sạch</div>
+                      {co.meterReadings && co.meterReadings.length > 0 && (
+                        <div style={{ marginTop: 6 }}>
+                          <strong>Điện &amp; Nước chốt trả phòng:</strong>
+                          {co.meterReadings.map((mr) => (
+                            <div key={mr.id} style={{ marginTop: 2 }}>
+                              • {mr.meterType === 'Electricity' ? 'Điện' : 'Nước'}: {mr.previousValue} → <strong>{mr.currentValue}</strong> (Dùng {mr.consumption}, chia {mr.residentCount} SV:{' '}
+                              <strong>{mr.studentShareCost.toLocaleString('vi-VN')} đ</strong>)
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div><strong>Bồi thường thiết bị:</strong> {(co.equipmentCompensationAmount ?? co.handover.totalCompensation).toLocaleString('vi-VN')} đ</div>
+                      {co.totalOutstandingAmount != null && (
+                        <div style={{ marginTop: 4, color: '#991B1B', fontWeight: 700 }}>
+                          Tổng chi phí phát sinh trả phòng: {co.totalOutstandingAmount.toLocaleString('vi-VN')} đ
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {co.invoices && co.invoices.length > 0 && (() => {
+                    const payableInvoices = co.invoices.filter(
+                      (inv) => inv.status === 'Unpaid' || inv.status === 'Overdue' || inv.status === 'Processing'
+                    );
+                    return (
+                      <div style={{ backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '10px 12px', fontSize: 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                          <div>
+                            <strong style={{ color: '#0F172A' }}>Hóa đơn phát sinh trả phòng ({co.invoices.length}):</strong>
+                            {payableInvoices.length > 0 && (
+                              <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
+                                Hóa đơn đã được đẩy sang mục <strong>Thanh toán hóa đơn</strong> của bạn.
+                              </div>
+                            )}
+                          </div>
+                          {payableInvoices.length > 1 && co.handover && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                navigateToStudentPayment({
+                                  sourceType: 'Checkout',
+                                  sourceId: co.handover!.id,
+                                })
+                              }
+                              style={{
+                                padding: '5px 12px',
+                                backgroundColor: '#C2410C',
+                                color: '#FFFFFF',
+                                border: 'none',
+                                borderRadius: '6px',
+                                fontSize: '11.5px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              💳 Thanh toán tất cả ({payableInvoices.length})
+                            </button>
+                          )}
+                        </div>
+                        {co.invoices.map((inv) => {
+                          const canPay = inv.status === 'Unpaid' || inv.status === 'Overdue' || inv.status === 'Processing';
+                          const typeMeta = INVOICE_TYPE_META[inv.invoiceType];
+                          const statusMeta = INVOICE_STATUS_META[inv.status] || {
+                            label: inv.status,
+                            bg: '#F1F5F9',
+                            color: '#475569',
+                          };
+                          return (
+                            <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 0', borderBottom: '1px dashed #E2E8F0' }}>
+                              <span>
+                                <strong>{inv.invoiceNumber}</strong> ({typeMeta?.label || inv.invoiceType}) — Hạn: {inv.dueDate || '—'}
+                              </span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <strong>{inv.totalAmount.toLocaleString('vi-VN')} đ</strong>
+                                <span
+                                  style={{
+                                    padding: '2px 8px',
+                                    borderRadius: '9999px',
+                                    fontSize: '11px',
+                                    fontWeight: 700,
+                                    backgroundColor: statusMeta.bg,
+                                    color: statusMeta.color,
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {statusMeta.label}
+                                </span>
+                                {canPay && (
+                                  <button
+                                    type="button"
+                                    onClick={() => navigateToStudentPayment({ invoiceId: inv.id })}
+                                    style={{
+                                      padding: '4px 10px',
+                                      backgroundColor: '#EA580C',
+                                      color: '#FFFFFF',
+                                      border: 'none',
+                                      borderRadius: '6px',
+                                      fontSize: '11px',
+                                      fontWeight: 700,
+                                      cursor: 'pointer',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    Thanh toán ngay
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              );
+            })()}
+
             {/* Nội dung đơn sinh viên viết */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: 4 }}>Lý do / Nội dung bạn đã gửi:</div>

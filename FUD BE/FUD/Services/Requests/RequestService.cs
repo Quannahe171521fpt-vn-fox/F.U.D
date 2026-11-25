@@ -133,6 +133,16 @@ namespace FUD.Services.Requests
                 };
             }
 
+            if (await _requestRepo.HasPendingCheckoutAsync(studentId, activeResidency.TermId))
+            {
+                return new BedTransferContextDto
+                {
+                    Eligible = false,
+                    IneligibleReason = "Bạn đang có một đơn yêu cầu trả phòng đang chờ xử lý trong học kỳ này nên không thể chuyển giường.",
+                    CurrentResidency = currentStayDto
+                };
+            }
+
             var availableBeds = await _requestRepo.GetAvailableBedsForTransferAsync(
                 studentUser.Gender,
                 activeResidency.BedId,
@@ -184,6 +194,11 @@ namespace FUD.Services.Requests
             if (dto.RequestType == "BedTransfer")
             {
                 return await CreateBedTransferInternalAsync(studentId, studentUser, dto);
+            }
+
+            if (dto.RequestType == "Checkout")
+            {
+                return await CreateCheckoutInternalAsync(studentId, studentUser, dto);
             }
 
             if (dto.RequestType == "Complaint" && dto.TargetViolationId.HasValue)
@@ -309,6 +324,11 @@ namespace FUD.Services.Requests
             if (await _requestRepo.HasPendingBedTransferAsync(studentId, activeResidency.TermId))
             {
                 throw new InvalidOperationException("Bạn đã có một đơn yêu cầu chuyển giường đang chờ xét duyệt trong học kỳ này.");
+            }
+
+            if (await _requestRepo.HasPendingCheckoutAsync(studentId, activeResidency.TermId))
+            {
+                throw new InvalidOperationException("Bạn đang có một đơn yêu cầu trả phòng đang chờ xử lý trong học kỳ này nên không thể chuyển giường.");
             }
 
             var toBed = await _requestRepo.GetBedWithLocationByIdAsync(dto.ToBedId.Value);
@@ -668,6 +688,11 @@ namespace FUD.Services.Requests
                 return await ProcessBedTransferRequestAsync(req, managerId, dto);
             }
 
+            if (req.RequestType == "Checkout")
+            {
+                return await ProcessCheckoutRequestAsync(req, managerId, dto);
+            }
+
             req.Status = dto.Decision;
             req.ProcessedById = managerId;
             req.ProcessedTime = DateTime.UtcNow;
@@ -839,6 +864,11 @@ namespace FUD.Services.Requests
             if (req.BedTransferRequest != null)
             {
                 dto.BedTransfer = BuildBedTransferDetailDto(req);
+            }
+
+            if (req.CheckoutRequest != null)
+            {
+                dto.Checkout = BuildCheckoutDetailDto(req);
             }
 
             return dto;
@@ -1528,6 +1558,959 @@ namespace FUD.Services.Requests
             {
                 // Ignore email sending error so completed DB workflow is not rolled back
             }
+        }
+
+        // ==================== CHECK-OUT (TRẢ PHÒNG KTX) ====================
+
+        public async Task<CheckoutContextDto> GetCheckoutContextAsync(int studentId)
+        {
+            var studentUser = await _requestRepo.GetUserByIdAsync(studentId);
+            if (studentUser == null)
+            {
+                return new CheckoutContextDto
+                {
+                    Eligible = false,
+                    IneligibleReason = "Không tìm thấy thông tin tài khoản sinh viên."
+                };
+            }
+
+            if (studentUser.AccountStatus == "Suspended" || !string.IsNullOrEmpty(studentUser.SuspensionReason))
+            {
+                return new CheckoutContextDto
+                {
+                    Eligible = false,
+                    IneligibleReason = $"Tài khoản của bạn đang bị đình chỉ nội trú ({studentUser.SuspensionReason ?? "Vi phạm quy chế"})."
+                };
+            }
+
+            var activeResidency = await _requestRepo.GetStudentActiveResidencyAsync(studentId);
+            if (activeResidency == null)
+            {
+                return new CheckoutContextDto
+                {
+                    Eligible = false,
+                    IneligibleReason = "Bạn chưa có đợt lưu trú nào đang hoạt động (Active) trong ký túc xá nên không thể gửi đơn trả phòng."
+                };
+            }
+
+            var currentStayDto = new CurrentResidencyTransferDto
+            {
+                ResidencyId = activeResidency.Id,
+                TermId = activeResidency.TermId,
+                TermName = activeResidency.Term.Name,
+                AcademicYear = activeResidency.Term.AcademicYear,
+                TermStartDate = activeResidency.Term.StartDate,
+                TermEndDate = activeResidency.Term.EndDate,
+                DormName = activeResidency.Bed.Room.Block.Dorm.Name,
+                BlockCode = activeResidency.Bed.Room.Block.Code,
+                BlockName = activeResidency.Bed.Room.Block.Name,
+                RoomId = activeResidency.Bed.RoomId,
+                RoomNumber = activeResidency.Bed.Room.RoomNumber,
+                RoomTypeName = activeResidency.Bed.Room.RoomType.Name,
+                BedId = activeResidency.BedId,
+                BedCode = activeResidency.Bed.BedCode,
+                PositionInRoom = activeResidency.Bed.PositionInRoom,
+                CheckInDate = activeResidency.CheckInDate
+            };
+
+            var hasOverdue = await _requestRepo.HasOverdueInvoicesAsync(studentId);
+
+            if (await _requestRepo.HasPendingCheckoutAsync(studentId, activeResidency.TermId))
+            {
+                return new CheckoutContextDto
+                {
+                    Eligible = false,
+                    HasOverdueInvoices = hasOverdue,
+                    IneligibleReason = "Bạn đã có một đơn yêu cầu trả phòng đang chờ xử lý trong học kỳ này.",
+                    CurrentResidency = currentStayDto
+                };
+            }
+
+            if (await _requestRepo.HasPendingBedTransferAsync(studentId, activeResidency.TermId))
+            {
+                return new CheckoutContextDto
+                {
+                    Eligible = false,
+                    HasOverdueInvoices = hasOverdue,
+                    IneligibleReason = "Bạn đang có một đơn yêu cầu chuyển giường đang chờ xử lý trong học kỳ này nên không thể gửi đơn trả phòng.",
+                    CurrentResidency = currentStayDto
+                };
+            }
+
+            var todayVn = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+            var minCheckOutDate = todayVn.AddDays(7);
+            var maxCheckOutDate = activeResidency.Term.EndDate.AddDays(-14);
+            if (minCheckOutDate > maxCheckOutDate)
+            {
+                return new CheckoutContextDto
+                {
+                    Eligible = false,
+                    HasOverdueInvoices = hasOverdue,
+                    IneligibleReason = $"Thời gian còn lại của học kỳ không đủ để đăng ký trả phòng (ngày dự kiến trả phải sau ít nhất 1 tuần kể từ ngày tạo đơn và trước ngày kết thúc học kỳ {activeResidency.Term.EndDate:dd/MM/yyyy} ít nhất 2 tuần).",
+                    CurrentResidency = currentStayDto
+                };
+            }
+
+            return new CheckoutContextDto
+            {
+                Eligible = true,
+                HasOverdueInvoices = hasOverdue,
+                CurrentResidency = currentStayDto
+            };
+        }
+
+        private async Task<RequestItemDto> CreateCheckoutInternalAsync(int studentId, User? studentUser, CreateRequestDto dto)
+        {
+            var reason = (dto.Reason ?? dto.Content)?.Trim();
+            if (string.IsNullOrWhiteSpace(reason))
+            {
+                throw new InvalidOperationException("Vui lòng nhập lý do trả phòng.");
+            }
+
+            var activeResidency = await _requestRepo.GetStudentActiveResidencyAsync(studentId);
+            if (activeResidency == null)
+            {
+                throw new InvalidOperationException("Bạn chưa có đợt lưu trú nào đang hoạt động (Active) để gửi đơn trả phòng.");
+            }
+
+            if (await _requestRepo.HasPendingCheckoutAsync(studentId, activeResidency.TermId))
+            {
+                throw new InvalidOperationException("Bạn đã có một đơn yêu cầu trả phòng đang chờ xử lý trong học kỳ này.");
+            }
+
+            if (await _requestRepo.HasPendingBedTransferAsync(studentId, activeResidency.TermId))
+            {
+                throw new InvalidOperationException("Bạn đang có một đơn yêu cầu chuyển giường đang chờ xử lý trong học kỳ này nên không thể gửi đơn trả phòng.");
+            }
+
+            if (!dto.ExpectedCheckOutDate.HasValue)
+            {
+                throw new InvalidOperationException("Vui lòng chọn ngày dự kiến trả phòng.");
+            }
+
+            var todayVn = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+            var minCheckOutDate = todayVn.AddDays(7);
+            var maxCheckOutDate = activeResidency.Term.EndDate.AddDays(-14);
+
+            if (minCheckOutDate > maxCheckOutDate)
+            {
+                throw new InvalidOperationException(
+                    $"Thời gian còn lại của học kỳ không đủ để đăng ký trả phòng (ngày dự kiến trả phải sau ít nhất 1 tuần kể từ ngày tạo đơn và trước ngày kết thúc học kỳ {activeResidency.Term.EndDate:dd/MM/yyyy} ít nhất 2 tuần).");
+            }
+
+            if (dto.ExpectedCheckOutDate.Value < minCheckOutDate)
+            {
+                throw new InvalidOperationException(
+                    $"Ngày dự kiến trả phòng phải sau ít nhất 1 tuần kể từ ngày tạo đơn (từ ngày {minCheckOutDate:dd/MM/yyyy} trở đi).");
+            }
+
+            if (dto.ExpectedCheckOutDate.Value > maxCheckOutDate)
+            {
+                throw new InvalidOperationException(
+                    $"Ngày dự kiến trả phòng phải trước ngày kết thúc học kỳ ít nhất 2 tuần (chậm nhất ngày {maxCheckOutDate:dd/MM/yyyy}).");
+            }
+
+            var now = DateTime.UtcNow;
+            var request = new Request
+            {
+                StudentId = studentId,
+                TermId = activeResidency.TermId,
+                RequestType = "Checkout",
+                Status = "Pending",
+                Reason = reason,
+                CreatedTime = now
+            };
+
+            var checkoutRequest = new CheckoutRequest
+            {
+                ResidencyId = activeResidency.Id,
+                ExpectedCheckOutDate = dto.ExpectedCheckOutDate.Value,
+                IsExceptionalCase = dto.IsExceptionalCase,
+                ExceptionNote = string.IsNullOrWhiteSpace(dto.ExceptionNote) ? null : dto.ExceptionNote.Trim()
+            };
+
+            var log = new RequestLog
+            {
+                FromStatus = null,
+                ToStatus = "Pending",
+                Note = $"Sinh viên gửi yêu cầu trả phòng P.{activeResidency.Bed.Room.RoomNumber} - Giường {activeResidency.Bed.BedCode} (ngày dự kiến {dto.ExpectedCheckOutDate.Value:dd/MM/yyyy}).",
+                ChangeTime = now,
+                ChangedById = studentId
+            };
+
+            await _requestRepo.CreateCheckoutRequestAsync(request, checkoutRequest, log);
+
+            if (_inAppNotificationService != null)
+            {
+                var reqCode = $"REQ-{request.Id:D6}";
+                var studentLabel = studentUser != null
+                    ? $"{studentUser.FullName} ({studentUser.Code})"
+                    : $"SV #{studentId}";
+
+                await _inAppNotificationService.NotifyRolesAsync(
+                    new[] { AccountConstants.Roles.Manager },
+                    $"Yêu cầu trả phòng mới ({reqCode})",
+                    $"Sinh viên {studentLabel} yêu cầu trả phòng P.{activeResidency.Bed.Room.RoomNumber} - Giường {activeResidency.Bed.BedCode} (dự kiến ngày {dto.ExpectedCheckOutDate.Value:dd/MM/yyyy}).",
+                    "Request",
+                    request.Id.ToString());
+            }
+
+            var reloaded = await _requestRepo.GetRequestByIdAsync(request.Id);
+            return MapToDto(reloaded ?? request);
+        }
+
+        public async Task<List<CheckoutInspectionTaskDto>> GetGuardCheckoutInspectionsAsync(int guardUserId)
+        {
+            var tasks = await _requestRepo.GetCheckoutInspectionTasksForGuardAsync(guardUserId);
+            var roomIds = tasks
+                .Where(t => t.CheckoutRequest?.Residency?.Bed != null)
+                .Select(t => t.CheckoutRequest!.Residency.Bed.RoomId)
+                .Distinct()
+                .ToList();
+
+            var prevReadingsByRoom = new Dictionary<int, Dictionary<string, decimal>>();
+            foreach (var roomId in roomIds)
+            {
+                prevReadingsByRoom[roomId] = await _requestRepo.GetLatestRoomMeterReadingsAsync(roomId);
+            }
+
+            return tasks.Select(t =>
+            {
+                var roomId = t.CheckoutRequest!.Residency.Bed.RoomId;
+                prevReadingsByRoom.TryGetValue(roomId, out var prev);
+                return MapToGuardCheckoutTaskDto(t, prev);
+            }).ToList();
+        }
+
+        public async Task<CheckoutInspectionTaskDto> SubmitCheckoutInspectionAsync(
+            int requestId,
+            int guardUserId,
+            SubmitCheckoutInspectionDto dto)
+        {
+            var req = await _requestRepo.GetRequestByIdAsync(requestId);
+            if (req == null)
+                throw new KeyNotFoundException("Không tìm thấy đơn trả phòng.");
+
+            if (req.RequestType != "Checkout" || req.CheckoutRequest == null)
+                throw new InvalidOperationException("Đơn yêu cầu không phải loại trả phòng (Checkout).");
+
+            if (req.Status != "Approved")
+                throw new InvalidOperationException("Chỉ có thể lập biên bản kiểm tra khi đơn trả phòng đã được Quản lý duyệt Bước 1 (Approved).");
+
+            var co = req.CheckoutRequest;
+            if (co.AssignedGuardId != guardUserId)
+                throw new InvalidOperationException("Bạn không phải Bảo vệ được phân công kiểm tra đơn trả phòng này.");
+
+            if (co.Residency == null)
+                throw new InvalidOperationException("Không tìm thấy đợt lưu trú hiện tại của đơn trả phòng.");
+
+            if (co.Residency.Status != "Active")
+                throw new InvalidOperationException($"Đợt lưu trú #{co.Residency.Id} không còn ở trạng thái Active (hiện tại: {co.Residency.Status}).");
+
+            if (req.Handover != null || (co.MeterReadings != null && co.MeterReadings.Count > 0))
+                throw new InvalidOperationException("Đơn trả phòng này đã được kiểm tra và lập biên bản bàn giao trước đó.");
+
+            if (!dto.BelongingsCleared)
+                throw new InvalidOperationException("Bắt buộc xác nhận sinh viên đã dọn sạch toàn bộ đồ đạc cá nhân trước khi lập biên bản trả phòng.");
+
+            var roomId = co.Residency.Bed.RoomId;
+            var bedId = co.Residency.BedId;
+            var prevReadings = await _requestRepo.GetLatestRoomMeterReadingsAsync(roomId);
+            var prevElec = prevReadings.GetValueOrDefault("Electricity", 0m);
+            var prevWater = prevReadings.GetValueOrDefault("Water", 0m);
+
+            if (dto.CurrentElectricityReading < 0 || dto.CurrentWaterReading < 0)
+                throw new InvalidOperationException("Chỉ số điện, nước không được nhỏ hơn 0.");
+
+            if (dto.CurrentElectricityReading < prevElec)
+                throw new InvalidOperationException($"Chỉ số điện hiện tại ({dto.CurrentElectricityReading}) không được nhỏ hơn chỉ số cũ ({prevElec}).");
+
+            if (dto.CurrentWaterReading < prevWater)
+                throw new InvalidOperationException($"Chỉ số nước hiện tại ({dto.CurrentWaterReading}) không được nhỏ hơn chỉ số cũ ({prevWater}).");
+
+            string? validElecUrl;
+            string? validWaterUrl;
+            try
+            {
+                validElecUrl = FUD.Services.Utilities.MeterEvidenceUrlValidator.ValidateOrNull(dto.ElectricityEvidenceImageUrl, _configuration);
+                validWaterUrl = FUD.Services.Utilities.MeterEvidenceUrlValidator.ValidateOrNull(dto.WaterEvidenceImageUrl, _configuration);
+            }
+            catch (ArgumentException ex)
+            {
+                throw new InvalidOperationException(ex.Message);
+            }
+
+            var roomEquipments = await _requestRepo.GetRoomAndBedEquipmentsAsync(roomId, bedId);
+            var validEquipMap = roomEquipments.ToDictionary(e => e.Id);
+
+            var allowedConditions = new HashSet<string>(StringComparer.Ordinal) { "Good", "Damaged", "Missing" };
+            var handoverItems = new List<HandoverItem>();
+            var equipmentUpdates = new List<(int EquipmentId, string Condition, string? Note)>();
+            var seenEquipIds = new HashSet<int>();
+
+            foreach (var itemInput in dto.Items ?? new List<TransferInspectionItemInputDto>())
+            {
+                if (!seenEquipIds.Add(itemInput.EquipmentId))
+                    continue;
+
+                if (!validEquipMap.ContainsKey(itemInput.EquipmentId))
+                    throw new InvalidOperationException($"Thiết bị #{itemInput.EquipmentId} không thuộc phòng/giường trả của sinh viên.");
+
+                if (!allowedConditions.Contains(itemInput.ItemCondition))
+                    throw new InvalidOperationException($"Tình trạng thiết bị '{itemInput.ItemCondition}' không hợp lệ (chỉ chấp nhận Good, Damaged, Missing).");
+
+                if (itemInput.CompensationAmount < 0)
+                    throw new InvalidOperationException("Số tiền bồi thường thiết bị không được âm.");
+
+                var compensation = itemInput.ItemCondition == "Good" ? 0m : Math.Round(itemInput.CompensationAmount, 2);
+                var note = string.IsNullOrWhiteSpace(itemInput.Description) ? null : itemInput.Description.Trim();
+
+                handoverItems.Add(new HandoverItem
+                {
+                    EquipmentId = itemInput.EquipmentId,
+                    ItemCondition = itemInput.ItemCondition,
+                    Note = note,
+                    CompensationAmount = compensation
+                });
+
+                if (itemInput.ItemCondition == "Damaged")
+                {
+                    equipmentUpdates.Add((itemInput.EquipmentId, "Broken", note));
+                }
+                else if (itemInput.ItemCondition == "Missing")
+                {
+                    equipmentUpdates.Add((itemInput.EquipmentId, "Broken", note ?? "Thất lạc khi bàn giao trả phòng"));
+                }
+            }
+
+            var now = DateTime.UtcNow;
+            var totalCompensation = handoverItems.Sum(i => i.CompensationAmount);
+            var hasDamageOrMissing = handoverItems.Any(i => i.ItemCondition != "Good");
+            var trimmedNote = string.IsNullOrWhiteSpace(dto.Note) ? null : dto.Note.Trim();
+
+            var handover = new Handover
+            {
+                HandoverType = "Checkout",
+                RequestId = req.Id,
+                ResidencyId = null,
+                RoomId = roomId,
+                GuardId = guardUserId,
+                BelongingsRemainingFlag = false,
+                BelongingsNote = trimmedNote,
+                HasDamageOrMissingFlag = hasDamageOrMissing,
+                TotalCompensation = totalCompensation,
+                Status = "Completed",
+                StudentAcceptedFlag = true,
+                StudentAcceptedTime = now,
+                CreatedTime = now,
+                CompletedTime = now
+            };
+
+            var meterReadings = new List<MeterReading>
+            {
+                new MeterReading
+                {
+                    RoomId = roomId,
+                    CheckoutRequestId = req.Id,
+                    MeterType = "Electricity",
+                    PreviousValue = prevElec,
+                    CurrentValue = dto.CurrentElectricityReading,
+                    Source = "Handover",
+                    Status = "Recorded",
+                    RecordedById = guardUserId,
+                    RecordedTime = now,
+                    Note = trimmedNote,
+                    EvidenceImageUrl = validElecUrl
+                },
+                new MeterReading
+                {
+                    RoomId = roomId,
+                    CheckoutRequestId = req.Id,
+                    MeterType = "Water",
+                    PreviousValue = prevWater,
+                    CurrentValue = dto.CurrentWaterReading,
+                    Source = "Handover",
+                    Status = "Recorded",
+                    RecordedById = guardUserId,
+                    RecordedTime = now,
+                    Note = trimmedNote,
+                    EvidenceImageUrl = validWaterUrl
+                }
+            };
+
+            var utilityPrices = await _requestRepo.GetUtilityPricesByTermAsync(req.TermId);
+            var residentCount = await _requestRepo.GetActiveRoomResidentCountAsync(roomId, req.TermId);
+            var elecShare = Math.Round((dto.CurrentElectricityReading - prevElec) * utilityPrices.GetValueOrDefault("Electricity", 0m) / residentCount, 2);
+            var waterShare = Math.Round((dto.CurrentWaterReading - prevWater) * utilityPrices.GetValueOrDefault("Water", 0m) / residentCount, 2);
+            var requestCode = $"REQ-{req.Id:D6}";
+
+            var log = new RequestLog
+            {
+                RequestId = req.Id,
+                FromStatus = req.Status,
+                ToStatus = req.Status,
+                Note = $"Bảo vệ hoàn tất kiểm tra trả phòng (đã dọn sạch đồ cá nhân). Điện: {prevElec:0.##}→{dto.CurrentElectricityReading:0.##}, Nước: {prevWater:0.##}→{dto.CurrentWaterReading:0.##}. Tiền điện/nước chia đầu người ({residentCount} SV): {(elecShare + waterShare):N0}đ. Bồi thường thiết bị: {totalCompensation:N0}đ.",
+                ChangeTime = now,
+                ChangedById = guardUserId
+            };
+
+            var notifications = new List<Notification>
+            {
+                new Notification
+                {
+                    UserId = req.StudentId,
+                    Channel = "InApp",
+                    Title = $"Đã lập biên bản kiểm tra trả phòng ({requestCode})",
+                    Content = $"Bảo vệ đã hoàn tất kiểm tra phòng {co.Residency.Bed.Room?.RoomNumber} (đã xác nhận dọn sạch đồ cá nhân). Điện nước chốt: {(elecShare + waterShare):N0}đ, bồi thường thiết bị: {totalCompensation:N0}đ. Đơn đang chờ Quản lý duyệt hoàn tất trả phòng.",
+                    ReferenceType = "Request",
+                    ReferenceId = req.Id.ToString(),
+                    ReadFlag = false,
+                    SentTime = now
+                }
+            };
+
+            if (req.ProcessedById.HasValue)
+            {
+                notifications.Add(new Notification
+                {
+                    UserId = req.ProcessedById.Value,
+                    Channel = "InApp",
+                    Title = $"Biên bản kiểm tra trả phòng đã sẵn sàng ({requestCode})",
+                    Content = $"Bảo vệ đã gửi biên bản kiểm tra trả phòng & chỉ số điện nước cuối cho đơn {requestCode}. Tổng điện/nước + bồi thường: {(elecShare + waterShare + totalCompensation):N0}đ. Vui lòng xem xét và hoàn tất trả phòng.",
+                    ReferenceType = "Request",
+                    ReferenceId = req.Id.ToString(),
+                    ReadFlag = false,
+                    SentTime = now
+                });
+            }
+
+            await _requestRepo.SubmitCheckoutInspectionAsync(req, handover, handoverItems, meterReadings, equipmentUpdates, log, notifications);
+
+            var reloaded = await _requestRepo.GetRequestByIdAsync(requestId) ?? req;
+            if (reloaded.Handover == null)
+            {
+                handover.HandoverItems = handoverItems;
+                reloaded.Handover = handover;
+            }
+            if (reloaded.CheckoutRequest != null && reloaded.CheckoutRequest.MeterReadings.Count == 0)
+            {
+                reloaded.CheckoutRequest.MeterReadings = meterReadings;
+            }
+
+            return MapToGuardCheckoutTaskDto(reloaded, prevReadings);
+        }
+
+        private async Task<RequestItemDto> ProcessCheckoutRequestAsync(Request req, int managerId, ProcessRequestDto dto)
+        {
+            var co = req.CheckoutRequest
+                ?? throw new InvalidOperationException("Không tìm thấy thông tin chi tiết đơn trả phòng.");
+
+            if (dto.Decision != "Approved" && dto.Decision != "Rejected" && dto.Decision != "Completed")
+            {
+                throw new InvalidOperationException("Quyết định xử lý không hợp lệ cho đơn trả phòng (chỉ chấp nhận Approved, Rejected, Completed).");
+            }
+
+            var requestCode = $"REQ-{req.Id:D6}";
+            var now = DateTime.UtcNow;
+
+            if (dto.Decision == "Rejected")
+            {
+                if (req.Status != "Pending" && req.Status != "Approved")
+                {
+                    throw new InvalidOperationException("Chỉ có thể từ chối đơn trả phòng đang chờ xử lý hoặc đang trong quá trình kiểm tra.");
+                }
+
+                if (string.IsNullOrWhiteSpace(dto.Note))
+                {
+                    throw new InvalidOperationException("Vui lòng nhập lý do từ chối đơn trả phòng.");
+                }
+
+                var previousStatus = req.Status;
+                var rejectReason = dto.Note.Trim();
+                req.Status = "Rejected";
+                req.RejectReason = rejectReason;
+                req.ProcessedById = managerId;
+                req.ProcessedTime = now;
+
+                var log = new RequestLog
+                {
+                    RequestId = req.Id,
+                    FromStatus = previousStatus,
+                    ToStatus = "Rejected",
+                    Note = $"Quản lý từ chối đơn trả phòng: {rejectReason}.",
+                    ChangeTime = now,
+                    ChangedById = managerId
+                };
+
+                var notification = new Notification
+                {
+                    UserId = req.StudentId,
+                    Channel = "InApp",
+                    Title = $"Đơn trả phòng {requestCode} bị từ chối",
+                    Content = $"Yêu cầu trả phòng {co.Residency?.Bed?.Room?.RoomNumber} - Giường {co.Residency?.Bed?.BedCode} đã bị từ chối. Lý do: {rejectReason}.",
+                    ReferenceType = "Request",
+                    ReferenceId = req.Id.ToString(),
+                    ReadFlag = false,
+                    SentTime = now
+                };
+
+                await _requestRepo.RejectCheckoutAsync(req, log, notification);
+
+                await TrySendEmailAsync(
+                    req.Student?.User?.Email,
+                    $"[KTX FUD] Thông báo từ chối đơn trả phòng {requestCode}",
+                    $@"<div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+                        <h2 style='color: #dc2626;'>Đơn yêu cầu trả phòng bị từ chối</h2>
+                        <p>Xin chào <strong>{Enc(req.Student?.User?.FullName)}</strong>,</p>
+                        <p>Đơn yêu cầu trả phòng <strong>{Enc(requestCode)}</strong> của bạn đã bị Ban Quản lý từ chối.</p>
+                        <div style='background: #fef2f2; border-left: 4px solid #dc2626; padding: 12px; margin: 16px 0;'>
+                            <p><strong>Phòng / Giường:</strong> P.{Enc(co.Residency?.Bed?.Room?.RoomNumber)} - Giường {Enc(co.Residency?.Bed?.BedCode)}</p>
+                            <p><strong>Lý do từ chối:</strong> {Enc(rejectReason)}</p>
+                        </div>
+                        <p>Bạn vẫn tiếp tục lưu trú tại phòng hiện tại.</p>
+                    </div>");
+
+                var reloadedReject = await _requestRepo.GetRequestByIdAsync(req.Id) ?? req;
+                return MapToDto(reloadedReject);
+            }
+
+            if (dto.Decision == "Approved")
+            {
+                if (req.Status != "Pending")
+                {
+                    throw new InvalidOperationException("Đơn trả phòng không ở trạng thái Chờ xử lý (Pending) để duyệt Bước 1.");
+                }
+
+                if (co.Residency != null && co.Residency.Status != "Active")
+                {
+                    throw new InvalidOperationException($"Đợt lưu trú #{co.Residency.Id} không còn ở trạng thái Active (hiện tại: {co.Residency.Status}).");
+                }
+
+                var dormId = co.Residency?.Bed?.Room?.Block?.DormId ?? 0;
+                Guard? guard;
+                if (dto.AssignedGuardId.HasValue && dto.AssignedGuardId.Value > 0)
+                {
+                    guard = await _requestRepo.GetGuardByUserIdAsync(dto.AssignedGuardId.Value);
+                    if (guard == null)
+                    {
+                        throw new InvalidOperationException("Không tìm thấy Bảo vệ được phân công hoặc tài khoản Bảo vệ không hoạt động.");
+                    }
+
+                    if (dormId > 0 && guard.DormId != dormId)
+                    {
+                        throw new InvalidOperationException("Chỉ được phân công Bảo vệ đang phụ trách tòa KTX phòng hiện tại của sinh viên.");
+                    }
+                }
+                else
+                {
+                    if (dormId <= 0)
+                    {
+                        throw new InvalidOperationException("Không xác định được tòa KTX để tự động phân công Bảo vệ.");
+                    }
+
+                    var dormGuards = await _requestRepo.GetGuardsAsync(dormId);
+                    guard = dormGuards.FirstOrDefault(g => g.DormId == dormId);
+                    if (guard == null)
+                    {
+                        throw new InvalidOperationException("Tòa KTX phòng hiện tại của sinh viên chưa có Bảo vệ đang hoạt động để phân công.");
+                    }
+                }
+
+                var term = co.Residency?.Term ?? req.Term
+                    ?? throw new InvalidOperationException("Không xác định được học kỳ của đợt lưu trú hiện tại.");
+
+                var expectedDate = dto.ExpectedCheckOutDate ?? co.ExpectedCheckOutDate;
+                var maxCheckOutDate = term.EndDate.AddDays(-14);
+                if (expectedDate > maxCheckOutDate)
+                {
+                    throw new InvalidOperationException(
+                        $"Ngày dự kiến trả phòng phải trước ngày kết thúc học kỳ ít nhất 2 tuần (chậm nhất ngày {maxCheckOutDate:dd/MM/yyyy}).");
+                }
+
+                co.ExpectedCheckOutDate = expectedDate;
+                co.AssignedGuardId = guard.UserId;
+                co.ReviewedById = managerId;
+                co.ReviewedTime = now;
+
+                req.Status = "Approved";
+                req.ProcessedById = managerId;
+                req.ProcessedTime = now;
+
+                var log = new RequestLog
+                {
+                    RequestId = req.Id,
+                    FromStatus = "Pending",
+                    ToStatus = "Approved",
+                    Note = $"Quản lý duyệt Bước 1 đơn trả phòng, chốt ngày dự kiến {expectedDate:dd/MM/yyyy} và phân công Bảo vệ {guard.User?.FullName} kiểm tra phòng."
+                           + (string.IsNullOrWhiteSpace(dto.Note) ? string.Empty : $" Ghi chú: {dto.Note.Trim()}"),
+                    ChangeTime = now,
+                    ChangedById = managerId
+                };
+
+                var guardDisplayName = guard.User?.FullName ?? $"#{guard.UserId}";
+                var notifications = new List<Notification>
+                {
+                    new Notification
+                    {
+                        UserId = req.StudentId,
+                        Channel = "InApp",
+                        Title = $"Đơn trả phòng {requestCode} đã được duyệt Bước 1",
+                        Content = $"Ban Quản lý đã duyệt yêu cầu trả phòng P.{co.Residency?.Bed?.Room?.RoomNumber} - Giường {co.Residency?.Bed?.BedCode} (ngày dự kiến {expectedDate:dd/MM/yyyy}). Vui lòng dọn sạch đồ cá nhân để Bảo vệ {guardDisplayName} kiểm tra thiết bị và chốt điện nước.",
+                        ReferenceType = "Request",
+                        ReferenceId = req.Id.ToString(),
+                        ReadFlag = false,
+                        SentTime = now
+                    },
+                    new Notification
+                    {
+                        UserId = guard.UserId,
+                        Channel = "InApp",
+                        Title = $"Nhiệm vụ kiểm tra trả phòng mới ({requestCode})",
+                        Content = $"Bạn được phân công kiểm tra trả phòng P.{co.Residency?.Bed?.Room?.RoomNumber} - Giường {co.Residency?.Bed?.BedCode} cho sinh viên {req.Student?.User?.FullName} (ngày dự kiến {expectedDate:dd/MM/yyyy}).",
+                        ReferenceType = "Request",
+                        ReferenceId = req.Id.ToString(),
+                        ReadFlag = false,
+                        SentTime = now
+                    }
+                };
+
+                await _requestRepo.ApproveCheckoutStep1Async(req, co, log, notifications);
+
+                await TrySendEmailAsync(
+                    req.Student?.User?.Email,
+                    $"[KTX FUD] Chấp thuận Bước 1 đơn trả phòng {requestCode}",
+                    $@"<div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+                        <h2 style='color: #2563eb;'>Đơn trả phòng đã được chấp thuận Bước 1</h2>
+                        <p>Xin chào <strong>{Enc(req.Student?.User?.FullName)}</strong>,</p>
+                        <p>Ban Quản lý KTX đã chấp thuận yêu cầu trả phòng <strong>{Enc(requestCode)}</strong> và phân công cán bộ Bảo vệ phối hợp kiểm tra bàn giao phòng.</p>
+                        <div style='background: #eff6ff; border-left: 4px solid #2563eb; padding: 12px; margin: 16px 0;'>
+                            <p><strong>Phòng / Giường:</strong> P.{Enc(co.Residency?.Bed?.Room?.RoomNumber)} - Giường {Enc(co.Residency?.Bed?.BedCode)}</p>
+                            <p><strong>Ngày trả dự kiến:</strong> {expectedDate:dd/MM/yyyy}</p>
+                            <p><strong>Bảo vệ phụ trách:</strong> {Enc(guardDisplayName)} ({Enc(guard.User?.Phone ?? "N/A")})</p>
+                        </div>
+                        <p>Vui lòng dọn sạch toàn bộ đồ đạc cá nhân và phối hợp cùng Bảo vệ để kiểm tra thiết bị, chốt chỉ số điện nước trước khi Quản lý hoàn tất trả phòng.</p>
+                    </div>");
+
+                var reloadedApprove = await _requestRepo.GetRequestByIdAsync(req.Id);
+                if (reloadedApprove == null)
+                {
+                    co.AssignedGuard = guard;
+                    reloadedApprove = req;
+                }
+                return MapToDto(reloadedApprove);
+            }
+
+            // Decision == "Completed" (Manager Bước 2: Phát hành hóa đơn Unpaid + kết thúc Residency + Bed -> Free)
+            if (req.Status != "Approved")
+            {
+                throw new InvalidOperationException("Đơn trả phòng phải ở trạng thái Đã duyệt Bước 1 (Approved) trước khi hoàn tất trả phòng.");
+            }
+
+            if (req.Handover == null)
+            {
+                throw new InvalidOperationException("Chưa có biên bản kiểm tra trả phòng & chốt điện nước từ Bảo vệ. Không thể hoàn tất trả phòng.");
+            }
+
+            var detail = BuildCheckoutDetailDto(req);
+            var utilityShareTotal = Math.Round(detail.UtilityShareAmount ?? 0m, 2);
+            var compensationTotal = Math.Round(req.Handover.TotalCompensation, 2);
+
+            var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+            var dueDate = today.AddDays(7);
+            var suffix = now.Ticks.ToString()[^6..];
+            var invoices = new List<Invoice>();
+
+            if (utilityShareTotal > 0m)
+            {
+                var utilityInvoice = new Invoice
+                {
+                    InvoiceNumber = $"INV-CO-UTL-{req.Id}-{suffix}",
+                    StudentId = req.StudentId,
+                    TermId = req.TermId,
+                    InvoiceType = "Utility",
+                    HandoverId = req.Handover.Id,
+                    Amount = utilityShareTotal,
+                    Status = "Unpaid",
+                    IssuedTime = now,
+                    DueDate = dueDate
+                };
+
+                foreach (var mr in detail.MeterReadings.Where(m => m.StudentShareCost > 0m))
+                {
+                    var label = mr.MeterType == "Electricity" ? "Điện" : "Nước";
+                    var unit = mr.MeterType == "Electricity" ? "kWh" : "m³";
+                    var share = Math.Round(mr.StudentShareCost, 2);
+                    utilityInvoice.InvoiceItems.Add(new InvoiceItem
+                    {
+                        Description = $"Tiền {label} chốt khi trả phòng P.{co.Residency?.Bed?.Room?.RoomNumber} ({mr.Consumption:0.##} {unit} / {mr.ResidentCount} SV)",
+                        Quantity = 1m,
+                        UnitPrice = share,
+                        Amount = share
+                    });
+                }
+
+                if (utilityInvoice.InvoiceItems.Count > 0)
+                {
+                    utilityInvoice.Amount = utilityInvoice.InvoiceItems.Sum(i => i.Amount);
+                    invoices.Add(utilityInvoice);
+                }
+            }
+
+            if (compensationTotal > 0m)
+            {
+                var compInvoice = new Invoice
+                {
+                    InvoiceNumber = $"INV-CO-CMP-{req.Id}-{suffix}",
+                    StudentId = req.StudentId,
+                    TermId = req.TermId,
+                    InvoiceType = "Compensation",
+                    HandoverId = req.Handover.Id,
+                    Amount = compensationTotal,
+                    Status = "Unpaid",
+                    IssuedTime = now,
+                    DueDate = dueDate
+                };
+
+                foreach (var item in req.Handover.HandoverItems.Where(i => i.CompensationAmount > 0m))
+                {
+                    var equipName = item.Equipment?.Catalog?.Name ?? item.Equipment?.AssetCode ?? $"Thiết bị #{item.EquipmentId}";
+                    var itemAmount = Math.Round(item.CompensationAmount, 2);
+                    compInvoice.InvoiceItems.Add(new InvoiceItem
+                    {
+                        Description = $"Bồi thường hư hỏng/mất thiết bị khi trả phòng: {equipName} ({item.ItemCondition})",
+                        Quantity = 1m,
+                        UnitPrice = itemAmount,
+                        Amount = itemAmount
+                    });
+                }
+
+                if (compInvoice.InvoiceItems.Count > 0)
+                {
+                    compInvoice.Amount = compInvoice.InvoiceItems.Sum(i => i.Amount);
+                    invoices.Add(compInvoice);
+                }
+            }
+
+            var actualCheckOutDate = today;
+            req.Status = "Completed";
+            req.ProcessedById = managerId;
+            req.ProcessedTime = now;
+
+            var totalBilled = invoices.Sum(i => i.Amount);
+            var invoiceCodes = invoices.Count > 0
+                ? string.Join(", ", invoices.Select(i => $"{i.InvoiceNumber} ({i.Amount:N0}đ)"))
+                : "Không phát sinh công nợ";
+
+            var completeLog = new RequestLog
+            {
+                RequestId = req.Id,
+                FromStatus = "Approved",
+                ToStatus = "Completed",
+                Note = $"Quản lý hoàn tất trả phòng P.{co.Residency?.Bed?.Room?.RoomNumber} - Giường {co.Residency?.Bed?.BedCode} (Bed -> Free, Residency -> Ended). Hóa đơn phát hành: {invoiceCodes}."
+                       + (string.IsNullOrWhiteSpace(dto.Note) ? string.Empty : $" Ghi chú: {dto.Note.Trim()}"),
+                ChangeTime = now,
+                ChangedById = managerId
+            };
+
+            var completeNotification = new Notification
+            {
+                UserId = req.StudentId,
+                Channel = "InApp",
+                Title = $"Hoàn tất trả phòng ({requestCode}) - Giường {co.Residency?.Bed?.BedCode}",
+                Content = $"Thủ tục trả phòng P.{co.Residency?.Bed?.Room?.RoomNumber} - Giường {co.Residency?.Bed?.BedCode} đã hoàn tất."
+                          + (totalBilled > 0m
+                              ? $" Hóa đơn công nợ đã phát hành và đẩy sang mục Thanh toán hóa đơn: {invoiceCodes} (hạn thanh toán {dueDate:dd/MM/yyyy})."
+                              : " Không có khoản công nợ phát sinh."),
+                ReferenceType = "Request",
+                ReferenceId = req.Id.ToString(),
+                ReadFlag = false,
+                SentTime = now
+            };
+
+            var invoiceNotifications = invoices.Select(inv =>
+            {
+                var typeTitle = inv.InvoiceType == "Compensation"
+                    ? "Hóa đơn bồi thường trả phòng"
+                    : "Hóa đơn điện nước chốt trả phòng";
+
+                return new Notification
+                {
+                    UserId = req.StudentId,
+                    Channel = "InApp",
+                    Title = $"{typeTitle} ({inv.InvoiceNumber})",
+                    Content = $"Ban Quản lý đã phát hành hóa đơn {inv.InvoiceNumber} ({inv.Amount:N0}đ) từ đơn trả phòng {requestCode}, hạn thanh toán {inv.DueDate:dd/MM/yyyy}. Bấm để mở mục Thanh toán hóa đơn.",
+                    ReferenceType = "Invoice",
+                    ReferenceId = null,
+                    ReadFlag = false,
+                    SentTime = now
+                };
+            }).ToList();
+
+            await _requestRepo.CompleteCheckoutAsync(
+                req,
+                co,
+                co.ResidencyId,
+                co.Residency?.BedId ?? 0,
+                actualCheckOutDate,
+                invoices,
+                req.Handover.Id,
+                managerId,
+                string.IsNullOrWhiteSpace(dto.Note) ? null : dto.Note.Trim(),
+                completeLog,
+                completeNotification,
+                invoiceNotifications);
+
+            var paymentGuidanceHtml = totalBilled > 0m
+                ? "<p>Hóa đơn công nợ đã được đẩy sang mục <strong>Thanh toán hóa đơn</strong> trên Cổng Sinh viên F.U.D. Vui lòng truy cập để quét mã VietQR và hoàn tất thanh toán đúng hạn.</p>"
+                : "<p>Đơn trả phòng không phát sinh khoản công nợ cần thanh toán.</p>";
+
+            await TrySendEmailAsync(
+                req.Student?.User?.Email,
+                $"[KTX FUD] Hoàn tất trả phòng {requestCode} - P.{co.Residency?.Bed?.Room?.RoomNumber}",
+                $@"<div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+                    <h2 style='color: #16a34a;'>Hoàn tất thủ tục trả phòng KTX</h2>
+                    <p>Xin chào <strong>{Enc(req.Student?.User?.FullName)}</strong>,</p>
+                    <p>Ban Quản lý Ký túc xá xác nhận đã hoàn tất thủ tục trả phòng <strong>{Enc(requestCode)}</strong> cho bạn.</p>
+                    <div style='background: #f0fdf4; border-left: 4px solid #16a34a; padding: 12px; margin: 16px 0;'>
+                        <p><strong>Phòng / Giường đã trả:</strong> P.{Enc(co.Residency?.Bed?.Room?.RoomNumber)} - Giường {Enc(co.Residency?.Bed?.BedCode)} ({Enc(co.Residency?.Bed?.Room?.Block?.Dorm?.Name)})</p>
+                        <p><strong>Ngày trả phòng thực tế:</strong> {actualCheckOutDate:dd/MM/yyyy}</p>
+                        <p><strong>Hóa đơn công nợ:</strong> {Enc(invoiceCodes)}</p>
+                    </div>
+                    {paymentGuidanceHtml}
+                </div>");
+
+            var reloadedComplete = await _requestRepo.GetRequestByIdAsync(req.Id) ?? req;
+            return MapToDto(reloadedComplete);
+        }
+
+        private static CheckoutDetailDto BuildCheckoutDetailDto(Request req)
+        {
+            var co = req.CheckoutRequest!;
+            var utilityPrices = req.Term?.UtilityPrices?
+                .GroupBy(u => u.MeterType)
+                .ToDictionary(g => g.Key, g => g.First().UnitPrice)
+                ?? new Dictionary<string, decimal>();
+
+            var activeResidentCount = CountRoomCheckoutResidents(req);
+            var meterReadings = BuildMeterReadingDtos(co.MeterReadings, utilityPrices, activeResidentCount);
+            var handoverDto = BuildHandoverInfoDto(req.Handover);
+
+            var utilityShare = meterReadings.Count > 0 ? Math.Round(meterReadings.Sum(m => m.StudentShareCost), 2) : (decimal?)null;
+            var equipmentComp = handoverDto != null ? Math.Round(handoverDto.TotalCompensation, 2) : (decimal?)null;
+            var totalOutstanding = utilityShare.HasValue || equipmentComp.HasValue
+                ? Math.Round((utilityShare ?? 0m) + (equipmentComp ?? 0m), 2)
+                : (decimal?)null;
+
+            var invoices = (req.Handover?.Invoices ?? Enumerable.Empty<Invoice>())
+                .Where(i => i.DeletedAt == null)
+                .OrderBy(i => i.Id)
+                .Select(i => new BedTransferInvoiceSummaryDto
+                {
+                    Id = i.Id,
+                    InvoiceNumber = i.InvoiceNumber,
+                    InvoiceType = i.InvoiceType,
+                    Status = i.Status,
+                    TotalAmount = i.Amount,
+                    IssueDate = DateOnly.FromDateTime(i.IssuedTime),
+                    DueDate = i.DueDate,
+                    Description = i.InvoiceType == "Compensation"
+                        ? "Hóa đơn bồi thường thiết bị trả phòng"
+                        : "Hóa đơn điện nước chốt trả phòng"
+                })
+                .ToList();
+
+            var bed = co.Residency?.Bed;
+            var room = bed?.Room;
+            var block = room?.Block;
+
+            return new CheckoutDetailDto
+            {
+                ResidencyId = co.ResidencyId,
+                BedId = co.Residency?.BedId ?? 0,
+                RoomId = bed?.RoomId ?? 0,
+                DormId = block?.DormId ?? 0,
+                BedCode = bed?.BedCode ?? string.Empty,
+                RoomNumber = room?.RoomNumber ?? string.Empty,
+                BlockCode = block?.Code ?? string.Empty,
+                BlockName = block?.Name ?? string.Empty,
+                DormName = block?.Dorm?.Name ?? string.Empty,
+                ExpectedCheckOutDate = co.ExpectedCheckOutDate,
+                ActualCheckOutDate = co.Residency?.ActualCheckOutDate,
+                IsExceptionalCase = co.IsExceptionalCase,
+                ExceptionNote = co.ExceptionNote,
+                AssignedGuardId = co.AssignedGuardId,
+                AssignedGuardName = co.AssignedGuard?.User?.FullName,
+                AssignedGuardCode = co.AssignedGuard?.User?.Code,
+                ReviewedById = co.ReviewedById,
+                ReviewedTime = co.ReviewedTime,
+                Handover = handoverDto,
+                MeterReadings = meterReadings,
+                UtilityShareAmount = utilityShare,
+                EquipmentCompensationAmount = equipmentComp,
+                TotalOutstandingAmount = totalOutstanding,
+                Invoices = invoices
+            };
+        }
+
+        private static CheckoutInspectionTaskDto MapToGuardCheckoutTaskDto(Request req, Dictionary<string, decimal>? prevReadings)
+        {
+            var co = req.CheckoutRequest!;
+            var utilityPrices = req.Term?.UtilityPrices?
+                .GroupBy(u => u.MeterType)
+                .ToDictionary(g => g.Key, g => g.First().UnitPrice)
+                ?? new Dictionary<string, decimal>();
+            var residentCount = CountRoomCheckoutResidents(req);
+            var meterReadings = BuildMeterReadingDtos(co.MeterReadings, utilityPrices, residentCount);
+            var elecMr = meterReadings.FirstOrDefault(m => m.MeterType == "Electricity");
+            var waterMr = meterReadings.FirstOrDefault(m => m.MeterType == "Water");
+
+            var bed = co.Residency?.Bed;
+            var room = bed?.Room;
+            var block = room?.Block;
+
+            return new CheckoutInspectionTaskDto
+            {
+                RequestId = req.Id,
+                RequestCode = $"REQ-{req.Id:D6}",
+                Status = req.Status,
+                StudentId = req.StudentId,
+                StudentName = req.Student?.User?.FullName ?? string.Empty,
+                StudentCode = req.Student?.User?.Code ?? string.Empty,
+                StudentPhone = req.Student?.User?.Phone,
+                ResidencyId = co.ResidencyId,
+                DormName = block?.Dorm?.Name ?? string.Empty,
+                BlockName = block?.Name ?? string.Empty,
+                RoomId = bed?.RoomId ?? 0,
+                RoomNumber = room?.RoomNumber ?? string.Empty,
+                BedId = co.Residency?.BedId ?? 0,
+                BedCode = bed?.BedCode ?? string.Empty,
+                ExpectedCheckOutDate = co.ExpectedCheckOutDate,
+                Reason = req.Reason ?? string.Empty,
+                AssignedGuardId = co.AssignedGuardId,
+                AssignedGuardName = co.AssignedGuard?.User?.FullName,
+                PreviousElectricityReading = elecMr?.PreviousValue ?? (prevReadings?.GetValueOrDefault("Electricity", 0m) ?? 0m),
+                PreviousWaterReading = waterMr?.PreviousValue ?? (prevReadings?.GetValueOrDefault("Water", 0m) ?? 0m),
+                ElectricityUnitPrice = utilityPrices.GetValueOrDefault("Electricity", 0m),
+                WaterUnitPrice = utilityPrices.GetValueOrDefault("Water", 0m),
+                ActiveResidentCount = residentCount,
+                HandoverCompleted = req.Handover != null,
+                Handover = BuildHandoverInfoDto(req.Handover),
+                MeterReadings = meterReadings
+            };
+        }
+
+        private static int CountRoomCheckoutResidents(Request req)
+        {
+            var co = req.CheckoutRequest;
+            var beds = co?.Residency?.Bed?.Room?.Beds;
+            if (beds == null || beds.Count == 0)
+                return 1;
+
+            var count = beds
+                .SelectMany(b => b.Residencies)
+                .Count(r => r.TermId == req.TermId && (r.Status == "Active" || r.Id == co!.ResidencyId));
+
+            return count > 0 ? count : 1;
         }
     }
 }

@@ -14,5 +14,8 @@ namespace FUD.Services.Interfaces.Requests
         Task<List<GuardLookupDto>> GetGuardsAsync(int? dormId = null);
         Task<List<TransferInspectionTaskDto>> GetGuardTransferInspectionsAsync(int guardUserId);
         Task<TransferInspectionTaskDto> SubmitTransferInspectionAsync(int requestId, int guardUserId, SubmitTransferInspectionDto dto);
+        Task<CheckoutContextDto> GetCheckoutContextAsync(int studentId);
+        Task<List<CheckoutInspectionTaskDto>> GetGuardCheckoutInspectionsAsync(int guardUserId);
+        Task<CheckoutInspectionTaskDto> SubmitCheckoutInspectionAsync(int requestId, int guardUserId, SubmitCheckoutInspectionDto dto);
     }
 }
