@@ -9,6 +9,8 @@ using FluentAssertions;
 using FUD.Controllers;
 using FUD.Infrastructure.Auth;
 using FUD.Models;
+using FUD.Repositories;
+using FUD.Services;
 using FUD.Settings.pattern;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -97,7 +99,9 @@ public class ManagerImpersonateSecurityTests
         await db.SaveChangesAsync();
 
         var jwtGenMock = new Mock<IJwtTokenGenerator>();
-        var controller = new ManagerImpersonateController(db, jwtGenMock.Object);
+        var repo = new ManagerImpersonateRepository(db);
+        var service = new ManagerImpersonateService(repo, jwtGenMock.Object);
+        var controller = new ManagerImpersonateController(service);
         SetCallerClaims(controller, managerId: 10);
 
         // Act
@@ -117,7 +121,9 @@ public class ManagerImpersonateSecurityTests
         // Arrange
         await using var db = CreateInMemoryContext();
         var jwtGenMock = new Mock<IJwtTokenGenerator>();
-        var controller = new ManagerImpersonateController(db, jwtGenMock.Object);
+        var repo = new ManagerImpersonateRepository(db);
+        var service = new ManagerImpersonateService(repo, jwtGenMock.Object);
+        var controller = new ManagerImpersonateController(service);
         SetCallerClaims(controller, managerId: 10, isImpersonating: true);
 
         // Act
@@ -157,7 +163,9 @@ public class ManagerImpersonateSecurityTests
         db.FailOnSave = true;
 
         var jwtGenMock = new Mock<IJwtTokenGenerator>();
-        var controller = new ManagerImpersonateController(db, jwtGenMock.Object);
+        var repo = new ManagerImpersonateRepository(db);
+        var service = new ManagerImpersonateService(repo, jwtGenMock.Object);
+        var controller = new ManagerImpersonateController(service);
         SetCallerClaims(controller, managerId: 10);
 
         // Act
@@ -238,7 +246,9 @@ public class ManagerImpersonateSecurityTests
             .Setup(j => j.GenerateImpersonationToken(It.IsAny<User>(), It.IsAny<IEnumerable<string>>(), 10))
             .Returns("imp-token-52");
 
-        var controller = new ManagerImpersonateController(db, jwtGenMock.Object);
+        var repo = new ManagerImpersonateRepository(db);
+        var service = new ManagerImpersonateService(repo, jwtGenMock.Object);
+        var controller = new ManagerImpersonateController(service);
         SetCallerClaims(controller, managerId: 10);
 
         // Act
@@ -286,7 +296,9 @@ public class ManagerImpersonateSecurityTests
             .Setup(j => j.GenerateImpersonationToken(It.IsAny<User>(), It.IsAny<IEnumerable<string>>(), 10))
             .Returns("imp-token-53");
 
-        var controller = new ManagerImpersonateController(db, jwtGenMock.Object);
+        var repo = new ManagerImpersonateRepository(db);
+        var service = new ManagerImpersonateService(repo, jwtGenMock.Object);
+        var controller = new ManagerImpersonateController(service);
         SetCallerClaims(controller, managerId: 10);
 
         // Act
@@ -327,7 +339,9 @@ public class ManagerImpersonateSecurityTests
             .Setup(j => j.GenerateImpersonationToken(It.IsAny<User>(), It.IsAny<IEnumerable<string>>(), 10))
             .Returns("imp-token-54");
 
-        var controller = new ManagerImpersonateController(db, jwtGenMock.Object);
+        var repo = new ManagerImpersonateRepository(db);
+        var service = new ManagerImpersonateService(repo, jwtGenMock.Object);
+        var controller = new ManagerImpersonateController(service);
         SetCallerClaims(controller, managerId: 10);
         controller.HttpContext.Request.Headers.UserAgent = new string('A', 300);
 
