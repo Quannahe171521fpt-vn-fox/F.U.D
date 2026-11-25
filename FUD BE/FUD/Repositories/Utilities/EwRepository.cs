@@ -604,12 +604,12 @@ namespace FUD.Repositories.Utilities
             decimal overKwh = Math.Max(0m, totalKwh - (50m * divisionCount));
             decimal overM3 = Math.Max(0m, totalM3 - (3m * divisionCount));
 
-            decimal elecCost = Math.Round(overKwh * elecPrice, 0);
-            decimal waterCost = Math.Round(overM3 * waterPrice, 0);
+            decimal elecCost = overKwh * elecPrice;
+            decimal waterCost = overM3 * waterPrice;
             decimal totalCost = elecCost + waterCost;
 
             decimal sharePerStudent = (residentCount > 0 && totalCost > 0)
-                ? Math.Round(totalCost / residentCount / 1000m, MidpointRounding.AwayFromZero) * 1000m
+                ? Math.Round(totalCost / residentCount, 0, MidpointRounding.AwayFromZero)
                 : 0m;
 
             var bill = await _ctx.UtilityBills
@@ -842,6 +842,10 @@ namespace FUD.Repositories.Utilities
                     .ToListAsync();
             }
 
+            var prices = await _ctx.UtilityPrices.Where(p => p.TermId == targetTermId).ToListAsync();
+            var elecPrice = prices.FirstOrDefault(p => p.MeterType.Contains("Elec") || p.MeterType.Contains("Điện"))?.UnitPrice ?? 2500m;
+            var waterPrice = prices.FirstOrDefault(p => p.MeterType.Contains("Water") || p.MeterType.Contains("Nước"))?.UnitPrice ?? 10000m;
+
             var rows = new List<StudentEwMonthlyRowDto>();
 
             var grouped = readings
@@ -860,8 +864,10 @@ namespace FUD.Repositories.Utilities
                 var totalConsumption = g.Sum(m => m.Consumption ?? (m.CurrentValue - m.PreviousValue));
                 var isElec = g.Key.Type == "Electricity";
                 var monthlyQuota = isElec ? 50m : 3m;
+                var unitPrice = isElec ? elecPrice : waterPrice;
                 var yourUsage = Math.Round(totalConsumption / divisionCount, 2);
                 var yourOverUsage = yourUsage - monthlyQuota;
+                var yourOverUsagePayment = yourOverUsage > 0 ? yourOverUsage * unitPrice : 0m;
                 var latestDate = g.Max(m => m.RecordedTime);
 
                 rows.Add(new StudentEwMonthlyRowDto
@@ -877,7 +883,9 @@ namespace FUD.Repositories.Utilities
                     RoomTotalUsage = totalConsumption,
                     YourUsage = yourUsage,
                     QuotaMonthly = monthlyQuota,
-                    YourOverUsage = yourOverUsage
+                    YourOverUsage = yourOverUsage,
+                    UnitPrice = unitPrice,
+                    YourOverUsagePayment = yourOverUsagePayment
                 });
             }
 
@@ -887,21 +895,9 @@ namespace FUD.Repositories.Utilities
             var totalWaterUsage = rows.Where(r => r.RawType == "Water").Sum(r => r.YourUsage);
             var totalWaterOverUsage = rows.Where(r => r.RawType == "Water").Sum(r => r.YourOverUsage);
 
-            var prices = await _ctx.UtilityPrices.Where(p => p.TermId == targetTermId).ToListAsync();
-            var elecPrice = prices.FirstOrDefault(p => p.MeterType.Contains("Elec") || p.MeterType.Contains("Điện"))?.UnitPrice ?? 2500m;
-            var waterPrice = prices.FirstOrDefault(p => p.MeterType.Contains("Water") || p.MeterType.Contains("Nước"))?.UnitPrice ?? 10000m;
-
-            decimal elecPayment = 0m;
-            if (totalElecOverUsage > 0)
-            {
-                elecPayment = Math.Round(totalElecOverUsage * elecPrice / 1000m, MidpointRounding.AwayFromZero) * 1000m;
-            }
-
-            decimal waterPayment = 0m;
-            if (totalWaterOverUsage > 0)
-            {
-                waterPayment = Math.Round(totalWaterOverUsage * waterPrice / 1000m, MidpointRounding.AwayFromZero) * 1000m;
-            }
+            // Giữ đúng nguyên giá khi nhân đơn giá với sản lượng vượt định mức, không làm tròn lên hàng nghìn
+            decimal elecPayment = totalElecOverUsage > 0 ? totalElecOverUsage * elecPrice : 0m;
+            decimal waterPayment = totalWaterOverUsage > 0 ? totalWaterOverUsage * waterPrice : 0m;
 
             return new StudentEwReportDto
             {

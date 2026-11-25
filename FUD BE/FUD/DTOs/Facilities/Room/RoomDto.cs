@@ -7,6 +7,8 @@ namespace FUD.DTOs.Facilities.Room
     public class RoomDto
     {
         public int Id { get; set; }
+        public int DormId { get; set; }
+        public string DormName { get; set; } = string.Empty;
         public int BlockId { get; set; }
         public string BlockName { get; set; } = string.Empty;           // cột "Block Name"
         public string BlockGenderType { get; set; } = string.Empty;     // để FE filter giới tính

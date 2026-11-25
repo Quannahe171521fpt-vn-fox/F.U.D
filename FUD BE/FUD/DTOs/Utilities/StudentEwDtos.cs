@@ -47,6 +47,8 @@ namespace FUD.DTOs.Utilities
         public decimal YourUsage { get; set; }
         public decimal QuotaMonthly { get; set; }
         public decimal YourOverUsage { get; set; }
+        public decimal UnitPrice { get; set; }
+        public decimal YourOverUsagePayment { get; set; }
     }
 
     public class StudentTermOptionDto

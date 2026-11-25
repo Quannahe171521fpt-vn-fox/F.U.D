@@ -358,6 +358,8 @@ namespace FUD.Services.Facilities
             return new RoomDto
             {
                 Id = r.Id,
+                DormId = r.Block?.DormId ?? 0,
+                DormName = r.Block?.Dorm?.Name ?? string.Empty,
                 BlockId = r.BlockId,
                 BlockName = r.Block?.Name ?? string.Empty,
                 BlockGenderType = r.Block?.GenderType ?? string.Empty,

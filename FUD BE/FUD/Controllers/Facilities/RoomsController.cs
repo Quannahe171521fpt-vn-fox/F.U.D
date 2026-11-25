@@ -58,6 +58,7 @@ namespace FUD.Controllers.Facilities
         }
 
         [HttpGet("guard-blocks")]
+        [HttpGet("blocks-lookup")]
         public async Task<IActionResult> GetAssignedBlocks()
         {
             try

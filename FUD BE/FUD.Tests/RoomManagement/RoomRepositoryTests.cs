@@ -723,5 +723,61 @@ public class RoomRepositoryTests
         occupiedBed.Residencies.First().Handover!.Status.Should().Be("Completed");
     }
 
+    [Fact]
+    public async Task GetAllAsync_WhenManagerFiltersByExactRoomFloorAndGenderAcrossAllDorms_ReturnsMatchingRooms()
+    {
+        // Arrange
+        using var context = CreateInMemoryContext();
+        await SeedBasicFacilitiesAsync(context);
+        var dormB = new Dorm { Id = 2, Name = "Dorm B", Code = "DB", CampusId = 1, Status = "Active" };
+        var blockBFemale = new Block { Id = 3, DormId = 2, Name = "Block 202 - Dorm B", Code = "B202", FloorLevel = 3, GenderType = "Female", Status = "Active", Dorm = dormB };
+        var roomBFemale = new Room { Id = 60, BlockId = 3, RoomTypeId = 2, RoomNumber = "201L", FloorLevel = 2, Status = "Active", Block = blockBFemale };
+        await context.Dorms.AddAsync(dormB);
+        await context.Blocks.AddAsync(blockBFemale);
+        await context.Rooms.AddAsync(roomBFemale);
+        await context.SaveChangesAsync();
+
+        var sut = new RoomRepository(context);
+        var query = new RoomQueryDto
+        {
+            ExactRoomNumber = "201L",
+            FloorLevel = 2,
+            GenderType = "Female",
+            Page = 1,
+            PageSize = 10
+        };
+
+        // Act
+        var (items, totalCount) = await sut.GetAllAsync(query);
+
+        // Assert
+        totalCount.Should().Be(2);
+        items.Select(r => r.Id).Should().BeEquivalentTo(new[] { 30, 60 });
+    }
+
+    [Fact]
+    public async Task GetBlocksWithRoomsAsync_WhenDormIdIsNullForManager_ReturnsAllBlocksAcrossAllDorms()
+    {
+        // Arrange
+        using var context = CreateInMemoryContext();
+        await SeedBasicFacilitiesAsync(context);
+        var dormB = new Dorm { Id = 2, Name = "Dorm B", Code = "DB", CampusId = 1, Status = "Active" };
+        var blockB = new Block { Id = 3, DormId = 2, Name = "Block 101 - Dorm B", Code = "B101", FloorLevel = 3, GenderType = "Male", Status = "Active", Dorm = dormB };
+        var roomB = new Room { Id = 55, BlockId = 3, RoomTypeId = 2, RoomNumber = "101L", FloorLevel = 1, Status = "Active", Block = blockB };
+        await context.Dorms.AddAsync(dormB);
+        await context.Blocks.AddAsync(blockB);
+        await context.Rooms.AddAsync(roomB);
+        await context.SaveChangesAsync();
+
+        var sut = new RoomRepository(context);
+
+        // Act
+        var blocks = (await sut.GetBlocksWithRoomsAsync(dormId: null)).ToList();
+
+        // Assert
+        blocks.Should().HaveCount(3);
+        blocks.Select(b => b.Dorm.Name).Distinct().Should().BeEquivalentTo(new[] { "Dorm A", "Dorm B" });
+    }
+
     #endregion
 }

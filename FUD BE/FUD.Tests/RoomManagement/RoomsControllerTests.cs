@@ -535,4 +535,118 @@ public class RoomsControllerTests
     }
 
     #endregion
+
+    #region Manager Room Management Endpoints Tests
+
+    private RoomsController CreateManagerSut(int managerUserId = 2)
+    {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.Role, "Manager"),
+            new(ClaimTypes.NameIdentifier, managerUserId.ToString())
+        };
+        var identity = new ClaimsIdentity(claims, "TestAuth");
+        return new RoomsController(_roomServiceMock.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(identity)
+                }
+            }
+        };
+    }
+
+    [Fact]
+    public async Task GetAll_WhenCallerIsManagerWithSearchAndFilters_CallsUnscopedGetAllAsync()
+    {
+        // Arrange
+        var query = new RoomQueryDto
+        {
+            RoomNumber = "101",
+            ExactRoomNumber = "101L",
+            FloorLevel = 1,
+            GenderType = "Male",
+            Page = 1,
+            PageSize = 10
+        };
+        var pagedData = new PagedResult<RoomDto>
+        {
+            Items = new List<RoomDto> { CreateSampleRoomDto(10, 1, "101L") },
+            TotalCount = 1,
+            Page = 1,
+            PageSize = 10
+        };
+        _roomServiceMock.Setup(s => s.GetAllAsync(query)).ReturnsAsync(pagedData);
+        var sut = CreateManagerSut();
+
+        // Act
+        var result = await sut.GetAll(query);
+
+        // Assert
+        var okResult = result.Should().BeOfType<OkObjectResult>().Subject;
+        okResult.StatusCode.Should().Be(StatusCodes.Status200OK);
+        _roomServiceMock.Verify(s => s.GetAllAsync(query), Times.Once);
+        _roomServiceMock.Verify(s => s.GetAllForGuardAsync(It.IsAny<RoomQueryDto>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetDetail_WhenCallerIsManager_CallsGetDetailWithoutGuardScopeAndReturnsCheckedInStudents()
+    {
+        // Arrange
+        var detailDto = new RoomDetailDto
+        {
+            Id = 25,
+            DormId = 2,
+            DormName = "Ký túc xá Dom B",
+            RoomNumber = "202L",
+            BlockName = "Block 202 - Dom B (Nữ)",
+            BlockGenderType = "Female",
+            FloorLevel = 2,
+            CheckedInCount = 2,
+            CheckedInStudents = new List<RoomCheckedInStudentDto>
+            {
+                new() { ResidencyId = 11, StudentId = 601, StudentCode = "SE190002", FullName = "Lý Khánh Vy", BedCode = "202L-1" },
+                new() { ResidencyId = 12, StudentId = 602, StudentCode = "SE190008", FullName = "Tạ Bảo Châu", BedCode = "202L-2" }
+            }
+        };
+        _roomServiceMock.Setup(s => s.GetDetailByIdAsync(25, null)).ReturnsAsync(detailDto);
+        var sut = CreateManagerSut();
+
+        // Act
+        var result = await sut.GetDetail(25);
+
+        // Assert
+        var okResult = result.Should().BeOfType<OkObjectResult>().Subject;
+        var response = okResult.Value.Should().BeOfType<ApiResponse<object>>().Subject;
+        response.Success.Should().BeTrue();
+        response.Data.Should().BeEquivalentTo(detailDto);
+        _roomServiceMock.Verify(s => s.GetDetailByIdAsync(25, null), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetAssignedBlocks_WhenCallerIsManager_ReturnsAllBlocksAcrossAllDorms()
+    {
+        // Arrange
+        var blocks = new List<GuardAssignedBlockDto>
+        {
+            new() { Id = 1, DormId = 1, DormName = "Ký túc xá Dom A", Code = "101", Name = "Block 101 - Dom A (Nam)", GenderType = "Male" },
+            new() { Id = 5, DormId = 2, DormName = "Ký túc xá Dom B", Code = "102", Name = "Block 102 - Dom B (Nữ)", GenderType = "Female" }
+        };
+        _roomServiceMock.Setup(s => s.GetAssignedBlocksLookupAsync(null)).ReturnsAsync(blocks);
+        var sut = CreateManagerSut();
+
+        // Act
+        var result = await sut.GetAssignedBlocks();
+
+        // Assert
+        var okResult = result.Should().BeOfType<OkObjectResult>().Subject;
+        var response = okResult.Value.Should().BeOfType<ApiResponse<object>>().Subject;
+        response.Success.Should().BeTrue();
+        response.Data.Should().BeEquivalentTo(blocks);
+        _roomServiceMock.Verify(s => s.GetAssignedBlocksLookupAsync(null), Times.Once);
+    }
+
+    #endregion
 }

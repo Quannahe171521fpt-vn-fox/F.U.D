@@ -816,5 +816,110 @@ public class RoomServiceTests
         detail.Beds.Single(b => b.BedId == bed.Id).Status.Should().Be("Occupied");
     }
 
+    [Fact]
+    public async Task GetDetailByIdAsync_WhenCalledByManagerWithoutGuardUserId_ReturnsCheckedInStudentsForAnyDorm()
+    {
+        // Arrange
+        var (room, _, _) = CreateSampleRoomEntity(25, 5, 1, "202L", floor: 2, freeBeds: 2, occupiedBeds: 2);
+        room.Block.DormId = 2;
+        room.Block.Dorm = new Dorm { Id = 2, Name = "Ký túc xá Dom B", Code = "B", Status = "Active" };
+        room.Block.GenderType = "Female";
+
+        var occupiedBed = room.Beds.First(b => b.Status == "Occupied");
+        occupiedBed.Residencies = new List<Residency>
+        {
+            new()
+            {
+                Id = 5001,
+                StudentId = 701,
+                BedId = occupiedBed.Id,
+                TermId = 1,
+                Status = "Active",
+                CheckInDate = new DateOnly(2026, 9, 3),
+                Student = new Student
+                {
+                    UserId = 701,
+                    Major = "International Business",
+                    Cohort = "K19",
+                    User = new User { Id = 701, Code = "SE190008", FullName = "Tạ Bảo Châu", Gender = "Female", Email = "chautb@fpt.edu.vn" }
+                },
+                Term = new Term { Id = 1, Name = "Fall", AcademicYear = "2026-2027" },
+                Handover = new Handover { Id = 6001, HandoverType = "Checkin", Status = "Completed" }
+            }
+        };
+
+        _roomRepoMock.Setup(r => r.GetRoomDetailWithResidentsAsync(25)).ReturnsAsync(room);
+        var sut = CreateSut();
+
+        // Act
+        var detail = await sut.GetDetailByIdAsync(25, guardUserId: null);
+
+        // Assert
+        detail.Should().NotBeNull();
+        detail!.DormId.Should().Be(2);
+        detail.DormName.Should().Be("Ký túc xá Dom B");
+        detail.RoomNumber.Should().Be("202L");
+        detail.FloorLevel.Should().Be(2);
+        detail.BlockGenderType.Should().Be("Female");
+        detail.CheckedInCount.Should().Be(1);
+        detail.CheckedInStudents.Should().ContainSingle(s => s.StudentCode == "SE190008" && s.FullName == "Tạ Bảo Châu");
+        _roomRepoMock.Verify(r => r.GetGuardDormIdAsync(It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetAssignedBlocksLookupAsync_WhenCalledByManagerWithoutGuardUserId_ReturnsAllBlocksWithRooms()
+    {
+        // Arrange
+        var dormA = new Dorm { Id = 1, Name = "Dom A", Code = "A", Status = "Active" };
+        var dormB = new Dorm { Id = 2, Name = "Dom B", Code = "B", Status = "Active" };
+        var blocks = new List<Block>
+        {
+            new()
+            {
+                Id = 1,
+                DormId = 1,
+                Dorm = dormA,
+                Code = "101",
+                Name = "Block 101 - Dom A",
+                GenderType = "Male",
+                FloorLevel = 3,
+                Status = "Active",
+                Rooms = new List<Room>
+                {
+                    new() { Id = 10, BlockId = 1, RoomNumber = "101L", FloorLevel = 1 }
+                }
+            },
+            new()
+            {
+                Id = 2,
+                DormId = 2,
+                Dorm = dormB,
+                Code = "202",
+                Name = "Block 202 - Dom B",
+                GenderType = "Female",
+                FloorLevel = 3,
+                Status = "Active",
+                Rooms = new List<Room>
+                {
+                    new() { Id = 20, BlockId = 2, RoomNumber = "202R", FloorLevel = 2 }
+                }
+            }
+        };
+
+        _roomRepoMock.Setup(r => r.GetBlocksWithRoomsAsync(null)).ReturnsAsync(blocks);
+        var sut = CreateSut();
+
+        // Act
+        var result = (await sut.GetAssignedBlocksLookupAsync(guardUserId: null)).ToList();
+
+        // Assert
+        result.Should().HaveCount(2);
+        result[0].DormName.Should().Be("Dom A");
+        result[0].Rooms.Should().ContainSingle(r => r.RoomNumber == "101L" && r.FloorLevel == 1);
+        result[1].DormName.Should().Be("Dom B");
+        result[1].Rooms.Should().ContainSingle(r => r.RoomNumber == "202R" && r.FloorLevel == 2);
+        _roomRepoMock.Verify(r => r.GetGuardDormIdAsync(It.IsAny<int>()), Times.Never);
+    }
+
     #endregion
 }

@@ -881,6 +881,8 @@ export const blockApi = {
 // ── Room Management API ────────────────────────────────────
 export interface RoomDto {
   id: number;
+  dormId?: number;
+  dormName?: string;
   blockId: number;
   blockName: string;
   blockGenderType: string;
@@ -2066,6 +2068,8 @@ export interface StudentEwMonthlyRowDto {
   yourUsage: number;
   quotaMonthly: number;
   yourOverUsage: number;
+  unitPrice?: number;
+  yourOverUsagePayment?: number;
 }
 
 export interface StudentEwReportDto {
