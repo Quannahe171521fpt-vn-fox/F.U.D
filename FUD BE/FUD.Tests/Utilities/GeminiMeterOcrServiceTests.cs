@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using FluentAssertions;
 using FUD.Infrastructure.AI;
 using FUD.Settings.pattern;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -26,13 +27,16 @@ public class GeminiMeterOcrServiceTests
     private static GeminiMeterOcrService CreateSut(
         HttpMessageHandler handler,
         GeminiSettings? settings = null,
-        Dictionary<string, string?>? configValues = null)
+        Dictionary<string, string?>? configValues = null,
+        IMemoryCache? memoryCache = null)
     {
         var httpClient = new HttpClient(handler);
         var resolvedSettings = settings ?? new GeminiSettings
         {
             ApiKey = "test-secret-api-key",
+            ApiKeys = "",
             Model = "gemini-3.5-flash-lite",
+            FallbackModels = "",
             BaseUrl = "https://generativelanguage.googleapis.com/v1beta",
             TimeoutSeconds = 25
         };
@@ -45,7 +49,8 @@ public class GeminiMeterOcrServiceTests
             httpClient,
             Options.Create(resolvedSettings),
             configuration,
-            NullLogger<GeminiMeterOcrService>.Instance);
+            NullLogger<GeminiMeterOcrService>.Instance,
+            memoryCache);
     }
 
     private static Mock<HttpMessageHandler> CreateHandlerMock(
@@ -444,5 +449,336 @@ public class GeminiMeterOcrServiceTests
         result.DecimalDigits.Should().Be("056");
         result.RawDigits.Should().Be("00001.056");
         result.ReadingValue.Should().Be(1.06m);
+    }
+
+    [Fact]
+    public async Task ExtractMeterReadingAsync_RotatesAcrossApiKeysRoundRobin()
+    {
+        var usedKeys = new List<string>();
+        string? capturedFlashBody = null;
+
+        var handlerMock = CreateHandlerMock(async (req, ct) =>
+        {
+            usedKeys.Add(req.Headers.GetValues("x-goog-api-key").Single());
+            capturedFlashBody ??= await req.Content!.ReadAsStringAsync(ct);
+
+            var ocrJson = JsonSerializer.Serialize(new
+            {
+                isMeterImage = true,
+                detectedMeterType = "Electricity",
+                integerDigits = "03626",
+                decimalDigits = "8",
+                rawDigits = "03626.8",
+                readingValue = 3626.8m,
+                confidence = 0.99,
+                notes = (string?)null
+            });
+
+            return BuildGeminiJsonResponse(new[] { new { text = ocrJson } });
+        });
+
+        var settings = new GeminiSettings
+        {
+            ApiKey = "rr-key-1",
+            ApiKeys = "rr-key-2,rr-key-3",
+            Model = "gemini-3.5-flash",
+            FallbackModels = "",
+            BaseUrl = "https://generativelanguage.googleapis.com/v1beta"
+        };
+
+        var sut = CreateSut(handlerMock.Object, settings);
+
+        await sut.ExtractMeterReadingAsync(new byte[] { 1, 1, 1 }, "image/jpeg", "Electricity");
+        await sut.ExtractMeterReadingAsync(new byte[] { 2, 2, 2 }, "image/jpeg", "Electricity");
+        await sut.ExtractMeterReadingAsync(new byte[] { 3, 3, 3 }, "image/jpeg", "Electricity");
+
+        usedKeys.Should().HaveCount(3);
+        usedKeys.Distinct().Should().BeEquivalentTo(new[] { "rr-key-1", "rr-key-2", "rr-key-3" });
+        capturedFlashBody.Should().Contain("\"thinkingLevel\":\"low\"");
+    }
+
+    [Fact]
+    public async Task ExtractMeterReadingAsync_WhenFirstKeyHits429_SwitchesToSecondKeyOnSameModel()
+    {
+        var attempts = new List<(string Model, string Key)>();
+
+        var handlerMock = CreateHandlerMock((req, _) =>
+        {
+            var key = req.Headers.GetValues("x-goog-api-key").Single();
+            var url = req.RequestUri!.ToString();
+            var modelSegment = url.Contains("gemini-3.5-flash-lite") ? "gemini-3.5-flash-lite" : "gemini-3.5-flash";
+            attempts.Add((modelSegment, key));
+
+            if (attempts.Count == 1)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+                {
+                    Content = new StringContent("{\"error\":{\"code\":429,\"message\":\"Quota exceeded\"}}")
+                });
+            }
+
+            var ocrJson = JsonSerializer.Serialize(new
+            {
+                isMeterImage = true,
+                detectedMeterType = "Electricity",
+                integerDigits = "03626",
+                decimalDigits = "8",
+                rawDigits = "03626.8",
+                readingValue = 3626.8m,
+                confidence = 0.98,
+                notes = (string?)null
+            });
+
+            return Task.FromResult(BuildGeminiJsonResponse(new[] { new { text = ocrJson } }));
+        });
+
+        var settings = new GeminiSettings
+        {
+            ApiKey = "quota429-key-1",
+            ApiKeys = "quota429-key-2",
+            Model = "gemini-3.5-flash",
+            FallbackModels = "gemini-3.5-flash-lite",
+            BaseUrl = "https://generativelanguage.googleapis.com/v1beta"
+        };
+
+        var sut = CreateSut(handlerMock.Object, settings);
+
+        var result = await sut.ExtractMeterReadingAsync(SampleImageBytes, "image/jpeg", "Electricity");
+
+        result.ReadingValue.Should().Be(3626.8m);
+        attempts.Should().HaveCount(2);
+        attempts.Select(a => a.Model).Should().AllBe("gemini-3.5-flash");
+        attempts.Select(a => a.Key).Distinct().Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task ExtractMeterReadingAsync_WhenFirstKeyUnauthorized_FailsOverToSecondKey()
+    {
+        int calls = 0;
+
+        var handlerMock = CreateHandlerMock((_, _) =>
+        {
+            calls++;
+            if (calls == 1)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                {
+                    Content = new StringContent("{\"error\":{\"code\":401,\"message\":\"Invalid API key\"}}")
+                });
+            }
+
+            var ocrJson = JsonSerializer.Serialize(new
+            {
+                isMeterImage = true,
+                detectedMeterType = "Water",
+                integerDigits = "00001",
+                decimalDigits = "056",
+                rawDigits = "00001.056",
+                readingValue = 1.056m,
+                confidence = 0.97,
+                notes = (string?)null
+            });
+
+            return Task.FromResult(BuildGeminiJsonResponse(new[] { new { text = ocrJson } }));
+        });
+
+        var settings = new GeminiSettings
+        {
+            ApiKey = "auth401-key-1",
+            ApiKeys = "auth401-key-2",
+            Model = "gemini-3.5-flash",
+            FallbackModels = "gemini-3.5-flash-lite",
+            BaseUrl = "https://generativelanguage.googleapis.com/v1beta"
+        };
+
+        var sut = CreateSut(handlerMock.Object, settings);
+
+        var result = await sut.ExtractMeterReadingAsync(SampleImageBytes, "image/jpeg", "Water");
+
+        calls.Should().Be(2);
+        result.ReadingValue.Should().Be(1.06m);
+    }
+
+    [Fact]
+    public async Task ExtractMeterReadingAsync_WhenAllKeysUnauthorized_ThrowsWithoutLeakingKeys()
+    {
+        int calls = 0;
+        var handlerMock = CreateHandlerMock((req, _) =>
+        {
+            calls++;
+            var key = req.Headers.GetValues("x-goog-api-key").Single();
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+            {
+                Content = new StringContent($"{{\"error\":{{\"code\":401,\"message\":\"Invalid key {key}\"}}}}")
+            });
+        });
+
+        var settings = new GeminiSettings
+        {
+            ApiKey = "all401-secret-1",
+            ApiKeys = "all401-secret-2",
+            Model = "gemini-3.5-flash",
+            FallbackModels = "gemini-3.5-flash-lite",
+            BaseUrl = "https://generativelanguage.googleapis.com/v1beta"
+        };
+
+        var sut = CreateSut(handlerMock.Object, settings);
+
+        var act = () => sut.ExtractMeterReadingAsync(SampleImageBytes, "image/jpeg");
+
+        var ex = await act.Should().ThrowAsync<InvalidOperationException>();
+        ex.Which.Message.Should().Contain("API Key");
+        ex.Which.Message.Should().NotContain("all401-secret-1");
+        ex.Which.Message.Should().NotContain("all401-secret-2");
+        calls.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task ExtractMeterReadingAsync_WhenPrimaryModelReturns503_FallsBackToSecondaryModel()
+    {
+        var requestedUrls = new List<string>();
+        string? fallbackBody = null;
+
+        var handlerMock = CreateHandlerMock(async (req, ct) =>
+        {
+            var url = req.RequestUri!.ToString();
+            requestedUrls.Add(url);
+
+            if (url.Contains("gemini-3.5-flash:"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+                {
+                    Content = new StringContent("{\"error\":{\"code\":503,\"message\":\"high demand\"}}")
+                };
+            }
+
+            fallbackBody = await req.Content!.ReadAsStringAsync(ct);
+            var ocrJson = JsonSerializer.Serialize(new
+            {
+                isMeterImage = true,
+                detectedMeterType = "Water",
+                integerDigits = "00012",
+                decimalDigits = "34",
+                rawDigits = "00012.34",
+                readingValue = 12.34m,
+                confidence = 0.95,
+                notes = (string?)null
+            });
+
+            return BuildGeminiJsonResponse(new[] { new { text = ocrJson } });
+        });
+
+        var settings = new GeminiSettings
+        {
+            ApiKey = "fallback503-key-1",
+            ApiKeys = "",
+            Model = "gemini-3.5-flash",
+            FallbackModels = "gemini-3.5-flash-lite,gemini-3.1-flash-lite",
+            BaseUrl = "https://generativelanguage.googleapis.com/v1beta"
+        };
+
+        var sut = CreateSut(handlerMock.Object, settings);
+
+        var result = await sut.ExtractMeterReadingAsync(SampleImageBytes, "image/jpeg", "Water");
+
+        result.ReadingValue.Should().Be(12.34m);
+        requestedUrls.Count(u => u.Contains("gemini-3.5-flash:")).Should().Be(2);
+        requestedUrls.Count(u => u.Contains("gemini-3.5-flash-lite:")).Should().Be(1);
+        fallbackBody.Should().Contain("\"thinkingLevel\":\"medium\"");
+    }
+
+    [Fact]
+    public async Task ExtractMeterReadingAsync_SameImageTwiceWithCache_CallsGeminiOnlyOnce()
+    {
+        int calls = 0;
+        var handlerMock = CreateHandlerMock((_, _) =>
+        {
+            calls++;
+            var ocrJson = JsonSerializer.Serialize(new
+            {
+                isMeterImage = true,
+                detectedMeterType = "Electricity",
+                integerDigits = "05500",
+                decimalDigits = "5",
+                rawDigits = "05500.5",
+                readingValue = 5500.5m,
+                confidence = 0.96,
+                notes = (string?)null
+            });
+
+            return Task.FromResult(BuildGeminiJsonResponse(new[] { new { text = ocrJson } }));
+        });
+
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var settings = new GeminiSettings
+        {
+            ApiKey = "cache-key-1",
+            ApiKeys = "",
+            Model = "gemini-3.5-flash",
+            FallbackModels = "",
+            CacheMinutes = 20,
+            BaseUrl = "https://generativelanguage.googleapis.com/v1beta"
+        };
+
+        var sut = CreateSut(handlerMock.Object, settings, memoryCache: memoryCache);
+        var uniqueImage = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF, 0x42 };
+
+        var first = await sut.ExtractMeterReadingAsync(uniqueImage, "image/jpeg", "Electricity");
+        var second = await sut.ExtractMeterReadingAsync(uniqueImage, "image/jpeg", "Electricity");
+
+        calls.Should().Be(1);
+        first.ReadingValue.Should().Be(5500.5m);
+        second.ReadingValue.Should().Be(5500.5m);
+        second.Should().NotBeSameAs(first);
+    }
+
+    [Fact]
+    public async Task ExtractMeterReadingAsync_WhenFirstKeyReturns503_RetriesWithSecondKeyAndSucceeds()
+    {
+        var usedKeys = new List<string>();
+        var handlerMock = CreateHandlerMock((req, _) =>
+        {
+            var key = req.Headers.GetValues("x-goog-api-key").Single();
+            usedKeys.Add(key);
+
+            if (usedKeys.Count == 1)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+                {
+                    Content = new StringContent("{\"error\":{\"code\":503,\"message\":\"high demand\"}}")
+                });
+            }
+
+            var ocrJson = JsonSerializer.Serialize(new
+            {
+                isMeterImage = true,
+                detectedMeterType = "Electricity",
+                integerDigits = "03626",
+                decimalDigits = "8",
+                rawDigits = "03626.8",
+                readingValue = 3626.8m,
+                confidence = 0.99,
+                notes = (string?)null
+            });
+
+            return Task.FromResult(BuildGeminiJsonResponse(new[] { new { text = ocrJson } }));
+        });
+
+        var settings = new GeminiSettings
+        {
+            ApiKey = "retry503-key-1",
+            ApiKeys = "retry503-key-2",
+            Model = "gemini-3.5-flash",
+            FallbackModels = "gemini-3-flash-preview",
+            BaseUrl = "https://generativelanguage.googleapis.com/v1beta"
+        };
+
+        var sut = CreateSut(handlerMock.Object, settings);
+
+        var result = await sut.ExtractMeterReadingAsync(SampleImageBytes, "image/jpeg", "Electricity");
+
+        result.ReadingValue.Should().Be(3626.8m);
+        usedKeys.Should().HaveCount(2);
+        usedKeys.Distinct().Should().HaveCount(2);
     }
 }

@@ -17,26 +17,6 @@ export const StudentCheckinRecordsPage: React.FC<StudentCheckinRecordsPageProps>
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [viewingHandover, setViewingHandover] = useState<CheckinHandoverDetail | null>(null);
-  const [signingId, setSigningId] = useState<number | null>(null);
-  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
-
-  const handleStudentSign = async (handoverId: number) => {
-    try {
-      setSigningId(handoverId);
-      setError(null);
-      setActionSuccess(null);
-      const updated = await checkinApi.studentSignConfirm(handoverId);
-      setHandovers(prev => prev.map(h => (h.id === handoverId ? updated : h)));
-      if (viewingHandover?.id === handoverId) {
-        setViewingHandover(updated);
-      }
-      setActionSuccess('Đã ký xác nhận biên bản bàn giao phòng (Sign to confirm)! Hệ thống đã chuyển biên bản cho Bảo vệ xác nhận hoàn tất Check-in.');
-    } catch (err: any) {
-      setError(err?.message || 'Lỗi khi ký xác nhận biên bản nhận phòng.');
-    } finally {
-      setSigningId(null);
-    }
-  };
 
   const loadMyCheckins = async () => {
     try {
@@ -321,24 +301,6 @@ export const StudentCheckinRecordsPage: React.FC<StudentCheckinRecordsPageProps>
         </div>
       )}
 
-      {actionSuccess && (
-        <div
-          className="no-print"
-          style={{
-            backgroundColor: '#F0FDF4',
-            border: '1px solid #86EFAC',
-            borderRadius: '10px',
-            padding: '14px 18px',
-            color: '#166534',
-            fontWeight: 600,
-            fontSize: '13.5px',
-            marginBottom: 16,
-          }}
-        >
-          ✓ {actionSuccess}
-        </div>
-      )}
-
       {/* Single Handover Detail Modal/Paper View */}
       {viewingHandover && (
         <div>
@@ -378,27 +340,6 @@ export const StudentCheckinRecordsPage: React.FC<StudentCheckinRecordsPageProps>
             </button>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              {(viewingHandover.workflowStage === 'PendingStudentSign' ||
-                (viewingHandover.status === 'Pending Acceptance' && !viewingHandover.studentAcceptedFlag)) && (
-                <button
-                  type="button"
-                  disabled={signingId === viewingHandover.id}
-                  onClick={() => handleStudentSign(viewingHandover.id)}
-                  style={{
-                    padding: '8px 18px',
-                    borderRadius: '6px',
-                    border: 'none',
-                    backgroundColor: '#16A34A',
-                    color: '#FFFFFF',
-                    fontSize: '13px',
-                    fontWeight: 700,
-                    cursor: signingId === viewingHandover.id ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  {signingId === viewingHandover.id ? 'Đang ký xác nhận...' : '✍️ Ký xác nhận (Sign to confirm)'}
-                </button>
-              )}
-
               <button
                 type="button"
                 onClick={() => window.print()}
@@ -487,20 +428,7 @@ export const StudentCheckinRecordsPage: React.FC<StudentCheckinRecordsPageProps>
                       >
                         🔧 CHỜ QUẢN LÝ XỬ LÝ THIẾT BỊ (TROUBLESHOOTING)
                       </span>
-                    ) : h.workflowStage === 'PendingStudentSign' || (h.status === 'Pending Acceptance' && !h.studentAcceptedFlag) ? (
-                      <span
-                        style={{
-                          padding: '4px 10px',
-                          borderRadius: '9999px',
-                          backgroundColor: '#DBEAFE',
-                          color: '#1D4ED8',
-                          fontSize: '12px',
-                          fontWeight: 700,
-                        }}
-                      >
-                        ✍️ CHỜ SINH VIÊN KÝ XÁC NHẬN (SIGN TO CONFIRM)
-                      </span>
-                    ) : h.workflowStage === 'PendingGuardConfirm' || (h.status === 'Pending Acceptance' && h.studentAcceptedFlag) ? (
+                    ) : h.workflowStage === 'PendingGuardConfirm' || h.status === 'Pending Acceptance' ? (
                       <span
                         style={{
                           padding: '4px 10px',
@@ -511,7 +439,7 @@ export const StudentCheckinRecordsPage: React.FC<StudentCheckinRecordsPageProps>
                           fontWeight: 700,
                         }}
                       >
-                        🛡️ ĐÃ KÝ - CHỜ BẢO VỆ CONFIRM CHECK-IN
+                        🛡️ ĐÃ XỬ LÝ THIẾT BỊ - CHỜ BẢO VỆ CONFIRM CHECK-IN
                       </span>
                     ) : h.workflowStage === 'PendingManagerCheckRecord' ? (
                       <span
@@ -606,26 +534,6 @@ export const StudentCheckinRecordsPage: React.FC<StudentCheckinRecordsPageProps>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
-                  {(h.workflowStage === 'PendingStudentSign' || (h.status === 'Pending Acceptance' && !h.studentAcceptedFlag)) && (
-                    <button
-                      type="button"
-                      disabled={signingId === h.id}
-                      onClick={() => handleStudentSign(h.id)}
-                      style={{
-                        padding: '8px 18px',
-                        backgroundColor: '#16A34A',
-                        color: '#FFFFFF',
-                        border: 'none',
-                        borderRadius: '8px',
-                        fontSize: '13px',
-                        fontWeight: 700,
-                        cursor: signingId === h.id ? 'not-allowed' : 'pointer',
-                      }}
-                    >
-                      {signingId === h.id ? 'Đang ký...' : '✍️ Ký xác nhận (Sign to confirm)'}
-                    </button>
-                  )}
-
                   <button
                     type="button"
                     onClick={() => handlePrint(h)}

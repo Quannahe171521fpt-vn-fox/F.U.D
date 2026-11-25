@@ -459,8 +459,8 @@ namespace FUD.Services.Checkin
                             TermId = booking.TermId,
                             SourceBookingId = booking.Id,
                             RegistrationType = booking.BookingKind,
-                            CheckInDate = today,
-                            Status = "Active"
+                            CheckInDate = null,
+                            Status = "Reserved"
                         };
                         _context.Residencies.Add(residency);
                         await _context.SaveChangesAsync();
@@ -576,10 +576,10 @@ namespace FUD.Services.Checkin
                     });
                 }
 
-                // Theo sơ đồ Check-in:
-                // - Nếu damaged or missing? == Yes -> Status = "Draft" (chờ Manager troubleshooting rồi mới chuyển cho Student sign to confirm)
-                // - Nếu damaged or missing? == No  -> Status = "Pending Acceptance" (chuyển thẳng sang Student sign to confirm)
-                var initialStatus = hasDamageOrMissing ? "Draft" : "Pending Acceptance";
+                // Luồng Check-in (không còn bước Sinh viên ký online):
+                // - Nếu có thiết bị hỏng/thiếu -> Status = "Draft" (chờ Manager Troubleshooting -> Guard Confirm Check-in)
+                // - Nếu thiết bị đầy đủ (tất cả Good) -> Status = "Completed" & kích hoạt Residency/Bed/Booking ngay (chờ Manager Check record)
+                var initialStatus = hasDamageOrMissing ? "Draft" : "Completed";
 
                 var handover = new Handover
                 {
@@ -593,25 +593,43 @@ namespace FUD.Services.Checkin
                     HasDamageOrMissingFlag = hasDamageOrMissing,
                     TotalCompensation = 0,
                     Status = initialStatus,
-                    StudentAcceptedFlag = false,
-                    StudentAcceptedTime = null,
+                    StudentAcceptedFlag = !hasDamageOrMissing,
+                    StudentAcceptedTime = hasDamageOrMissing ? null : now,
                     CreatedTime = now,
-                    CompletedTime = null,
+                    CompletedTime = hasDamageOrMissing ? null : now,
                     HandoverItems = handoverItems
                 };
 
                 _context.Handovers.Add(handover);
 
+                if (!hasDamageOrMissing)
+                {
+                    residency.Status = "Active";
+                    residency.CheckInDate ??= today;
+                    bed.Status = "Occupied";
+
+                    if (residency.SourceBookingId.HasValue)
+                    {
+                        var bookingReq = await _context.BookingRequests
+                            .FirstOrDefaultAsync(b => b.Id == residency.SourceBookingId.Value);
+                        if (bookingReq != null && bookingReq.Status != "Completed")
+                        {
+                            bookingReq.Status = "Completed";
+                            bookingReq.ProcessedTime = now;
+                        }
+                    }
+                }
+
                 _context.AuditLogs.Add(new AuditLog
                 {
                     UserId = guardUserId,
-                    ActionType = "CHECKIN_DRAW_UP_RECORD",
+                    ActionType = hasDamageOrMissing ? "CHECKIN_DRAW_UP_RECORD" : "CHECKIN_HANDOVER",
                     TargetEntity = "Handover",
                     TargetId = residency.Id.ToString(),
                     OldValue = null,
                     NewValue = hasDamageOrMissing
                         ? $"Lập biên bản Check-in cho SV ID={dto.StudentId} (Có thiết bị hỏng/thiếu -> Chờ Manager xử lý sự cố)"
-                        : $"Lập biên bản Check-in cho SV ID={dto.StudentId} (Thiết bị đầy đủ -> Chờ Sinh viên ký xác nhận)",
+                        : $"Hoàn tất Check-in & kích hoạt giường Occupied cho SV ID={dto.StudentId} (Chờ Manager hậu kiểm Check record)",
                     CreatedAt = now
                 });
 
@@ -627,7 +645,7 @@ namespace FUD.Services.Checkin
                         await _inAppNotificationService.NotifyUserAsync(
                             dto.StudentId,
                             "Biên bản Check-in đang chờ Quản lý xử lý thiết bị",
-                            $"Biên bản phòng {saved?.RoomNumber} - Giường {bed.BedCode} có ghi nhận thiết bị hư hỏng/thiếu, đang chờ Ban Quản lý khắc phục (troubleshooting) trước khi bạn ký xác nhận.",
+                            $"Biên bản phòng {saved?.RoomNumber} - Giường {bed.BedCode} có ghi nhận thiết bị hư hỏng/thiếu, đang chờ Ban Quản lý khắc phục (troubleshooting) trước khi Bảo vệ xác nhận hoàn tất Check-in.",
                             "Checkin",
                             handover.Id.ToString());
                     }
@@ -635,8 +653,8 @@ namespace FUD.Services.Checkin
                     {
                         await _inAppNotificationService.NotifyUserAsync(
                             dto.StudentId,
-                            "Biên bản Check-in chờ bạn ký xác nhận",
-                            $"Bảo vệ đã lập biên bản bàn giao phòng {saved?.RoomNumber} - Giường {bed.BedCode}. Vui lòng mở mục Biên bản nhận phòng để kiểm tra và ký xác nhận (Sign to confirm).",
+                            "Hoàn tất biên bản Check-in & kích hoạt giường ở",
+                            $"Bảo vệ đã lập và hoàn tất biên bản bàn giao phòng {saved?.RoomNumber} - Giường {bed.BedCode} (Bed -> Occupied). Bạn có thể xem hoặc in biên bản tại mục Biên bản nhận phòng.",
                             "Checkin",
                             handover.Id.ToString());
                     }
@@ -708,7 +726,7 @@ namespace FUD.Services.Checkin
             handover.ManagerReviewedById = managerUserId;
             handover.ManagerReviewedTime = null; // Để dành cho bước cuối "Check record" sau khi lưu biên bản
             handover.ManagerNote = string.IsNullOrWhiteSpace(dto?.Note)
-                ? "Quản lý đã xử lý sự cố thiết bị (Troubleshooting) và chuyển cho Sinh viên ký xác nhận."
+                ? "Quản lý đã xử lý sự cố thiết bị (Troubleshooting) và chuyển Bảo vệ xác nhận Check-in."
                 : dto!.Note.Trim();
 
             _context.AuditLogs.Add(new AuditLog
@@ -725,72 +743,24 @@ namespace FUD.Services.Checkin
             await _context.SaveChangesAsync();
 
             var saved = await GetCheckinByIdAsync(handover.Id);
-            if (_inAppNotificationService != null && handover.Residency != null)
-            {
-                await _inAppNotificationService.NotifyUserAsync(
-                    handover.Residency.StudentId,
-                    "Quản lý đã xử lý thiết bị - Mời bạn ký xác nhận Check-in",
-                    $"Ban Quản lý đã xử lý sự cố thiết bị phòng {saved?.RoomNumber} - Giường {saved?.BedCode}. Vui lòng mở Biên bản nhận phòng để ký xác nhận (Sign to confirm).",
-                    "Checkin",
-                    handover.Id.ToString());
-            }
-
-            return saved!;
-        }
-
-        public async Task<CheckinHandoverResponseDto> StudentSignConfirmAsync(int studentUserId, int handoverId)
-        {
-            var handover = await _context.Handovers
-                .Include(h => h.Residency)
-                .Include(h => h.Room)
-                .FirstOrDefaultAsync(h => h.Id == handoverId && h.HandoverType == "Checkin");
-
-            if (handover == null)
-            {
-                throw new ArgumentException("Không tìm thấy biên bản bàn giao Check-in.");
-            }
-
-            if (handover.Residency == null || handover.Residency.StudentId != studentUserId)
-            {
-                throw new UnauthorizedAccessException("Bạn không có quyền ký xác nhận biên bản của sinh viên khác.");
-            }
-
-            if (handover.Status == "Draft")
-            {
-                throw new InvalidOperationException("Biên bản có thiết bị hư hỏng/thiếu đang chờ Ban Quản lý xử lý sự cố (Troubleshooting).");
-            }
-
-            if (handover.StudentAcceptedFlag)
-            {
-                return (await GetCheckinByIdAsync(handover.Id))!;
-            }
-
-            var now = DateTime.UtcNow.AddHours(7);
-            handover.StudentAcceptedFlag = true;
-            handover.StudentAcceptedTime = now;
-
-            _context.AuditLogs.Add(new AuditLog
-            {
-                UserId = studentUserId,
-                ActionType = "CHECKIN_STUDENT_SIGN",
-                TargetEntity = "Handover",
-                TargetId = handover.Id.ToString(),
-                OldValue = "Pending Student Sign",
-                NewValue = "Sinh viên đã ký xác nhận biên bản Check-in (Sign to confirm)",
-                CreatedAt = now
-            });
-
-            await _context.SaveChangesAsync();
-
-            var saved = await GetCheckinByIdAsync(handover.Id);
             if (_inAppNotificationService != null)
             {
                 await _inAppNotificationService.NotifyUserAsync(
                     handover.GuardId,
-                    "Sinh viên đã ký biên bản Check-in",
-                    $"Sinh viên {saved?.StudentName} ({saved?.StudentCode}) đã ký xác nhận biên bản phòng {saved?.RoomNumber}. Vui lòng bấm Confirm Check-in để chốt nhận phòng.",
+                    "Quản lý đã xử lý thiết bị - Mời xác nhận Check-in",
+                    $"Ban Quản lý đã xử lý sự cố thiết bị phòng {saved?.RoomNumber} - Giường {saved?.BedCode} cho SV {saved?.StudentName} ({saved?.StudentCode}). Vui lòng bấm Confirm Check-in để chốt nhận phòng.",
                     "Checkin",
                     handover.Id.ToString());
+
+                if (handover.Residency != null)
+                {
+                    await _inAppNotificationService.NotifyUserAsync(
+                        handover.Residency.StudentId,
+                        "Quản lý đã xử lý thiết bị - Chờ Bảo vệ xác nhận Check-in",
+                        $"Ban Quản lý đã xử lý sự cố thiết bị phòng {saved?.RoomNumber} - Giường {saved?.BedCode}. Biên bản đã được chuyển cho Bảo vệ xác nhận hoàn tất Check-in.",
+                        "Checkin",
+                        handover.Id.ToString());
+                }
             }
 
             return saved!;
@@ -808,9 +778,9 @@ namespace FUD.Services.Checkin
                 throw new ArgumentException("Không tìm thấy biên bản bàn giao Check-in.");
             }
 
-            if (!handover.StudentAcceptedFlag)
+            if (handover.Status == "Draft")
             {
-                throw new InvalidOperationException("Sinh viên chưa ký xác nhận biên bản (Sign to confirm). Không thể chốt Check-in.");
+                throw new InvalidOperationException("Biên bản có thiết bị hư hỏng/thiếu đang chờ Ban Quản lý xử lý sự cố (Troubleshooting). Không thể chốt Check-in.");
             }
 
             if (handover.Status == "Completed")
@@ -824,6 +794,8 @@ namespace FUD.Services.Checkin
             // Bước System: Save record & Bed -- Occupied
             handover.Status = "Completed";
             handover.CompletedTime = now;
+            handover.StudentAcceptedFlag = true;
+            handover.StudentAcceptedTime ??= now;
 
             if (handover.Residency != null)
             {
@@ -1076,7 +1048,7 @@ namespace FUD.Services.Checkin
             }
             if (h.Status == "Pending Acceptance")
             {
-                return h.StudentAcceptedFlag ? "PendingGuardConfirm" : "PendingStudentSign";
+                return "PendingGuardConfirm";
             }
             // Status == "Completed"
             return h.ManagerReviewedTime.HasValue ? "Completed" : "PendingManagerCheckRecord";

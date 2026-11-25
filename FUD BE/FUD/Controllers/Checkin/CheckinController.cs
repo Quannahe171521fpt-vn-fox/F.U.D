@@ -197,7 +197,7 @@ namespace FUD.Controllers.Checkin
 
         /// <summary>
         /// Bước Manager 1 (Troubleshooting): Quản lý xử lý sự cố khi biên bản có thiết bị hư hỏng/thiếu
-        /// và chuyển biên bản sang trạng thái chờ Sinh viên ký xác nhận (Pending Acceptance).
+        /// và chuyển biên bản sang trạng thái chờ Bảo vệ xác nhận Check-in (Pending Acceptance).
         /// </summary>
         [HttpPost("{id:int}/manager-troubleshoot")]
         [Authorize(Roles = "Manager,Admin")]
@@ -212,7 +212,7 @@ namespace FUD.Controllers.Checkin
                 }
 
                 var result = await _checkinService.TroubleshootByManagerAsync(managerUserId.Value, id, dto);
-                return Ok(ApiResponse<CheckinHandoverResponseDto>.Ok(result, "Quản lý đã xử lý sự cố thiết bị (Troubleshooting) và chuyển cho Sinh viên ký xác nhận."));
+                return Ok(ApiResponse<CheckinHandoverResponseDto>.Ok(result, "Quản lý đã xử lý sự cố thiết bị (Troubleshooting) và chuyển Bảo vệ xác nhận Check-in."));
             }
             catch (ArgumentException ex)
             {
@@ -229,44 +229,8 @@ namespace FUD.Controllers.Checkin
         }
 
         /// <summary>
-        /// Bước Student (Sign to confirm): Sinh viên ký xác nhận biên bản bàn giao phòng.
-        /// </summary>
-        [HttpPost("{id:int}/student-sign")]
-        [Authorize(Roles = "Student")]
-        public async Task<IActionResult> StudentSignConfirm(int id)
-        {
-            try
-            {
-                var studentUserId = GetCurrentUserId();
-                if (!studentUserId.HasValue)
-                {
-                    return Unauthorized(ApiResponse.Fail("Không xác định được danh tính Sinh viên từ Token."));
-                }
-
-                var result = await _checkinService.StudentSignConfirmAsync(studentUserId.Value, id);
-                return Ok(ApiResponse<CheckinHandoverResponseDto>.Ok(result, "Sinh viên đã ký xác nhận biên bản bàn giao (Sign to confirm)."));
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(ApiResponse.Fail(ex.Message));
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                return StatusCode(403, ApiResponse.Fail(ex.Message));
-            }
-            catch (InvalidOperationException ex)
-            {
-                return Conflict(ApiResponse.Fail(ex.Message));
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, ApiResponse.Fail($"Lỗi khi ký xác nhận biên bản: {ex.Message}"));
-            }
-        }
-
-        /// <summary>
         /// Bước Guard (Confirm check-in -> System: Save record &amp; Bed -- Occupied):
-        /// Sau khi Sinh viên đã ký xác nhận, Bảo vệ bấm Confirm check-in để lưu chính thức và kích hoạt giường Occupied.
+        /// Sau khi Ban Quản lý đã xử lý sự cố thiết bị, Bảo vệ bấm Confirm check-in để lưu chính thức và kích hoạt giường Occupied.
         /// </summary>
         [HttpPost("{id:int}/guard-confirm")]
         [Authorize(Roles = "Guard,Manager,Admin")]
