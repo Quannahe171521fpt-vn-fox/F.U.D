@@ -380,6 +380,8 @@ builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IManagerImpersonateRepository, ManagerImpersonateRepository>();
+builder.Services.AddScoped<IManagerImpersonateService, ManagerImpersonateService>();
 
 //9. Utilites
 builder.Services.AddScoped<FUD.Repositories.Interfaces.Utilities.IEwRepository, FUD.Repositories.Utilities.EwRepository>();
