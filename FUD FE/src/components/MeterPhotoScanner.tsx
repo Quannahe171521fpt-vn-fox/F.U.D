@@ -510,7 +510,7 @@ export const MeterPhotoScanner: React.FC<MeterPhotoScannerProps> = ({
           }}
         >
           <CameraIcon size={13} />
-          {scanning ? 'AI đang đọc chỉ số...' : displayImageUrl ? 'Chụp lại' : 'Chụp ảnh'}
+          {scanning ? 'Đang ghi nhận chỉ số...' : displayImageUrl ? 'Chụp lại' : 'Chụp ảnh'}
         </button>
 
         {supportsWebcam && (

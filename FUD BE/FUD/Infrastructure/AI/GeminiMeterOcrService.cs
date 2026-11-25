@@ -1,8 +1,11 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using FUD.Settings.pattern;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -11,30 +14,42 @@ namespace FUD.Infrastructure.AI
 {
     public class GeminiMeterOcrService : IMeterOcrService
     {
-        private const string DefaultModel = "gemini-3.5-flash-lite";
+        private const string DefaultModel = "gemini-3.5-flash";
         private const string DefaultBaseUrl = "https://generativelanguage.googleapis.com/v1beta";
         private const decimal MaxValidReading = 999_999_999m;
+        private const int PerModelFallbackTimeoutSeconds = 25;
+        private static readonly TimeSpan QuotaCooldownDuration = TimeSpan.FromSeconds(60);
+        private static readonly TimeSpan AuthCooldownDuration = TimeSpan.FromMinutes(10);
 
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             PropertyNameCaseInsensitive = true
         };
 
+        private static int _roundRobinIndex = -1;
+        private static readonly ConcurrentDictionary<string, DateTimeOffset> KeyCooldownUntil = new(StringComparer.Ordinal);
+        private static readonly object ConcurrencyLock = new();
+        private static SemaphoreSlim _concurrencyGate = new(3, 3);
+        private static int _concurrencyGateLimit = 3;
+
         private readonly HttpClient _httpClient;
         private readonly GeminiSettings _settings;
         private readonly IConfiguration _configuration;
         private readonly ILogger<GeminiMeterOcrService> _logger;
+        private readonly IMemoryCache? _memoryCache;
 
         public GeminiMeterOcrService(
             HttpClient httpClient,
             IOptions<GeminiSettings> options,
             IConfiguration configuration,
-            ILogger<GeminiMeterOcrService> logger)
+            ILogger<GeminiMeterOcrService> logger,
+            IMemoryCache? memoryCache = null)
         {
             _httpClient = httpClient;
             _settings = options.Value;
             _configuration = configuration;
             _logger = logger;
+            _memoryCache = memoryCache;
         }
 
         public async Task<MeterOcrRawResult> ExtractMeterReadingAsync(
@@ -43,105 +58,374 @@ namespace FUD.Infrastructure.AI
             string? expectedMeterType = null,
             CancellationToken cancellationToken = default)
         {
-            var apiKey = ResolveSetting(_settings.ApiKey, "Gemini:ApiKey", "Gemini__ApiKey");
-            if (string.IsNullOrWhiteSpace(apiKey))
+            var apiKeys = ResolveApiKeys();
+            if (apiKeys.Count == 0)
             {
                 throw new InvalidOperationException(
-                    "Chưa cấu hình Gemini API Key (Gemini__ApiKey). Vui lòng kiểm tra file .env hoặc appsettings.json.");
+                    "Chưa cấu hình Gemini API Key (Gemini__ApiKey / Gemini__ApiKeys). Vui lòng kiểm tra file .env hoặc appsettings.json.");
             }
 
-            var model = ResolveSetting(_settings.Model, "Gemini:Model", "Gemini__Model");
-            if (string.IsNullOrWhiteSpace(model))
-                model = DefaultModel;
-            if (model.StartsWith("models/", StringComparison.OrdinalIgnoreCase))
-                model = model["models/".Length..];
-
+            var models = ResolveModels();
             var baseUrl = ResolveSetting(_settings.BaseUrl, "Gemini:BaseUrl", "Gemini__BaseUrl");
             if (string.IsNullOrWhiteSpace(baseUrl))
                 baseUrl = DefaultBaseUrl;
             baseUrl = baseUrl.TrimEnd('/');
 
-            var endpoint = $"{baseUrl}/models/{Uri.EscapeDataString(model)}:generateContent";
-            var payload = BuildRequestPayload(imageBytes, mimeType, expectedMeterType, model);
-            var payloadJson = JsonSerializer.Serialize(payload);
-
-            int[] retryDelaysMs = { 500, 1200 };
-            for (int attempt = 0; ; attempt++)
+            var cacheMinutes = ResolveIntSetting(_settings.CacheMinutes, "Gemini:CacheMinutes", "Gemini__CacheMinutes", 20);
+            string? cacheKey = null;
+            if (_memoryCache != null && cacheMinutes > 0 && imageBytes.Length > 0)
             {
-                using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
-                request.Headers.Add("x-goog-api-key", apiKey);
-                request.Content = new StringContent(payloadJson, Encoding.UTF8, "application/json");
-
-                HttpResponseMessage response;
-                try
+                cacheKey = BuildCacheKey(imageBytes, expectedMeterType);
+                if (_memoryCache.TryGetValue<MeterOcrRawResult>(cacheKey, out var cached) && cached != null)
                 {
-                    response = await _httpClient.SendAsync(request, cancellationToken);
+                    return CloneResult(cached);
                 }
-                catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+            }
+
+            var maxConcurrent = Math.Clamp(
+                ResolveIntSetting(_settings.MaxConcurrentRequests, "Gemini:MaxConcurrentRequests", "Gemini__MaxConcurrentRequests", 3),
+                1,
+                20);
+            var gate = GetConcurrencyGate(maxConcurrent);
+
+            await gate.WaitAsync(cancellationToken);
+            try
+            {
+                if (cacheKey != null && _memoryCache != null &&
+                    _memoryCache.TryGetValue<MeterOcrRawResult>(cacheKey, out var cachedAfterWait) &&
+                    cachedAfterWait != null)
+                {
+                    return CloneResult(cachedAfterWait);
+                }
+
+                int startOffset = (int)((uint)Interlocked.Increment(ref _roundRobinIndex) % (uint)apiKeys.Count);
+
+                bool saw429 = false;
+                bool sawAuthError = false;
+                bool saw5xx = false;
+                bool saw404 = false;
+                bool sawTimeout = false;
+                bool sawNetworkError = false;
+                HttpStatusCode? lastStatusCode = null;
+                string lastFailedModel = models[0];
+
+                for (int modelIndex = 0; modelIndex < models.Count; modelIndex++)
+                {
+                    var model = models[modelIndex];
+                    bool hasNextModel = modelIndex < models.Count - 1;
+                    var endpoint = $"{baseUrl}/models/{Uri.EscapeDataString(model)}:generateContent";
+                    var payload = BuildRequestPayload(imageBytes, mimeType, expectedMeterType, model);
+                    var payloadJson = JsonSerializer.Serialize(payload);
+
+                    var orderedKeys = OrderKeysForAttempt(apiKeys, startOffset, DateTimeOffset.UtcNow);
+                    int maxTransientRetries = hasNextModel ? Math.Min(orderedKeys.Count, 2) : 2;
+                    int transientRetriesUsed = 0;
+                    int authFailuresThisModel = 0;
+
+                    for (int keyIdx = 0; keyIdx < orderedKeys.Count; keyIdx++)
+                    {
+                        var apiKey = orderedKeys[keyIdx];
+                        var keyFp = ComputeKeyFingerprint(apiKey);
+
+                        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+                        request.Headers.Add("x-goog-api-key", apiKey);
+                        request.Content = new StringContent(payloadJson, Encoding.UTF8, "application/json");
+
+                        using var attemptCts = hasNextModel
+                            ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
+                            : null;
+                        attemptCts?.CancelAfter(TimeSpan.FromSeconds(PerModelFallbackTimeoutSeconds));
+                        var effectiveCt = attemptCts?.Token ?? cancellationToken;
+
+                        HttpResponseMessage response;
+                        try
+                        {
+                            response = await _httpClient.SendAsync(request, effectiveCt);
+                        }
+                        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                        {
+                            sawTimeout = true;
+                            _logger.LogWarning("Gemini OCR timeout for model {Model} (key #{KeyFp}).", model, keyFp[..6]);
+                            if (hasNextModel)
+                                break;
+
+                            throw new TimeoutException(
+                                "Hết thời gian chờ phân tích ảnh công tơ từ AI. Vui lòng thử lại.");
+                        }
+                        catch (HttpRequestException ex)
+                        {
+                            sawNetworkError = true;
+                            _logger.LogWarning("Gemini OCR network error for model {Model}: {Message}", model, ex.Message);
+                            if (hasNextModel)
+                                break;
+
+                            throw new InvalidOperationException(
+                                "Không thể kết nối tới dịch vụ AI nhận diện ảnh công tơ. Vui lòng thử lại sau.");
+                        }
+
+                        using (response)
+                        {
+                            if (!response.IsSuccessStatusCode)
+                            {
+                                var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                                var errorDetail = ExtractSafeErrorMessage(errorBody, apiKeys);
+                                _logger.LogWarning(
+                                    "Gemini OCR returned HTTP {StatusCode} for model {Model} (key #{KeyFp}, retry {Retry}): {Detail}",
+                                    (int)response.StatusCode, model, keyFp[..6], transientRetriesUsed, errorDetail ?? "(no details)");
+
+                                if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                                {
+                                    saw429 = true;
+                                    lastStatusCode = response.StatusCode;
+                                    KeyCooldownUntil[keyFp] = DateTimeOffset.UtcNow.Add(QuotaCooldownDuration);
+                                    continue;
+                                }
+
+                                if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                                {
+                                    sawAuthError = true;
+                                    authFailuresThisModel++;
+                                    lastStatusCode = response.StatusCode;
+                                    KeyCooldownUntil[keyFp] = DateTimeOffset.UtcNow.Add(AuthCooldownDuration);
+                                    continue;
+                                }
+
+                                bool isTransientServerError = response.StatusCode is
+                                    HttpStatusCode.ServiceUnavailable or
+                                    HttpStatusCode.InternalServerError or
+                                    HttpStatusCode.BadGateway or
+                                    HttpStatusCode.GatewayTimeout;
+
+                                if (isTransientServerError)
+                                {
+                                    saw5xx = true;
+                                    lastStatusCode = response.StatusCode;
+
+                                    if (transientRetriesUsed < maxTransientRetries)
+                                    {
+                                        transientRetriesUsed++;
+                                        int delayMs = hasNextModel
+                                            ? 300 + Random.Shared.Next(0, 201)
+                                            : (transientRetriesUsed == 1 ? 500 : 1200);
+                                        await Task.Delay(delayMs, cancellationToken);
+                                        if (keyIdx + 1 >= orderedKeys.Count)
+                                        {
+                                            keyIdx--;
+                                        }
+                                        continue;
+                                    }
+
+                                    break;
+                                }
+
+                                if (response.StatusCode == HttpStatusCode.NotFound)
+                                {
+                                    saw404 = true;
+                                    lastFailedModel = model;
+                                    lastStatusCode = response.StatusCode;
+                                    break;
+                                }
+
+                                throw new InvalidOperationException(
+                                    $"Dịch vụ AI nhận diện ảnh gặp lỗi (HTTP {(int)response.StatusCode}).");
+                            }
+
+                            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                            var rawResult = ParseGeminiResponse(responseBody);
+                            var sanitized = SanitizeResult(rawResult);
+
+                            if (cacheKey != null && _memoryCache != null &&
+                                sanitized.IsMeterImage &&
+                                sanitized.ReadingValue.HasValue &&
+                                sanitized.Confidence >= 0.6)
+                            {
+                                _memoryCache.Set(cacheKey, CloneResult(sanitized), TimeSpan.FromMinutes(cacheMinutes));
+                            }
+
+                            return sanitized;
+                        }
+                    }
+
+                    if (orderedKeys.Count > 0 && authFailuresThisModel == orderedKeys.Count)
+                    {
+                        break;
+                    }
+                }
+
+                if (sawAuthError && !saw429 && !saw5xx && !saw404 && !sawTimeout && !sawNetworkError)
+                {
+                    throw new InvalidOperationException(
+                        "Gemini API Key không hợp lệ hoặc không có quyền truy cập.");
+                }
+
+                if (saw429)
+                {
+                    throw new InvalidOperationException(
+                        "Hệ thống AI đang quá tải hoặc hết hạn mức (429). Vui lòng thử lại sau ít phút hoặc nhập tay.");
+                }
+
+                if (lastStatusCode == HttpStatusCode.ServiceUnavailable)
+                {
+                    throw new InvalidOperationException(
+                        "Máy chủ AI Gemini đang quá tải tạm thời (HTTP 503). Vui lòng bấm chụp lại sau vài giây hoặc nhập tay.");
+                }
+
+                if (sawTimeout)
                 {
                     throw new TimeoutException(
                         "Hết thời gian chờ phân tích ảnh công tơ từ AI. Vui lòng thử lại.");
                 }
-                catch (HttpRequestException ex)
+
+                if (saw404)
                 {
-                    _logger.LogWarning("Gemini OCR network error: {Message}", ex.Message);
+                    throw new InvalidOperationException(
+                        $"Model Gemini '{lastFailedModel}' không khả dụng (HTTP 404). Vui lòng kiểm tra cấu hình Gemini__Model trong .env.");
+                }
+
+                if (sawNetworkError)
+                {
                     throw new InvalidOperationException(
                         "Không thể kết nối tới dịch vụ AI nhận diện ảnh công tơ. Vui lòng thử lại sau.");
                 }
 
-                using (response)
+                throw new InvalidOperationException(
+                    $"Dịch vụ AI nhận diện ảnh gặp lỗi (HTTP {(int)(lastStatusCode ?? HttpStatusCode.InternalServerError)}).");
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+
+        private List<string> ResolveApiKeys()
+        {
+            var keys = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            void AddKey(string? raw)
+            {
+                if (string.IsNullOrWhiteSpace(raw))
+                    return;
+
+                foreach (var part in raw.Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries))
                 {
-                    if (!response.IsSuccessStatusCode)
+                    var trimmed = part.Trim();
+                    if (trimmed.Length > 0 && seen.Add(trimmed))
                     {
-                        var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-                        var errorDetail = ExtractSafeErrorMessage(errorBody, apiKey);
-                        _logger.LogWarning("Gemini OCR returned HTTP {StatusCode} for model {Model} (attempt {Attempt}): {Detail}",
-                            (int)response.StatusCode, model, attempt + 1, errorDetail ?? "(no details)");
-
-                        bool isTransientServerError = response.StatusCode is
-                            HttpStatusCode.ServiceUnavailable or
-                            HttpStatusCode.InternalServerError or
-                            HttpStatusCode.BadGateway or
-                            HttpStatusCode.GatewayTimeout;
-
-                        if (isTransientServerError && attempt < retryDelaysMs.Length)
-                        {
-                            await Task.Delay(retryDelaysMs[attempt], cancellationToken);
-                            continue;
-                        }
-
-                        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-                        {
-                            throw new InvalidOperationException(
-                                "Gemini API Key không hợp lệ hoặc không có quyền truy cập.");
-                        }
-
-                        if (response.StatusCode == HttpStatusCode.TooManyRequests)
-                        {
-                            throw new InvalidOperationException(
-                                "Hệ thống AI đang quá tải hoặc hết hạn mức (429). Vui lòng thử lại sau ít phút hoặc nhập tay.");
-                        }
-
-                        if (response.StatusCode == HttpStatusCode.NotFound)
-                        {
-                            throw new InvalidOperationException(
-                                $"Model Gemini '{model}' không khả dụng (HTTP 404). Vui lòng kiểm tra cấu hình Gemini__Model trong .env.");
-                        }
-
-                        if (response.StatusCode == HttpStatusCode.ServiceUnavailable)
-                        {
-                            throw new InvalidOperationException(
-                                "Máy chủ AI Gemini đang quá tải tạm thời (HTTP 503). Vui lòng bấm chụp lại sau vài giây hoặc nhập tay.");
-                        }
-
-                        throw new InvalidOperationException(
-                            $"Dịch vụ AI nhận diện ảnh gặp lỗi (HTTP {(int)response.StatusCode}).");
+                        keys.Add(trimmed);
                     }
-
-                    var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
-                    var rawResult = ParseGeminiResponse(responseBody);
-                    return SanitizeResult(rawResult);
                 }
+            }
+
+            AddKey(ResolveSetting(_settings.ApiKey, "Gemini:ApiKey", "Gemini__ApiKey"));
+            AddKey(ResolveSetting(_settings.ApiKeys, "Gemini:ApiKeys", "Gemini__ApiKeys"));
+            return keys;
+        }
+
+        private List<string> ResolveModels()
+        {
+            var models = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void AddModel(string? raw)
+            {
+                if (string.IsNullOrWhiteSpace(raw))
+                    return;
+
+                foreach (var part in raw.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var trimmed = part.Trim();
+                    if (trimmed.StartsWith("models/", StringComparison.OrdinalIgnoreCase))
+                        trimmed = trimmed["models/".Length..];
+
+                    if (trimmed.Length > 0 && seen.Add(trimmed))
+                    {
+                        models.Add(trimmed);
+                    }
+                }
+            }
+
+            var primary = ResolveSetting(_settings.Model, "Gemini:Model", "Gemini__Model");
+            AddModel(string.IsNullOrWhiteSpace(primary) ? DefaultModel : primary);
+            AddModel(ResolveSetting(_settings.FallbackModels, "Gemini:FallbackModels", "Gemini__FallbackModels"));
+            return models;
+        }
+
+        private static List<string> OrderKeysForAttempt(IReadOnlyList<string> apiKeys, int startOffset, DateTimeOffset now)
+        {
+            var healthy = new List<string>(apiKeys.Count);
+            var cooling = new List<(string Key, DateTimeOffset Until)>();
+
+            for (int i = 0; i < apiKeys.Count; i++)
+            {
+                var key = apiKeys[(startOffset + i) % apiKeys.Count];
+                var fp = ComputeKeyFingerprint(key);
+
+                if (KeyCooldownUntil.TryGetValue(fp, out var until))
+                {
+                    if (until <= now)
+                    {
+                        KeyCooldownUntil.TryRemove(fp, out _);
+                        healthy.Add(key);
+                    }
+                    else
+                    {
+                        cooling.Add((key, until));
+                    }
+                }
+                else
+                {
+                    healthy.Add(key);
+                }
+            }
+
+            if (healthy.Count > 0)
+                return healthy;
+
+            return cooling.OrderBy(x => x.Until).Select(x => x.Key).ToList();
+        }
+
+        private static string ComputeKeyFingerprint(string apiKey)
+        {
+            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(apiKey));
+            return Convert.ToHexString(hash)[..16];
+        }
+
+        private static string BuildCacheKey(byte[] imageBytes, string? expectedMeterType)
+        {
+            var imageHash = Convert.ToHexString(SHA256.HashData(imageBytes));
+            var typePart = string.IsNullOrWhiteSpace(expectedMeterType)
+                ? "any"
+                : expectedMeterType.Trim().ToLowerInvariant();
+            return $"meter_ocr_v2:{imageHash}:{typePart}";
+        }
+
+        private static MeterOcrRawResult CloneResult(MeterOcrRawResult source) => new()
+        {
+            IsMeterImage = source.IsMeterImage,
+            DetectedMeterType = source.DetectedMeterType,
+            IntegerDigits = source.IntegerDigits,
+            DecimalDigits = source.DecimalDigits,
+            ReadingValue = source.ReadingValue,
+            RawDigits = source.RawDigits,
+            Confidence = source.Confidence,
+            Notes = source.Notes
+        };
+
+        private static SemaphoreSlim GetConcurrencyGate(int maxConcurrent)
+        {
+            if (_concurrencyGateLimit == maxConcurrent)
+                return _concurrencyGate;
+
+            lock (ConcurrencyLock)
+            {
+                if (_concurrencyGateLimit != maxConcurrent)
+                {
+                    _concurrencyGate = new SemaphoreSlim(maxConcurrent, maxConcurrent);
+                    _concurrencyGateLimit = maxConcurrent;
+                }
+
+                return _concurrencyGate;
             }
         }
 
@@ -152,6 +436,17 @@ namespace FUD.Infrastructure.AI
 
             var value = _configuration[primaryKey] ?? _configuration[envKey];
             return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        private int ResolveIntSetting(int optionValue, string primaryKey, string envKey, int fallback)
+        {
+            if (optionValue > 0)
+                return optionValue;
+
+            var raw = _configuration[primaryKey] ?? _configuration[envKey];
+            return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) && parsed > 0
+                ? parsed
+                : fallback;
         }
 
         private static object BuildRequestPayload(byte[] imageBytes, string mimeType, string? expectedMeterType, string model)
@@ -187,7 +482,8 @@ namespace FUD.Infrastructure.AI
 
             if (model.StartsWith("gemini-3", StringComparison.OrdinalIgnoreCase))
             {
-                generationConfig["thinkingConfig"] = new { thinkingLevel = "medium" };
+                var level = model.Contains("lite", StringComparison.OrdinalIgnoreCase) ? "medium" : "low";
+                generationConfig["thinkingConfig"] = new { thinkingLevel = level };
             }
             else if (model.StartsWith("gemini-2.5", StringComparison.OrdinalIgnoreCase))
             {
@@ -218,7 +514,7 @@ namespace FUD.Infrastructure.AI
             };
         }
 
-        private static string? ExtractSafeErrorMessage(string? responseBody, string apiKey)
+        private static string? ExtractSafeErrorMessage(string? responseBody, IReadOnlyList<string> apiKeys)
         {
             if (string.IsNullOrWhiteSpace(responseBody))
                 return null;
@@ -234,8 +530,11 @@ namespace FUD.Infrastructure.AI
                     if (string.IsNullOrWhiteSpace(text))
                         return null;
 
-                    if (!string.IsNullOrWhiteSpace(apiKey))
-                        text = text.Replace(apiKey, "[REDACTED]", StringComparison.Ordinal);
+                    foreach (var key in apiKeys)
+                    {
+                        if (!string.IsNullOrWhiteSpace(key))
+                            text = text.Replace(key, "[REDACTED]", StringComparison.Ordinal);
+                    }
 
                     return text.Length > 300 ? text[..300] : text;
                 }
