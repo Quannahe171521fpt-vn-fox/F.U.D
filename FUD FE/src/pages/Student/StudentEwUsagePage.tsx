@@ -504,14 +504,14 @@ export const StudentEwUsagePage: React.FC = () => {
                     cursor: 'pointer',
                   }}
                 >
-                  💳 Thanh toán ngay hóa đơn điện nước
+                  Thanh toán ngay hóa đơn điện nước
                 </button>
               )}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
               {/* Tiền điện phụ trội */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: '8px', fontSize: '16px' }}>
                 <span style={{ fontWeight: 600, color: '#334155' }}>
                   Tiền phụ trội vượt định mức (Điện):
                 </span>
@@ -527,7 +527,7 @@ export const StudentEwUsagePage: React.FC = () => {
               </div>
 
               {/* Tiền nước phụ trội */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: '8px', fontSize: '16px' }}>
                 <span style={{ fontWeight: 600, color: '#334155' }}>
                   Tiền phụ trội vượt định mức (Nước):
                 </span>
@@ -541,22 +541,28 @@ export const StudentEwUsagePage: React.FC = () => {
                   {report.waterOverUsagePayment.toLocaleString('vi-VN')} VNĐ
                 </span>
               </div>
-            </div>
 
-            <div
-              style={{
-                fontSize: '13px',
-                color: '#64748B',
-                lineHeight: 1.6,
-                backgroundColor: '#F8FAFC',
-                padding: '12px 16px',
-                borderRadius: '8px',
-                borderLeft: '4px solid #3B82F6',
-              }}
-            >
-               <strong>Quy định thanh toán:</strong> Đơn giá điện phụ trội là{' '}
-              <strong>{report.electricUnitPrice.toLocaleString('vi-VN')} đ/kWh</strong>, đơn giá nước phụ trội là{' '}
-              <strong>{report.waterUnitPrice.toLocaleString('vi-VN')} đ/m³</strong>. Tiền phụ trội sẽ được thông báo và thu vào cuối mỗi kỳ học nếu mức tiêu thụ thực tế vượt định mức miễn phí của kỳ.
+              {/* Tổng cộng Điện + Nước lũy kế kỳ */}
+              {(report.electricOverUsagePayment > 0 || report.waterOverUsagePayment > 0) && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'baseline',
+                    flexWrap: 'wrap',
+                    gap: '8px',
+                    fontSize: '16px',
+                    paddingTop: '10px',
+                    borderTop: '1px dashed #E2E8F0',
+                  }}
+                >
+                  <span style={{ fontWeight: 700, color: '#0F172A' }}>
+                    Tổng cộng phí phụ trội lũy kế trong kỳ:
+                  </span>
+                  <span style={{ fontWeight: 800, fontSize: '18px', color: '#DC2626' }}>
+                    {(report.electricOverUsagePayment + report.waterOverUsagePayment).toLocaleString('vi-VN')} VNĐ
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </>

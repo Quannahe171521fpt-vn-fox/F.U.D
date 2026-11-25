@@ -362,7 +362,7 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({
         {
           id: 'rooms',
           name: 'Quản lý Phòng',
-          counter: 'Phòng',
+          counter: 'Phòng & SV đã Check-in',
         },
         {
           id: 'beds',

@@ -256,20 +256,26 @@ public class EwRepositoryTests
     }
 
     [Fact]
-    public async Task CalculateAndPublishRoomSurchargeAsync_WhenOverQuota_SplitsEquallyRoundsToThousandAndCreatesUtilityInvoices()
+    public async Task CalculateAndPublishRoomSurchargeAsync_WhenOverQuota_SplitsEquallyWithoutThousandRoundingAndCreatesUtilityInvoices()
     {
         // Arrange:
-        // 3 students -> Elec quota = 150 kWh, Water quota = 9 m3
-        // Elec consumption = 175 kWh -> over 25 kWh * 3000 = 75,000 VND
-        // Water consumption = 11 m3 -> over 2 m3 * 10000 = 20,000 VND
-        // TotalCost = 95,000 VND -> 95,000 / 3 = 31,666.67 -> rounded AwayFromZero to 1000 = 32,000 VND/student
+        // 2 students -> Elec quota = 100 kWh, Water quota = 6 m3
+        // Elec consumption = 121 kWh -> over 21 kWh * 3500 = 73,500 VND
+        // Water consumption = 8 m3 -> over 2 m3 * 15000 = 30,000 VND
+        // TotalCost = 103,500 VND -> 103,500 / 2 = 51,750 VND/student (giữ nguyên giá, không làm tròn lên 52,000)
         using var ctx = CreateInMemoryContext();
         var (_, _, periodNov, roomL, _) = await SeedStandardDormAndTermAsync(ctx);
-        await SeedCheckedInStudentsAsync(ctx, roomL.Id, termId: 1, 301, 302, 303);
+        foreach (var p in ctx.UtilityPrices)
+        {
+            if (p.MeterType == "Electricity") p.UnitPrice = 3500m;
+            if (p.MeterType == "Water") p.UnitPrice = 15000m;
+        }
+        await ctx.SaveChangesAsync();
+        await SeedCheckedInStudentsAsync(ctx, roomL.Id, termId: 1, 301, 302);
 
         await ctx.MeterReadings.AddRangeAsync(
-            new MeterReading { Id = 1, BillingPeriodId = periodNov.Id, RoomId = roomL.Id, MeterType = "Electricity", PreviousValue = 100m, CurrentValue = 275m, Consumption = 175m, Source = "Manual", Status = "Recorded", RecordedById = 10, RecordedTime = DateTime.UtcNow },
-            new MeterReading { Id = 2, BillingPeriodId = periodNov.Id, RoomId = roomL.Id, MeterType = "Water", PreviousValue = 20m, CurrentValue = 31m, Consumption = 11m, Source = "Manual", Status = "Recorded", RecordedById = 10, RecordedTime = DateTime.UtcNow });
+            new MeterReading { Id = 1, BillingPeriodId = periodNov.Id, RoomId = roomL.Id, MeterType = "Electricity", PreviousValue = 100m, CurrentValue = 221m, Consumption = 121m, Source = "Manual", Status = "Recorded", RecordedById = 10, RecordedTime = DateTime.UtcNow },
+            new MeterReading { Id = 2, BillingPeriodId = periodNov.Id, RoomId = roomL.Id, MeterType = "Water", PreviousValue = 20m, CurrentValue = 28m, Consumption = 8m, Source = "Manual", Status = "Recorded", RecordedById = 10, RecordedTime = DateTime.UtcNow });
         await ctx.SaveChangesAsync();
 
         var sut = new EwRepository(ctx);
@@ -279,15 +285,15 @@ public class EwRepositoryTests
 
         // Assert
         result.Calculated.Should().BeTrue();
-        result.TotalCost.Should().Be(95000m);
-        result.NumberOfResidents.Should().Be(3);
-        result.SharePerStudent.Should().Be(32000m);
-        result.InvoicesCreated.Should().Be(3);
-        result.NotifiedStudentIds.Should().BeEquivalentTo(new[] { 301, 302, 303 });
+        result.TotalCost.Should().Be(103500m);
+        result.NumberOfResidents.Should().Be(2);
+        result.SharePerStudent.Should().Be(51750m);
+        result.InvoicesCreated.Should().Be(2);
+        result.NotifiedStudentIds.Should().BeEquivalentTo(new[] { 301, 302 });
 
         var invoices = await ctx.Invoices.Include(i => i.InvoiceItems).ToListAsync();
-        invoices.Should().HaveCount(3);
-        invoices.Should().OnlyContain(i => i.InvoiceType == "Utility" && i.Status == "Unpaid" && i.Amount == 32000m);
+        invoices.Should().HaveCount(2);
+        invoices.Should().OnlyContain(i => i.InvoiceType == "Utility" && i.Status == "Unpaid" && i.Amount == 51750m);
     }
 
     [Fact]
@@ -378,6 +384,46 @@ public class EwRepositoryTests
         report.TotalElectricUsage.Should().Be(70m);
         report.TotalElectricOverUsage.Should().Be(20m);
         report.ElectricOverUsagePayment.Should().Be(60000m);
+    }
+
+    [Fact]
+    public async Task GetStudentEwReportAsync_WhenOverUsageMultipliedByUnitPriceHasOddHundreds_KeepsExactAmountWithoutRoundingToThousand()
+    {
+        // Arrange: Phòng 202L có 2 SV, giá điện 3,500 đ/kWh, giá nước 15,000 đ/m³
+        // Tháng 9: Điện 121 kWh (60.50/SV -> vượt +10.50 kWh = 36,750 đ), Nước 8 m³ (4.00/SV -> vượt +1.00 m³ = 15,000 đ)
+        // Tháng 10: Điện 480 kWh (240.00/SV -> vượt +190.00 kWh = 665,000 đ), Nước 10 m³ (5.00/SV -> vượt +2.00 m³ = 30,000 đ)
+        // Tổng Điện vượt: 200.50 kWh * 3,500 = 701,750 VNĐ (KHÔNG làm tròn thành 702,000 VNĐ)
+        // Tổng Nước vượt: 3.00 m³ * 15,000 = 45,000 VNĐ
+        using var ctx = CreateInMemoryContext();
+        var (_, periodOct, periodNov, roomL, _) = await SeedStandardDormAndTermAsync(ctx);
+        foreach (var p in ctx.UtilityPrices)
+        {
+            if (p.MeterType == "Electricity") p.UnitPrice = 3500m;
+            if (p.MeterType == "Water") p.UnitPrice = 15000m;
+        }
+        await ctx.SaveChangesAsync();
+        await SeedCheckedInStudentsAsync(ctx, roomL.Id, termId: 1, 601, 602);
+
+        await ctx.MeterReadings.AddRangeAsync(
+            new MeterReading { Id = 1, BillingPeriodId = periodOct.Id, RoomId = roomL.Id, MeterType = "Electricity", PreviousValue = 100m, CurrentValue = 221m, Consumption = 121m, Source = "Import", Status = "Recorded", RecordedById = 10, RecordedTime = new DateTime(2026, 10, 1) },
+            new MeterReading { Id = 2, BillingPeriodId = periodOct.Id, RoomId = roomL.Id, MeterType = "Water", PreviousValue = 10m, CurrentValue = 18m, Consumption = 8m, Source = "Import", Status = "Recorded", RecordedById = 10, RecordedTime = new DateTime(2026, 10, 1) },
+            new MeterReading { Id = 3, BillingPeriodId = periodNov.Id, RoomId = roomL.Id, MeterType = "Electricity", PreviousValue = 221m, CurrentValue = 701m, Consumption = 480m, Source = "Import", Status = "Resolved", RecordedById = 10, RecordedTime = new DateTime(2026, 11, 1) },
+            new MeterReading { Id = 4, BillingPeriodId = periodNov.Id, RoomId = roomL.Id, MeterType = "Water", PreviousValue = 18m, CurrentValue = 28m, Consumption = 10m, Source = "Import", Status = "Recorded", RecordedById = 10, RecordedTime = new DateTime(2026, 11, 1) });
+        await ctx.SaveChangesAsync();
+
+        var sut = new EwRepository(ctx);
+
+        // Act
+        var report = await sut.GetStudentEwReportAsync(studentUserId: 601, termId: 1);
+
+        // Assert
+        report.Should().NotBeNull();
+        report!.TotalElectricOverUsage.Should().Be(200.50m);
+        report.ElectricOverUsagePayment.Should().Be(701750m);
+        report.TotalWaterOverUsage.Should().Be(3.00m);
+        report.WaterOverUsagePayment.Should().Be(45000m);
+        report.Rows.Should().Contain(r => r.RawType == "Electricity" && r.YourOverUsage == 10.50m && r.YourOverUsagePayment == 36750m);
+        report.Rows.Should().Contain(r => r.RawType == "Electricity" && r.YourOverUsage == 190.00m && r.YourOverUsagePayment == 665000m);
     }
 
     #endregion

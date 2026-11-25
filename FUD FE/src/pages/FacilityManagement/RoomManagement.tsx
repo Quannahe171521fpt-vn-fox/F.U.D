@@ -100,71 +100,112 @@ export const RoomManagement: React.FC = () => {
   const [statusError, setStatusError] = useState<string | null>(null);
 
   // Load lookups (assigned blocks, room types, and full blocks for Manager/Admin)
-  useEffect(() => {
-    Promise.all([
-      roomApi.getAssignedBlocks().catch(() => [] as GuardAssignedBlockDto[]),
-      roomApi.getTypes().catch(() => [] as RoomTypeLookup[]),
-      isGuardOnly
-        ? Promise.resolve({ items: [] as BlockDto[] })
-        : blockApi.getAll({ pageSize: 100 }).catch(() => ({ items: [] as BlockDto[] })),
-    ])
-      .then(([assignedRes, typesRes, blockRes]) => {
-        setAssignedBlocks(assignedRes || []);
-        setRoomTypes(typesRes || []);
-        if (!isGuardOnly) {
-          setBlocks(blockRes.items || []);
-        }
-      })
-      .catch(() => {});
+  const loadLookups = useCallback(async () => {
+    try {
+      const [assignedRes, typesRes, blockRes] = await Promise.all([
+        roomApi.getAssignedBlocks().catch(() => [] as GuardAssignedBlockDto[]),
+        roomApi.getTypes().catch(() => [] as RoomTypeLookup[]),
+        isGuardOnly
+          ? Promise.resolve({ items: [] as BlockDto[] })
+          : blockApi.getAll({ pageSize: 200 }).catch(() => ({ items: [] as BlockDto[] })),
+      ]);
+      setAssignedBlocks(assignedRes || []);
+      setRoomTypes(typesRes || []);
+      if (!isGuardOnly) {
+        setBlocks(blockRes.items || []);
+      }
+    } catch {
+      // ignore lookup errors
+    }
   }, [isGuardOnly]);
 
-  // Danh sách tầng khả dụng dựa trên các Block đang được phân công (và Block/Giới tính đang chọn)
-  const availableFloors = useMemo(() => {
-    const floorSet = new Set<number>();
-    const candidateBlocks = assignedBlocks.filter(b => {
+  useEffect(() => {
+    loadLookups();
+  }, [loadLookups]);
+
+  const candidateBlocks = useMemo(() => {
+    const blockKw = searchBlockName.trim().toLowerCase();
+    return assignedBlocks.filter(b => {
       if (filterBlockId !== 'All' && b.id !== filterBlockId) return false;
       if (filterGender !== 'All' && b.genderType !== filterGender) return false;
+      if (!isGuardOnly && blockKw) {
+        const matchName = b.name?.toLowerCase().includes(blockKw);
+        const matchCode = b.code?.toLowerCase().includes(blockKw);
+        const matchDorm = b.dormName?.toLowerCase().includes(blockKw);
+        if (!matchName && !matchCode && !matchDorm) return false;
+      }
       return true;
     });
+  }, [assignedBlocks, filterBlockId, filterGender, isGuardOnly, searchBlockName]);
 
-    candidateBlocks.forEach(b => {
-      if (b.numberOfFloors && b.numberOfFloors > 0) {
-        for (let f = 1; f <= b.numberOfFloors; f++) {
-          floorSet.add(f);
+  // Danh sách tầng khả dụng dựa trên các Block và Giới tính đang chọn
+  const availableFloors = useMemo(() => {
+    const floorSet = new Set<number>();
+
+    if (assignedBlocks.length > 0) {
+      candidateBlocks.forEach(b => {
+        if (b.numberOfFloors && b.numberOfFloors > 0) {
+          for (let f = 1; f <= b.numberOfFloors; f++) {
+            floorSet.add(f);
+          }
         }
-      }
-      (b.rooms || []).forEach(r => {
+        (b.rooms || []).forEach(r => {
+          if (r.floorLevel && r.floorLevel > 0) {
+            floorSet.add(r.floorLevel);
+          }
+        });
+      });
+    } else {
+      blocks
+        .filter(b => {
+          if (filterBlockId !== 'All' && b.id !== filterBlockId) return false;
+          if (filterGender !== 'All' && b.genderType !== filterGender) return false;
+          return true;
+        })
+        .forEach(b => {
+          if (b.numberOfFloors && b.numberOfFloors > 0) {
+            for (let f = 1; f <= b.numberOfFloors; f++) {
+              floorSet.add(f);
+            }
+          }
+        });
+      rooms.forEach(r => {
         if (r.floorLevel && r.floorLevel > 0) {
           floorSet.add(r.floorLevel);
         }
       });
-    });
+    }
 
     return Array.from(floorSet).sort((a, b) => a - b);
-  }, [assignedBlocks, filterBlockId, filterGender]);
+  }, [assignedBlocks.length, candidateBlocks, blocks, rooms, filterBlockId, filterGender]);
 
   // Danh sách tên phòng khả dụng để lọc theo tên phòng (dựa trên Block / Tầng / Giới tính đang chọn)
   const availableRoomNames = useMemo(() => {
     const roomSet = new Set<string>();
-    const candidateBlocks = assignedBlocks.filter(b => {
-      if (filterBlockId !== 'All' && b.id !== filterBlockId) return false;
-      if (filterGender !== 'All' && b.genderType !== filterGender) return false;
-      return true;
-    });
 
-    candidateBlocks.forEach(b => {
-      (b.rooms || []).forEach(r => {
+    if (assignedBlocks.length > 0) {
+      candidateBlocks.forEach(b => {
+        (b.rooms || []).forEach(r => {
+          if (filterFloor !== 'All' && r.floorLevel !== filterFloor) return;
+          if (r.roomNumber) {
+            roomSet.add(r.roomNumber);
+          }
+        });
+      });
+    } else {
+      rooms.forEach(r => {
         if (filterFloor !== 'All' && r.floorLevel !== filterFloor) return;
+        if (filterGender !== 'All' && r.blockGenderType !== filterGender) return;
         if (r.roomNumber) {
           roomSet.add(r.roomNumber);
         }
       });
-    });
+    }
 
     return Array.from(roomSet).sort((a, b) =>
       a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
     );
-  }, [assignedBlocks, filterBlockId, filterGender, filterFloor]);
+  }, [assignedBlocks.length, candidateBlocks, rooms, filterFloor, filterGender]);
 
   // Tự động đặt lại filterExactRoom hoặc filterFloor nếu không còn khớp với Block/Giới tính vừa chọn
   useEffect(() => {
@@ -341,7 +382,10 @@ export const RoomManagement: React.FC = () => {
         showNotification(`Thêm mới phòng ${formData.roomNumber} thành công`);
       }
       setShowModal(false);
-      await loadRooms();
+      await Promise.all([loadRooms(), loadLookups()]);
+      if (editingRoom && detailTargetId === editingRoom.id) {
+        roomApi.getDetail(editingRoom.id).then(setRoomDetail).catch(() => {});
+      }
     } catch (err: any) {
       setFormError(err.message || 'Lỗi khi lưu thông tin phòng');
     } finally {
@@ -356,14 +400,18 @@ export const RoomManagement: React.FC = () => {
 
   const handleToggleStatus = async () => {
     if (!statusModalTarget) return;
+    const targetId = statusModalTarget.id;
     const targetStatus = statusModalTarget.status === 'Active' ? 'Maintenance' : 'Active';
     setIsChangingStatus(true);
     setStatusError(null);
     try {
-      await roomApi.updateStatus(statusModalTarget.id, targetStatus);
+      await roomApi.updateStatus(targetId, targetStatus);
       showNotification(`Đã chuyển trạng thái phòng ${statusModalTarget.roomNumber} sang ${targetStatus === 'Active' ? 'Hoạt động' : 'Bảo trì'}`);
       setStatusModalTarget(null);
       await loadRooms();
+      if (detailTargetId === targetId) {
+        roomApi.getDetail(targetId).then(setRoomDetail).catch(() => {});
+      }
     } catch (err: any) {
       setStatusError(err.message || 'Không thể đổi trạng thái phòng');
     } finally {
@@ -371,7 +419,26 @@ export const RoomManagement: React.FC = () => {
     }
   };
 
+  const handleRefresh = () => {
+    void loadRooms();
+    void loadLookups();
+  };
+
   const guardDormLabel = assignedBlocks[0]?.dormName || currentUser?.dormName || '';
+  const blockDropdownItems = useMemo(() => {
+    if (assignedBlocks.length > 0) return assignedBlocks;
+    return blocks.map(b => ({
+      id: b.id,
+      dormId: b.dormId,
+      dormName: b.dormName,
+      code: b.code,
+      name: b.name,
+      genderType: b.genderType,
+      numberOfFloors: b.numberOfFloors,
+      status: b.status,
+      rooms: [],
+    }));
+  }, [assignedBlocks, blocks]);
 
   return (
     <div className="facilities-container">
@@ -381,7 +448,7 @@ export const RoomManagement: React.FC = () => {
           <span className="facilities-sub">
             {isGuardOnly
               ? `An ninh KTX FUD${guardDormLabel ? ` · Khu phụ trách: ${guardDormLabel}` : ''}`
-              : 'Hệ thống KTX FUD'}
+              : 'Ban Quản lý KTX FUD'}
           </span>
           <h1 className="facilities-title">Quản lý Phòng (Room)</h1>
         </div>
@@ -412,57 +479,30 @@ export const RoomManagement: React.FC = () => {
       <div className="facilities-card">
         <div className="facilities-card-header">
           <h2 className="facilities-card-title">
-            {isGuardOnly ? 'Danh sách phòng thuộc Block phụ trách' : 'Danh sách phòng ở'}
+            {isGuardOnly ? 'Danh sách phòng thuộc Block phụ trách' : 'Danh sách phòng ở Ký túc xá'}
           </h2>
           <p className="facilities-card-desc">
             {isGuardOnly
               ? 'Tra cứu, lọc phòng theo tên phòng, tầng, giới tính và nhấn vào phòng để xem chi tiết các sinh viên đã check-in vào ở'
-              : 'Quản lý danh sách các phòng, tầng, sức chứa giường, sinh viên đang ở và trạng thái bảo trì'}
+              : 'Quản lý thông tin phòng, tìm kiếm theo tên phòng, lọc theo tên phòng, tầng, giới tính và nhấn vào phòng để xem chi tiết sinh viên đã check-in vào ở'}
           </p>
         </div>
 
         {/* Search & Filters */}
         <div className="facilities-filter-row">
+          {/* Tìm kiếm theo tên phòng */}
           <input
             className="facilities-search-input"
             placeholder="Tìm kiếm theo tên phòng (VD: 101, 101L)..."
+            aria-label="Tìm kiếm theo tên phòng"
             value={searchRoomNumber}
             onChange={e => { setSearchRoomNumber(e.target.value); setPage(1); }}
           />
 
-          {isGuardOnly ? (
-            <select
-              className="facilities-select"
-              value={filterBlockId}
-              onChange={e => {
-                const val = e.target.value;
-                setFilterBlockId(val === 'All' ? 'All' : Number(val));
-                setPage(1);
-              }}
-            >
-              <option value="All">Tất cả Block quản lý</option>
-              {assignedBlocks.map(b => {
-                const hasGenderInName = /\((Nam|Nữ)\)/i.test(b.name);
-                const genderSuffix = hasGenderInName ? '' : ` (${b.genderType === 'Male' ? 'Nam' : 'Nữ'})`;
-                return (
-                  <option key={b.id} value={b.id}>
-                    {b.name}{genderSuffix}
-                  </option>
-                );
-              })}
-            </select>
-          ) : (
-            <input
-              className="facilities-search-input"
-              placeholder="Tìm theo tên Block..."
-              value={searchBlockName}
-              onChange={e => { setSearchBlockName(e.target.value); setPage(1); }}
-            />
-          )}
-
           {/* Lọc theo tên phòng */}
           <select
             className="facilities-select"
+            aria-label="Lọc theo tên phòng"
             value={filterExactRoom}
             onChange={e => { setFilterExactRoom(e.target.value); setPage(1); }}
           >
@@ -477,6 +517,7 @@ export const RoomManagement: React.FC = () => {
           {/* Lọc theo tầng */}
           <select
             className="facilities-select"
+            aria-label="Lọc theo tầng"
             value={filterFloor}
             onChange={e => {
               const val = e.target.value;
@@ -495,6 +536,7 @@ export const RoomManagement: React.FC = () => {
           {/* Lọc theo giới tính */}
           <select
             className="facilities-select"
+            aria-label="Lọc theo giới tính"
             value={filterGender}
             onChange={e => { setFilterGender(e.target.value); setPage(1); }}
           >
@@ -503,10 +545,36 @@ export const RoomManagement: React.FC = () => {
             <option value="Female">Phòng Nữ</option>
           </select>
 
+          {/* Lọc theo Block */}
+          <select
+            className="facilities-select"
+            aria-label="Lọc theo Block"
+            value={filterBlockId}
+            onChange={e => {
+              const val = e.target.value;
+              setFilterBlockId(val === 'All' ? 'All' : Number(val));
+              setPage(1);
+            }}
+          >
+            <option value="All">{isGuardOnly ? 'Tất cả Block quản lý' : 'Tất cả Block'}</option>
+            {blockDropdownItems.map(b => {
+              const hasDormInName = Boolean(b.dormName && b.name.toLowerCase().includes(b.dormName.toLowerCase()));
+              const dormSuffix = !isGuardOnly && b.dormName && !hasDormInName ? ` — ${b.dormName}` : '';
+              const hasGenderInName = /\((Nam|Nữ)\)/i.test(b.name);
+              const genderSuffix = hasGenderInName ? '' : ` (${b.genderType === 'Male' ? 'Nam' : 'Nữ'})`;
+              return (
+                <option key={b.id} value={b.id}>
+                  {b.name}{dormSuffix}{genderSuffix}
+                </option>
+              );
+            })}
+          </select>
+
           {!isGuardOnly && (
             <>
               <select
                 className="facilities-select"
+                aria-label="Lọc theo loại phòng"
                 value={filterRoomTypeId}
                 onChange={e => {
                   const val = e.target.value;
@@ -523,6 +591,7 @@ export const RoomManagement: React.FC = () => {
               </select>
               <select
                 className="facilities-select"
+                aria-label="Lọc theo trạng thái"
                 value={filterStatus}
                 onChange={e => { setFilterStatus(e.target.value); setPage(1); }}
               >
@@ -538,7 +607,7 @@ export const RoomManagement: React.FC = () => {
               Đặt lại lọc
             </button>
           )}
-          <button type="button" className="btn-fud-secondary" onClick={() => loadRooms()}>
+          <button type="button" className="btn-fud-secondary" onClick={handleRefresh}>
             Làm mới
           </button>
         </div>
@@ -555,7 +624,7 @@ export const RoomManagement: React.FC = () => {
               <p>
                 {isGuardOnly
                   ? 'Vui lòng thay đổi bộ lọc tên phòng, tầng, giới tính hoặc từ khóa tìm kiếm'
-                  : 'Vui lòng thay đổi từ khóa tìm kiếm hoặc thêm phòng mới'}
+                  : 'Vui lòng thay đổi bộ lọc tên phòng, tầng, giới tính, từ khóa tìm kiếm hoặc thêm phòng mới'}
               </p>
             </div>
           ) : (
@@ -576,6 +645,11 @@ export const RoomManagement: React.FC = () => {
               <tbody>
                 {rooms.map(room => {
                   const checkedInCount = room.checkedInStudentsCount ?? 0;
+                  const showDormSubtitle = Boolean(
+                    !isGuardOnly &&
+                    room.dormName &&
+                    !room.blockName.toLowerCase().includes(room.dormName.toLowerCase())
+                  );
                   return (
                     <tr
                       key={room.id}
@@ -586,7 +660,14 @@ export const RoomManagement: React.FC = () => {
                       <td>
                         <span className="badge-code">{room.roomNumber}</span>
                       </td>
-                      <td style={{ fontWeight: 600 }}>{room.blockName}</td>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{room.blockName}</div>
+                        {showDormSubtitle && (
+                          <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                            {room.dormName}
+                          </div>
+                        )}
+                      </td>
                       <td style={{ textAlign: 'center' }}>
                         <span className={room.blockGenderType === 'Male' ? 'badge-gender-male' : (room.blockGenderType === 'Female' ? 'badge-gender-female' : 'badge-code')}>
                           {room.blockGenderType === 'Male' ? 'Nam' : (room.blockGenderType === 'Female' ? 'Nữ' : '—')}
@@ -857,6 +938,75 @@ export const RoomManagement: React.FC = () => {
             </div>
 
             <div className="facilities-modal-footer">
+              {!isGuardOnly && roomDetail && (
+                <>
+                  <button
+                    type="button"
+                    className="btn-fud-secondary"
+                    onClick={() => {
+                      const targetRoom: RoomDto = {
+                        id: roomDetail.id,
+                        dormId: roomDetail.dormId,
+                        dormName: roomDetail.dormName,
+                        blockId: roomDetail.blockId,
+                        blockName: roomDetail.blockName,
+                        blockGenderType: roomDetail.blockGenderType,
+                        roomTypeId: roomDetail.roomTypeId,
+                        roomTypeName: roomDetail.roomTypeName,
+                        bedCapacity: roomDetail.bedCapacity,
+                        roomNumber: roomDetail.roomNumber,
+                        floorLevel: roomDetail.floorLevel,
+                        status: roomDetail.status,
+                        totalBeds: roomDetail.totalBeds,
+                        freeBeds: roomDetail.freeBeds,
+                        occupiedBeds: roomDetail.occupiedBeds,
+                        checkedInStudentsCount: roomDetail.checkedInCount,
+                        isEditable: roomDetail.occupiedBeds === 0,
+                      };
+                      closeRoomDetail();
+                      openStatusModal(targetRoom);
+                    }}
+                  >
+                    {roomDetail.status === 'Active' ? 'Chuyển sang Bảo trì' : 'Mở lại Hoạt động'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-fud-primary"
+                    disabled={roomDetail.occupiedBeds > 0}
+                    title={
+                      roomDetail.occupiedBeds > 0
+                        ? `Phòng đang có ${roomDetail.occupiedBeds} giường đang sử dụng/giữ chỗ — không thể chỉnh sửa`
+                        : 'Chỉnh sửa thông tin phòng'
+                    }
+                    onClick={() => {
+                      if (roomDetail.occupiedBeds > 0) return;
+                      const targetRoom: RoomDto = {
+                        id: roomDetail.id,
+                        dormId: roomDetail.dormId,
+                        dormName: roomDetail.dormName,
+                        blockId: roomDetail.blockId,
+                        blockName: roomDetail.blockName,
+                        blockGenderType: roomDetail.blockGenderType,
+                        roomTypeId: roomDetail.roomTypeId,
+                        roomTypeName: roomDetail.roomTypeName,
+                        bedCapacity: roomDetail.bedCapacity,
+                        roomNumber: roomDetail.roomNumber,
+                        floorLevel: roomDetail.floorLevel,
+                        status: roomDetail.status,
+                        totalBeds: roomDetail.totalBeds,
+                        freeBeds: roomDetail.freeBeds,
+                        occupiedBeds: roomDetail.occupiedBeds,
+                        checkedInStudentsCount: roomDetail.checkedInCount,
+                        isEditable: true,
+                      };
+                      closeRoomDetail();
+                      openEdit(targetRoom);
+                    }}
+                  >
+                    Chỉnh sửa phòng
+                  </button>
+                </>
+              )}
               <button type="button" className="btn-fud-secondary" onClick={closeRoomDetail}>
                 Đóng
               </button>
