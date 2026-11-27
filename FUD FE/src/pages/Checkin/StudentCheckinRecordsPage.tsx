@@ -115,25 +115,11 @@ export const StudentCheckinRecordsPage: React.FC<StudentCheckinRecordsPageProps>
               ))
             )}
 
-            {/* Dòng cuối: Vật dụng khác + Số điện (L/R) + Số nước (L/R) */}
+            {/* Dòng cuối: Vật dụng khác */}
             <tr>
               <td style={{ textAlign: 'center' }}>{handover.items.length + 1}</td>
-              <td>
+              <td colSpan={3}>
                 <div><strong>Vật dụng khác:</strong> {handover.otherItems || 'Không'}</div>
-              </td>
-              <td style={{ padding: '4px 10px' }}>
-                <div style={{ textAlign: 'center', fontWeight: 700, fontStyle: 'italic' }}>Số điện</div>
-                <div className="fpt-meter-split">
-                  <div className="fpt-meter-cell">L: <strong>{handover.electricityL || '0'}</strong></div>
-                  <div className="fpt-meter-cell">R: <strong>{handover.electricityR || '0'}</strong></div>
-                </div>
-              </td>
-              <td style={{ padding: '4px 10px' }}>
-                <div style={{ textAlign: 'center', fontWeight: 700, fontStyle: 'italic' }}>Số nước</div>
-                <div className="fpt-meter-split">
-                  <div className="fpt-meter-cell">L: <strong>{handover.waterL || '0'}</strong></div>
-                  <div className="fpt-meter-cell">R: <strong>{handover.waterR || '0'}</strong></div>
-                </div>
               </td>
             </tr>
           </tbody>
@@ -170,7 +156,7 @@ export const StudentCheckinRecordsPage: React.FC<StudentCheckinRecordsPageProps>
               Biên bản Check-in nhận phòng
             </h1>
             <p style={{ color: '#64748B', fontSize: '14px', margin: 0 }}>
-              Xem lại danh sách tài sản phòng, hiện trạng bàn giao và chỉ số điện/nước đã được cán bộ bảo vệ xác nhận khi bạn nhận phòng.
+              Xem lại danh sách tài sản phòng và hiện trạng bàn giao đã được cán bộ bảo vệ xác nhận khi bạn nhận phòng.
             </p>
           </div>
 
@@ -280,7 +266,7 @@ export const StudentCheckinRecordsPage: React.FC<StudentCheckinRecordsPageProps>
           </h3>
           <p style={{ color: '#64748B', fontSize: '14px', maxWidth: '520px', margin: '0 auto 20px', lineHeight: 1.6 }}>
             Sau khi cán bộ bảo vệ hoàn tất thủ tục bàn giao tài sản phòng ở tại KTX và lập biên bản Check-in,
-            toàn bộ nội dung biên bản và chỉ số điện nước sẽ được hiển thị tại đây để bạn đối soát và lưu trữ.
+            toàn bộ nội dung biên bản sẽ được hiển thị tại đây để bạn đối soát và lưu trữ.
           </p>
           <button
             type="button"
@@ -507,20 +493,6 @@ export const StudentCheckinRecordsPage: React.FC<StudentCheckinRecordsPageProps>
                     <div style={{ color: '#64748B', fontSize: '12px', marginBottom: 2 }}>Cán bộ bảo vệ bàn giao</div>
                     <div style={{ fontWeight: 600, color: '#0F172A' }}>{h.guardName}</div>
                     <div style={{ fontSize: '12px', color: '#475569' }}>Mã CB: {h.guardCode}</div>
-                  </div>
-
-                  <div>
-                    <div style={{ color: '#64748B', fontSize: '12px', marginBottom: 2 }}>Chỉ số điện ban đầu</div>
-                    <div style={{ fontWeight: 600, color: '#0F172A' }}>
-                      L: {h.electricityL || '0'} | R: {h.electricityR || '0'}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div style={{ color: '#64748B', fontSize: '12px', marginBottom: 2 }}>Chỉ số nước ban đầu</div>
-                    <div style={{ fontWeight: 600, color: '#0F172A' }}>
-                      L: {h.waterL || '0'} | R: {h.waterR || '0'}
-                    </div>
                   </div>
 
                   <div>

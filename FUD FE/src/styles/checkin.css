@@ -235,34 +235,6 @@
   padding: 4px 8px;
 }
 
-.fpt-meter-split {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  border-top: 1px solid #1e293b;
-  margin: 4px -10px -6px -10px;
-}
-
-.fpt-meter-cell {
-  padding: 4px 8px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.fpt-meter-cell:first-child {
-  border-right: 1px solid #1e293b;
-}
-
-.fpt-meter-input {
-  width: 100%;
-  border: none;
-  border-bottom: 1px dotted #64748b;
-  font-family: inherit;
-  font-size: 13.5px;
-  padding: 2px 4px;
-  outline: none;
-}
-
 .fpt-paper-footer {
   border: 1px solid #1e293b;
   border-top: none;

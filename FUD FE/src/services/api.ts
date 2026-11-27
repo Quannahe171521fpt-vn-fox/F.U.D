@@ -1648,10 +1648,6 @@ export interface CreateCheckinHandoverPayload {
   bedId: number;
   studentTitle?: string;
   otherItems?: string;
-  electricityL?: string;
-  electricityR?: string;
-  waterL?: string;
-  waterR?: string;
   items: CheckinItemInput[];
 }
 
@@ -1695,10 +1691,6 @@ export interface CheckinHandoverDetail {
   managerReviewedTime?: string | null;
   managerNote?: string | null;
   otherItems?: string;
-  electricityL?: string;
-  electricityR?: string;
-  waterL?: string;
-  waterR?: string;
   createdTime: string;
   completedTime?: string;
   items: CheckinHandoverItemDetail[];
