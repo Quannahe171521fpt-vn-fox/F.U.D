@@ -11,7 +11,6 @@ import {
 } from '../../services/api';
 import '../../styles/checkin.css';
 import '../../styles/violation.css';
-import { MeterPhotoScanner } from '../../components/MeterPhotoScanner';
 
 interface GuardCheckinPageProps {
   mode: 'create' | 'history';
@@ -43,15 +42,10 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
   const [pendingStudents, setPendingStudents] = useState<PendingCheckinStudent[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<PendingCheckinStudent | null>(null);
   const [equipItems, setEquipItems] = useState<EditableEquipItem[]>([]);
-  const [meterScanNotice, setMeterScanNotice] = useState<{ type: 'info' | 'error'; text: string } | null>(null);
 
-  // Extra fields on paper form (Section 2 & Row 17)
+  // Extra fields on paper form (Section 2 & Other items)
   const [studentTitle, setStudentTitle] = useState<string>('Sinh viên');
   const [otherItems, setOtherItems] = useState<string>('');
-  const [electricityL, setElectricityL] = useState<string>('');
-  const [electricityR, setElectricityR] = useState<string>('');
-  const [waterL, setWaterL] = useState<string>('');
-  const [waterR, setWaterR] = useState<string>('');
 
   // Completed / History states
   const [completedHandover, setCompletedHandover] = useState<CheckinHandoverDetail | null>(null);
@@ -176,10 +170,6 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
     setEquipItems([]);
     setStudentTitle('Sinh viên');
     setOtherItems('');
-    setElectricityL('');
-    setElectricityR('');
-    setWaterL('');
-    setWaterR('');
     setModalErrorMsg('');
     setSuccessMsg('');
     setLoadingEquip(true);
@@ -246,10 +236,6 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
         bedId: selectedStudent.bedId,
         studentTitle: studentTitle.trim() || 'Sinh viên',
         otherItems: otherItems.trim() || undefined,
-        electricityL: electricityL.trim() || undefined,
-        electricityR: electricityR.trim() || undefined,
-        waterL: waterL.trim() || undefined,
-        waterR: waterR.trim() || undefined,
         items: equipItems.map(i => ({
           equipmentId: i.equipmentId,
           itemCondition: i.itemCondition,
@@ -375,25 +361,11 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
               ))
             )}
 
-            {/* Dòng cuối: Vật dụng khác + Số điện (L/R) + Số nước (L/R) */}
+            {/* Dòng cuối: Vật dụng khác */}
             <tr>
               <td style={{ textAlign: 'center' }}>{handover.items.length + 1}</td>
-              <td>
+              <td colSpan={3}>
                 <div><strong>Vật dụng khác:</strong> {handover.otherItems || 'Không'}</div>
-              </td>
-              <td style={{ padding: '4px 10px' }}>
-                <div style={{ textAlign: 'center', fontWeight: 700, fontStyle: 'italic' }}>Số điện</div>
-                <div className="fpt-meter-split">
-                  <div className="fpt-meter-cell">L: <strong>{handover.electricityL || '0'}</strong></div>
-                  <div className="fpt-meter-cell">R: <strong>{handover.electricityR || '0'}</strong></div>
-                </div>
-              </td>
-              <td style={{ padding: '4px 10px' }}>
-                <div style={{ textAlign: 'center', fontWeight: 700, fontStyle: 'italic' }}>Số nước</div>
-                <div className="fpt-meter-split">
-                  <div className="fpt-meter-cell">L: <strong>{handover.waterL || '0'}</strong></div>
-                  <div className="fpt-meter-cell">R: <strong>{handover.waterR || '0'}</strong></div>
-                </div>
               </td>
             </tr>
           </tbody>
@@ -749,7 +721,7 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
                         ) : equipItems.length === 0 ? (
                           <tr>
                             <td colSpan={4} style={{ textAlign: 'center', color: '#64748b', padding: '14px' }}>
-                              Phòng {selectedStudent.roomNumber} hiện chưa có thiết bị nào trong bảng Equipments. Bạn vẫn có thể ghi nhận Vật dụng khác, Số điện/nước và hoàn tất Check-in.
+                              Phòng {selectedStudent.roomNumber} hiện chưa có thiết bị nào trong bảng Equipments. Bạn vẫn có thể ghi nhận Vật dụng khác và hoàn tất Check-in.
                             </td>
                           </tr>
                         ) : (
@@ -793,10 +765,10 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
                           ))
                         )}
 
-                        {/* Dòng cuối giống mẫu giấy: Vật dụng khác | Số điện (L/R) | Số nước (L/R) */}
+                        {/* Dòng cuối: Vật dụng khác */}
                         <tr>
                           <td style={{ textAlign: 'center' }}>{equipItems.length + 1}</td>
-                          <td>
+                          <td colSpan={3}>
                             <div style={{ fontWeight: 700, marginBottom: 4 }}>Vật dụng khác:</div>
                             <input
                               type="text"
@@ -806,163 +778,9 @@ export const GuardCheckinPage: React.FC<GuardCheckinPageProps> = ({ mode, onNavi
                               onChange={e => setOtherItems(e.target.value)}
                             />
                           </td>
-                          <td style={{ padding: '4px 10px' }}>
-                            <div style={{ textAlign: 'center', fontWeight: 700, fontStyle: 'italic' }}>Số điện</div>
-                            <div className="fpt-meter-split">
-                              <div className="fpt-meter-cell">
-                                <span>L:</span>
-                                <input
-                                  type="text"
-                                  className="fpt-meter-input"
-                                  placeholder="0"
-                                  value={electricityL}
-                                  onChange={e => setElectricityL(e.target.value)}
-                                />
-                                <MeterPhotoScanner
-                                  compact
-                                  saveEvidence={false}
-                                  expectedMeterType="Electricity"
-                                  label="Điện L"
-                                  onScanned={(res) => {
-                                    if (res.readingValue !== undefined) {
-                                      setElectricityL(String(res.readingValue));
-                                      setMeterScanNotice(
-                                        res.warnings && res.warnings.length > 0
-                                          ? { type: 'info', text: `Điện L (${res.readingValue}): ${res.warnings[0]}` }
-                                          : null
-                                      );
-                                    } else {
-                                      setMeterScanNotice({ type: 'error', text: res.warnings?.[0] || 'Không đọc được chỉ số Điện L.' });
-                                    }
-                                  }}
-                                  onError={(msg) => setMeterScanNotice({ type: 'error', text: `Điện L: ${msg}` })}
-                                />
-                              </div>
-                              <div className="fpt-meter-cell">
-                                <span>R:</span>
-                                <input
-                                  type="text"
-                                  className="fpt-meter-input"
-                                  placeholder="0"
-                                  value={electricityR}
-                                  onChange={e => setElectricityR(e.target.value)}
-                                />
-                                <MeterPhotoScanner
-                                  compact
-                                  saveEvidence={false}
-                                  expectedMeterType="Electricity"
-                                  label="Điện R"
-                                  onScanned={(res) => {
-                                    if (res.readingValue !== undefined) {
-                                      setElectricityR(String(res.readingValue));
-                                      setMeterScanNotice(
-                                        res.warnings && res.warnings.length > 0
-                                          ? { type: 'info', text: `Điện R (${res.readingValue}): ${res.warnings[0]}` }
-                                          : null
-                                      );
-                                    } else {
-                                      setMeterScanNotice({ type: 'error', text: res.warnings?.[0] || 'Không đọc được chỉ số Điện R.' });
-                                    }
-                                  }}
-                                  onError={(msg) => setMeterScanNotice({ type: 'error', text: `Điện R: ${msg}` })}
-                                />
-                              </div>
-                            </div>
-                          </td>
-                          <td style={{ padding: '4px 10px' }}>
-                            <div style={{ textAlign: 'center', fontWeight: 700, fontStyle: 'italic' }}>Số nước</div>
-                            <div className="fpt-meter-split">
-                              <div className="fpt-meter-cell">
-                                <span>L:</span>
-                                <input
-                                  type="text"
-                                  className="fpt-meter-input"
-                                  placeholder="0"
-                                  value={waterL}
-                                  onChange={e => setWaterL(e.target.value)}
-                                />
-                                <MeterPhotoScanner
-                                  compact
-                                  saveEvidence={false}
-                                  expectedMeterType="Water"
-                                  label="Nước L"
-                                  onScanned={(res) => {
-                                    if (res.readingValue !== undefined) {
-                                      setWaterL(String(res.readingValue));
-                                      setMeterScanNotice(
-                                        res.warnings && res.warnings.length > 0
-                                          ? { type: 'info', text: `Nước L (${res.readingValue}): ${res.warnings[0]}` }
-                                          : null
-                                      );
-                                    } else {
-                                      setMeterScanNotice({ type: 'error', text: res.warnings?.[0] || 'Không đọc được chỉ số Nước L.' });
-                                    }
-                                  }}
-                                  onError={(msg) => setMeterScanNotice({ type: 'error', text: `Nước L: ${msg}` })}
-                                />
-                              </div>
-                              <div className="fpt-meter-cell">
-                                <span>R:</span>
-                                <input
-                                  type="text"
-                                  className="fpt-meter-input"
-                                  placeholder="0"
-                                  value={waterR}
-                                  onChange={e => setWaterR(e.target.value)}
-                                />
-                                <MeterPhotoScanner
-                                  compact
-                                  saveEvidence={false}
-                                  expectedMeterType="Water"
-                                  label="Nước R"
-                                  onScanned={(res) => {
-                                    if (res.readingValue !== undefined) {
-                                      setWaterR(String(res.readingValue));
-                                      setMeterScanNotice(
-                                        res.warnings && res.warnings.length > 0
-                                          ? { type: 'info', text: `Nước R (${res.readingValue}): ${res.warnings[0]}` }
-                                          : null
-                                      );
-                                    } else {
-                                      setMeterScanNotice({ type: 'error', text: res.warnings?.[0] || 'Không đọc được chỉ số Nước R.' });
-                                    }
-                                  }}
-                                  onError={(msg) => setMeterScanNotice({ type: 'error', text: `Nước R: ${msg}` })}
-                                />
-                              </div>
-                            </div>
-                          </td>
                         </tr>
                       </tbody>
                     </table>
-
-                    {meterScanNotice && (
-                      <div
-                        className="no-print"
-                        style={{
-                          marginTop: 8,
-                          padding: '6px 10px',
-                          borderRadius: 6,
-                          fontSize: 12,
-                          background: meterScanNotice.type === 'error' ? '#FEF2F2' : '#FFFBEB',
-                          border: `1px solid ${meterScanNotice.type === 'error' ? '#FECACA' : '#FDE68A'}`,
-                          color: meterScanNotice.type === 'error' ? '#B91C1C' : '#92400E',
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          gap: 8,
-                        }}
-                      >
-                        <span>{meterScanNotice.text}</span>
-                        <button
-                          type="button"
-                          onClick={() => setMeterScanNotice(null)}
-                          style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 700 }}
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    )}
 
                     {/* Chân trang chữ ký */}
                     <div className="fpt-paper-footer">

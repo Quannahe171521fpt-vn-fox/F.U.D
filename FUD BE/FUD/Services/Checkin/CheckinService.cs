@@ -26,10 +26,6 @@ namespace FUD.Services.Checkin
         {
             public string? Title { get; set; }
             public string? OtherItems { get; set; }
-            public string? ElecL { get; set; }
-            public string? ElecR { get; set; }
-            public string? WaterL { get; set; }
-            public string? WaterR { get; set; }
         }
 
         private async Task<int> ResolveGuardDormIdOrThrowAsync(int guardUserId)
@@ -511,15 +507,11 @@ namespace FUD.Services.Checkin
 
                 var targetRoomId = bed.RoomId;
 
-                // 4. Đóng gói thông tin mục 17 (Vật dụng khác, Số điện L/R, Số nước L/R, Chức danh) vào BelongingsNote
+                // 4. Đóng gói thông tin bổ sung (Chức danh, Vật dụng khác) vào BelongingsNote
                 var meta = new CheckinMetaNote
                 {
                     Title = string.IsNullOrWhiteSpace(dto.StudentTitle) ? "Sinh viên" : dto.StudentTitle.Trim(),
-                    OtherItems = dto.OtherItems?.Trim(),
-                    ElecL = dto.ElectricityL?.Trim(),
-                    ElecR = dto.ElectricityR?.Trim(),
-                    WaterL = dto.WaterL?.Trim(),
-                    WaterR = dto.WaterR?.Trim()
+                    OtherItems = dto.OtherItems?.Trim()
                 };
                 var metaJson = JsonSerializer.Serialize(meta);
                 if (metaJson.Length > 500)
@@ -1106,10 +1098,6 @@ namespace FUD.Services.Checkin
                 ManagerReviewedTime = h.ManagerReviewedTime,
                 ManagerNote = h.ManagerNote,
                 OtherItems = meta?.OtherItems,
-                ElectricityL = meta?.ElecL,
-                ElectricityR = meta?.ElecR,
-                WaterL = meta?.WaterL,
-                WaterR = meta?.WaterR,
                 CreatedTime = h.CreatedTime,
                 CompletedTime = h.CompletedTime,
                 Items = h.HandoverItems

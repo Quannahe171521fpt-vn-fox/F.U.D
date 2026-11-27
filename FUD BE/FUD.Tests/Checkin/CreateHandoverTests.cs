@@ -272,8 +272,6 @@ public class CreateHandoverTests
             ResidencyId = 500,
             StudentTitle = "Trưởng phòng",
             OtherItems = "1 chìa khóa phòng",
-            ElectricityL = "1200",
-            WaterL = "45",
             Items = new List<CheckinItemInputDto>
             {
                 new() { EquipmentId = 1, ItemCondition = "Good", Note = "Hoạt động tốt" },
@@ -290,8 +288,6 @@ public class CreateHandoverTests
         result.HasDamageOrMissingFlag.Should().BeFalse();
         result.StudentTitle.Should().Be("Trưởng phòng");
         result.OtherItems.Should().Be("1 chìa khóa phòng");
-        result.ElectricityL.Should().Be("1200");
-        result.WaterL.Should().Be("45");
         result.Items.Should().HaveCount(2);
 
         var residency = await context.Residencies.FindAsync(500);

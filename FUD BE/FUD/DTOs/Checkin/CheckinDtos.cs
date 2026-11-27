@@ -58,10 +58,6 @@ namespace FUD.DTOs.Checkin
         public int BedId { get; set; }
         public string? StudentTitle { get; set; }
         public string? OtherItems { get; set; }
-        public string? ElectricityL { get; set; }
-        public string? ElectricityR { get; set; }
-        public string? WaterL { get; set; }
-        public string? WaterR { get; set; }
         public List<CheckinItemInputDto> Items { get; set; } = new();
     }
 
@@ -107,10 +103,6 @@ namespace FUD.DTOs.Checkin
         public DateTime? ManagerReviewedTime { get; set; }
         public string? ManagerNote { get; set; }
         public string? OtherItems { get; set; }
-        public string? ElectricityL { get; set; }
-        public string? ElectricityR { get; set; }
-        public string? WaterL { get; set; }
-        public string? WaterR { get; set; }
         public DateTime CreatedTime { get; set; }
         public DateTime? CompletedTime { get; set; }
         public List<CheckinHandoverItemResponseDto> Items { get; set; } = new();
